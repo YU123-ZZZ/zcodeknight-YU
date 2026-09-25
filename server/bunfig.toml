@@ -1,0 +1,8 @@
+[install]
+registry = "https://registry.npmmirror.com"
+
+[test]
+# Redirect the state directory before any suite loads, so no test reads or
+# writes the operator's real account pool, probe results or logs.
+# See test-preload.ts for the two concrete failures this prevents.
+preload = ["./test-preload.ts"]

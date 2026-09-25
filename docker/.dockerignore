@@ -1,0 +1,18 @@
+# Runtime state — never part of an image.
+data/
+config/
+# Kept as a guard, not because the engine uses it: workspace/ was the remote
+# control sandbox, and that feature is gone. A hand-made directory of that name
+# would otherwise be baked into the image.
+workspace/
+
+# Generated build inputs are wanted; build output and caches are not.
+node_modules/
+dist/
+build/
+
+# Anything a previous run left behind.
+*.log
+*.bak
+__pycache__/
+*.pyc

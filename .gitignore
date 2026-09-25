@@ -1,0 +1,77 @@
+# ── 运行期状态 ──────────────────────────────────────────────────────────────
+# 加密账号库、更新暂存。内含账号凭证（AES-GCM 加密，但密钥由本机派生），绝不入库。
+data/
+
+# Docker 部署的运行期状态：加密账号库、引擎首启生成的配置（含 proxyApiKey
+# 与 deviceMid）。刻意与网页版的 data/ 分开存放：账号库是整文件重写的，
+# 两个引擎指向同一份会互相覆盖，丢账号且无提示。
+#
+# 逐个点名，不能写成 `docker/`：整个目录一忽略，构建输入（Dockerfile、
+# package.json、bun.lock、bunfig.toml、src/、test-preload.ts、logo.svg）
+# 也一起被挡在仓库外，clone 出来只有 Dockerfile 和 compose 文件，
+# `docker compose up -d` 必然失败——而 README 承诺 docker/ 是自包含的。
+docker/data/
+docker/config/
+
+# ── 测试残留 ────────────────────────────────────────────────────────────────
+# 测试的临时 store 目录。它们现在建在系统临时目录下（见 pool-quota.test.ts 与
+# probe-service.test.ts 的说明），这里再兜一层：历史上有两个这样的目录连同加密
+# 账号库被提交进仓库，并随构建上下文进入镜像。
+.pool-quota-*/
+.probe-test-*/
+zcode-store-test-*/
+
+# ── 依赖与构建产物 ─────────────────────────────────────────────────────────
+node_modules/
+dist/
+build/
+
+# ── 运行时二进制（83MB，由 setup.bat / setup.sh 自动下载）────────────────────
+# 提交它会让仓库臃肿且每次更新都产生巨大 diff；改为首次启动自动拉取 Bun 运行时。
+runtime.exe
+runtime.exe.bak
+*.exe
+*.exe.bak
+ZcodeKnight.exe
+ZcodeKnight-YU.exe
+# 热替换时被改名让位的引擎副本（`ZcodeKnight.exe.old`、
+# `ZcodeKnight.exe.<时间戳>`，各 89MB）。`*.exe` 匹配不到它们 —— 扩展名变成了
+# `.old` 或一串数字 —— 于是 `git add -A` 会把一个 89MB 的旧二进制提交进去。
+# 构建脚本 renameSync 出来的就是这些名字，所以这条不是预防性的。
+*.exe.*
+
+# ── 本地配置（含 proxyApiKey 与 deviceMid）──────────────────────────────────
+config.yaml
+server/config.yaml
+
+# ── 逆向工程笔记 ───────────────────────────────────────────────────────────
+# 笔记（_reverse/*.md）是协议的唯一权威参考，随源码一起入库。
+# 但 app.asar.copy 是 ZCode 客户端的完整副本（327MB，且是他人版权作品），
+# 既不必要地撑大仓库，也不适合再分发 —— 需要时按 _reverse/README.md 自行提取。
+_reverse/app.asar*
+_reverse/*.asar
+_reverse/*.png
+*.asar
+
+# ── 临时调试文件 ───────────────────────────────────────────────────────────
+_accts.json
+_a.json
+_q.json
+tmp_*.png
+_icon_check*.png
+__pycache__/
+*.pyc
+*.log
+
+# ── 打包产物 ────────────────────────────────────────────────────────────────
+# 容器部署文件夹打成 7z 发给别人用；是构件不是源码。
+*.7z
+*.7z.*
+
+# ── 导出的备份包 ───────────────────────────────────────────────────────────
+# 这些包里装的就是 data/ 里那份加密账号库，敏感度完全相同：拿到文件、又能重现
+# 本机 KDF 种子的人可以读出里面每一个账号凭证。之前没有排除，所以一次
+# `git add -A` 加推送就会把账号一起发出去。
+backup-before-delete-*.json
+zcodeknight-alldata-*.json
+zcodeknight-logs-*.csv

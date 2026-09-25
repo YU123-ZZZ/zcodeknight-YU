@@ -1,0 +1,42 @@
+# Line-ending policy.
+#
+# Why this file has to exist: without it, what a .bat file looks like after a
+# clone depends on the CLONER's `core.autocrlf`. Git for Windows defaults it to
+# true (CRLF on checkout), but Linux/macOS default to false (LF) — and a .bat
+# with LF-only endings is misread by cmd.exe: `goto :label` lands on the wrong
+# line and multi-line blocks collapse. A batch script that works on the author's
+# machine then fails on a fresh clone, with no error that points at line endings.
+#
+# `.gitattributes` is committed, so it overrides each cloner's local setting and
+# every checkout gets the same bytes.
+
+# Batch files MUST be CRLF — cmd.exe requires it.
+#
+# `-text` (binary) rather than `text eol=crlf`: with `eol=crlf` the repository
+# stores LF and only the CHECKOUT converts, so a `git clone` is fine but a
+# GitHub "Download ZIP" — which serves the stored bytes with no smudge filter —
+# hands out LF .bat files that cmd.exe misreads. `-text` stores the CRLF bytes
+# as-is, so clone, ZIP and the working tree all agree.
+#
+# The exchange is that git no longer normalises these files, so the committed
+# bytes are whatever was committed. `bat-scripts.test.ts` asserts CRLF on disk,
+# which now also guards what gets committed.
+*.bat -text
+
+# Shell scripts MUST be LF. A CRLF shebang breaks with "bad interpreter:
+# /bin/sh^M: no such file or directory", which is the classic symptom.
+*.sh text eol=lf
+
+# The engine's own sources: normalise on commit, native endings on checkout.
+*.ts text
+*.json text
+*.md text
+
+# Binary — never touch these, or a checkout would corrupt them.
+*.exe binary
+*.ico binary
+*.png binary
+*.jpg binary
+*.zip binary
+*.gz binary
+*.asar binary
