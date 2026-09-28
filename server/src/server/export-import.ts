@@ -275,6 +275,30 @@ export function listBackups(): Array<{ name: string; createdAt: string; files: s
  * cleanly in a spreadsheet. Values are quoted and internal quotes doubled, which
  * matters because User-Agent strings contain commas and quotes.
  */
+/**
+ * Read the FULL persisted admin log (data/admin-log.jsonl — every engine
+ * line since the file was created, survives restarts). Field report: the
+ * logs CSV drew from the 100-entry recent ring and silently returned a
+ * fraction of what happened.
+ */
+export function engineLogRows(): Array<{ at: number; level: string; text: string }> {
+  const { readFileSync, existsSync } = require("node:fs") as typeof import("node:fs");
+  const { dataFile } = require("../paths.js") as typeof import("../paths.js");
+  const p = dataFile("admin-log.jsonl");
+  const out: Array<{ at: number; level: string; text: string }> = [];
+  try {
+    if (!existsSync(p)) return out;
+    for (const line of readFileSync(p, "utf-8").split(String.fromCharCode(10))) {
+      if (!line.trim()) continue;
+      try {
+        const j = JSON.parse(line) as { text?: string; level?: string; at?: number };
+        if (typeof j.text === "string") out.push({ at: j.at ?? 0, level: j.level ?? "info", text: j.text });
+      } catch {}
+    }
+  } catch {}
+  return out;
+}
+
 export function logsToCsv(records: RequestRecord[]): string {
   const cols: Array<[string, (r: RequestRecord) => string]> = [
     ["time", (r) => new Date(r.started).toISOString()],

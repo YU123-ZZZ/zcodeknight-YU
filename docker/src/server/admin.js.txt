@@ -39,7 +39,7 @@ const I18N = {
     claim_r_unknown: "服务端返回未知错误",
     claim_r_error: "请求出错",
     ov_total_quota: "账号总余额", ov_total_sub: "{n} 个账号 · {m} 个模型额度合计",
-    ov_rate: "成功率", ov_ttfb: "平均首字节", ov_ok: "成功 / 失败", ov_tokens: "累计输出 token",
+    ov_rate: "成功率", ov_ttfb: "平均首字节", ov_ok: "成功 / 失败", ov_tokens: "累计输出 token", ov_permodel: "分模型统计", ov_pm_head: "模型", ov_pm_total: "次", ov_pm_rate: "成功率", ov_pm_ttfb: "首字节", ov_pm_tok: "token",
     ov_recent: "最近请求", ov_recent_none: "本次启动以来还没有请求",
     ov_goto_logs: "查看完整日志 →",
     ov_recent_last: "本次启动以来 {n} 次调用", ov_recent_rate: "成功率 {p}%",
@@ -111,7 +111,7 @@ const I18N = {
     set_idle_never: "已设为永不登出", set_idle_bad: "请输入不小于 0 的分钟数",
     exp_title: "导出与导入", exp_summary: "日志可导出为 CSV；数据可导出为可恢复的备份包",
     exp_logs: "导出调用日志", exp_logs_hint: "CSV 格式，含时间、调用方 IP、账号、模型、耗时、状态，可直接用 Excel 打开；不含任何密钥",
-    exp_all: "导出全部数据", exp_all_hint: "账号、设置、探测结果加 config.yaml 打包成一个 JSON，并附上「包含/跳过」清单。内含你的代理密钥，请妥善保管",
+    exp_all: "导出全部数据", exp_all_hint: "打包内容：全部账号（AES 加密凭据）、config.yaml、模型探测结果、请求统计和日志。不含：data/ 里的备份、回收站和浏览器配置。用途：在另一台机器导入后账号需重新登录（加密密钥绑定本机）。文件内含代理密钥，请妥善保管",
     exp_all_confirm: "全部数据包含代理密钥与设备标识，下载后请勿外传。继续下载？",
     dl_ok: "已下载 {n}（{b}，已校验完整）", dl_fail: "下载失败：HTTP {s}",
     dl_net: "下载出错：", dl_truncated: "下载中断，文件不完整：",
@@ -126,7 +126,7 @@ const I18N = {
     imp_reading: "正在读取压缩包…", imp_zip_ready: "已读取 ZIP：{f}（{n} 字节）——点导入开始恢复",
     imp_stage_check: "校验数据完整性…", imp_stage_write: "写入账号与设置…", imp_stage_done: "导入完成，正在刷新界面…",
     exp_counts: "现有 {l} 条日志 · {p} 份探测结果", imp_archived: "已备份原数据到",
-    set_claim_auto: "活动额度自动领取", set_claim_auto_hint: "自动轮询检测活动，有可领的自动领取；新账号入池会立即检测领取", set_claim_now: "立即领取", set_claim_now_hint: "一键检测并领取全部账号", set_claim_all: "检测并全部领取", claim_countdown: "下次自动检测：", claim_done: "完成：", claim_none: "无",
+    set_claim_auto: "活动额度自动领取", set_claim_auto_hint: "默认开启。每 5 小时自动检测一次活动，检测到可领的才领取；新账号入池会立即检测领取（新人额度）。关闭后一切靠手动", set_claim_now: "立即领取", set_claim_now_hint: "一键检测并领取全部账号", set_claim_all: "检测并全部领取", claim_countdown: "下次自动检测：", claim_done: "完成：", claim_none: "无",
     on: "已开启", off: "已关闭",
     set_update: "更新检查", set_update_cur: "当前版本", set_update_idle: "点「检查更新」获取最新版本",
     upd_check: "检查更新", upd_checking: "检查中…", upd_avail: "有新版本：", upd_current: "已是最新版本",
@@ -204,7 +204,7 @@ const I18N = {
     claim_r_unknown: "Unknown server error",
     claim_r_error: "Request failed",
     ov_total_quota: "Total quota", ov_total_sub: "{n} accounts · {m} model buckets combined",
-    ov_rate: "Success rate", ov_ttfb: "Avg TTFB", ov_ok: "OK / failed", ov_tokens: "Output tokens",
+    ov_rate: "Success rate", ov_ttfb: "Avg TTFB", ov_ok: "OK / failed", ov_tokens: "Output tokens", ov_permodel: "Per-model stats", ov_pm_head: "model", ov_pm_total: "reqs", ov_pm_rate: "ok%", ov_pm_ttfb: "TTFB", ov_pm_tok: "tok",
     ov_recent: "Recent requests", ov_recent_none: "No requests since the engine started",
     ov_goto_logs: "View full log →",
     ov_recent_last: "{n} calls since start", ov_recent_rate: "{p}% success",
@@ -278,7 +278,7 @@ const I18N = {
     set_idle_never: "Set to never log out", set_idle_bad: "Enter a number of minutes >= 0",
     exp_title: "Export & import", exp_summary: "Logs export as CSV; data exports as a restorable backup bundle",
     exp_logs: "Export request log", exp_logs_hint: "CSV with time, caller IP, account, model, timings and status — opens directly in Excel. Contains no keys",
-    exp_all: "Export all data", exp_all_hint: "Accounts, settings, probe results and config.yaml in one JSON, with a manifest of what was included and skipped. Contains your proxy key — keep it private",
+    exp_all: "Export all data", exp_all_hint: "Packs: all accounts (AES-encrypted credentials), config.yaml, model probe results, request stats and logs. Excludes: data/ backups, trash and browser profile. Restoring on another machine requires re-login (the encryption key is machine-bound). The file contains your proxy key - keep it private",
     exp_all_confirm: "The full export contains your proxy key and device identity. Do not share it. Continue?",
     dl_ok: "Downloaded {n} ({b}, verified complete)", dl_fail: "Download failed: HTTP {s}",
     dl_net: "Download error: ", dl_truncated: "Download interrupted, file is incomplete: ",
@@ -293,7 +293,7 @@ const I18N = {
     imp_reading: "Reading archive…", imp_zip_ready: "ZIP loaded: {f} ({n} bytes) — press Import to restore",
     imp_stage_check: "Verifying data…", imp_stage_write: "Writing accounts and settings…", imp_stage_done: "Import finished — refreshing…",
     exp_counts: "{l} log rows · {p} probe results", imp_archived: "previous data archived to",
-    set_claim_auto: "Auto-claim activity quota", set_claim_auto_hint: "Detects activity rounds automatically and claims when one is live; new accounts claim on first sight", set_claim_now: "Claim all now", set_claim_now_hint: "One click: detect and claim for every account", set_claim_all: "Detect && claim all", claim_countdown: "Next auto check:", claim_done: "done:", claim_none: "none",
+    set_claim_auto: "Auto-claim activity quota", set_claim_auto_hint: "ON by default. Detects activity every 5 hours and claims only when one is live; brand-new accounts claim immediately (newbie grant). Turn off for full manual control", set_claim_now: "Claim all now", set_claim_now_hint: "One click: detect and claim for every account", set_claim_all: "Detect && claim all", claim_countdown: "Next auto check:", claim_done: "done:", claim_none: "none",
     on: "ON", off: "OFF",
     set_update: "Online update", set_update_cur: "Current version", set_update_idle: "Click “Check for updates”",
     upd_check: "Check for updates", upd_checking: "Checking…", upd_avail: "New version available:", upd_current: "Already up to date",
@@ -724,6 +724,9 @@ function lastPage() {
 }
 
 async function refreshOverview() {
+  // Same function-object guard as loadBalances — no outer mutable binding.
+  if (refreshOverview._inflight) return; // previous poll still in flight
+  refreshOverview._inflight = true;
   try {
     const r = await api("/overview");
     const ov = await r.json();
@@ -748,9 +751,52 @@ async function refreshOverview() {
       document.getElementById("ov-ttfb").textContent = fmtMs(ov.requests.avgTtfbMs);
       document.getElementById("ov-okfail").textContent = ov.requests.succeeded + " / " + ov.requests.failed;
       document.getElementById("ov-tokens").textContent = fmtNum(ov.requests.tokensTotal);
+      renderPerModelTiles(ov.requests.perModel || []);
     }
     renderRecent(ov.recent || []);
-  } catch {}
+  } catch (e) {
+    // Field report: the overview intermittently showed stale/empty content
+    // until a manual refresh — this catch swallowed every error (a transient
+    // network failure, a single missing field), leaving no trace. Surface it:
+    // one visible line on the page, auto-retried by the 5s poll.
+    console.warn("overview refresh failed:", e);
+    const el = document.getElementById("ov-recent");
+    if (el) el.innerHTML = '<span class="bal-empty">' + esc(T("log_err") + " " + e) + "</span>";
+  } finally {
+    refreshOverview._inflight = false;
+  }
+}
+
+
+/**
+ * Per-model breakdown inside the four stat tiles (field request): instead of a
+ * separate wide card, the rate / TTFB / OK-fail / tokens tiles each show one
+ * compact line per model under the headline number — the same numbers, split
+ * the way the operator actually reads them.
+ */
+function renderPerModelTiles(rows) {
+  const targets = [
+    ["ov-rate", (m) => (m.total ? Math.round(m.succeeded / m.total * 100) : 0) + "%"],
+    ["ov-ttfb", (m) => fmtMs(m.avgTtfbMs)],
+    ["ov-okfail", (m) => m.succeeded + " / " + m.failed],
+    ["ov-tokens", (m) => fmtNum(m.tokensTotal)],
+  ];
+  for (const [id, val] of targets) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    // Keep the headline value in the .v element; the per-model lines go into a
+    // small sub-block appended inside the same tile.
+    let sub = el.parentElement.querySelector(".pm-sub");
+    if (!rows.length) { if (sub) sub.remove(); continue; }
+    if (!sub) {
+      sub = document.createElement("div");
+      sub.className = "pm-sub";
+      sub.style.cssText = "font-size:11px;line-height:1.7;color:var(--muted);margin-top:4px;font-family:var(--mono)";
+      el.parentElement.appendChild(sub);
+    }
+    sub.innerHTML = rows.map((m) =>
+      '<div>' + esc(m.model) + ' · ' + esc(val(m)) + '</div>').join("");
+  }
 }
 
 /** Format a millisecond duration compactly (0 → "0ms"). */
@@ -810,6 +856,10 @@ let lastQuota = [];
 let lastAccountMeta = new Map();
 
 async function loadBalances(knownAccounts, knownQuota) {
+  // Reentry guard rides ON THE FUNCTION OBJECT so the extracted-function tests
+  // (which run this body standalone) do not hit an undeclared outer variable.
+  if (loadBalances._inflight) return;
+  loadBalances._inflight = true;
   const el = document.getElementById("ov-balances");
   // Show the placeholder only when nothing has been rendered yet.
   //
@@ -3043,13 +3093,24 @@ function renderClaimCountdown() {
   if (!el) return;
   if (!claimNextAt) { el.textContent = ""; return; }
   const left = Math.max(0, Math.ceil((claimNextAt - Date.now()) / 1000));
-  const h = Math.floor(left / 3600), m = Math.floor((left % 3600) / 60), s = left % 60;
+  const d = Math.floor(left / 86400), h = Math.floor((left % 86400) / 3600),
+        m = Math.floor((left % 3600) / 60), s = left % 60;
   const p = (n) => String(n).padStart(2, "0");
   el.textContent = left > 0
-    ? T("claim_countdown") + " " + (h > 0 ? h + "h " : "") + p(m) + ":" + p(s)
+    ? T("claim_countdown") + " " + (d > 0 ? d + "d " : "") + (h > 0 ? h + "h " : "") + p(m) + ":" + p(s)
     : "";
 }
 setInterval(renderClaimCountdown, 1000);
+// Refresh nextCheckAt periodically: the scheduler advances holdUntil after
+// every round, so a snapshot taken when the page opened goes stale. Light
+// poll - one small JSON every 30s, only while Settings is visible.
+setInterval(async () => {
+  if (!document.getElementById("page-settings")?.classList.contains("on")) return;
+  try {
+    const cfg = await (await api("/config")).json();
+    claimNextAt = Number(cfg.claim && cfg.claim.nextCheckAt) || 0;
+  } catch {}
+}, 30000);
 document.getElementById("set-claim-all").onclick = async (e) => {
   const btn = e.target;
   btn.disabled = true;

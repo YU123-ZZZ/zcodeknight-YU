@@ -172,6 +172,9 @@ export function createAdminHandler(opts: AdminRouteOptions): (req: Request) => P
  */
 const DEFAULT_ADMIN_KEY = "admin";
 
+/** Static asset paths already warned about (one warn per route per run). */
+const staticAssetWarned = new Set<string>();
+
 /** Extract the client IP for rate limiting. */
 function clientIp(req: Request): string {
   // `x-forwarded-for` / `x-real-ip` are honoured only when the server stamped
@@ -265,6 +268,13 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
         });
       }
     }
+    // Absent assets are silent by design, but the OPERATOR must see why the
+    // panel looks broken — field report v4.7.1: a binary-only deploy 404-ed
+    // every static route with no warning anywhere. Warn once per route.
+    if (!staticAssetWarned.has(path)) {
+      staticAssetWarned.add(path);
+      adminLog.push(`[assets] ${path} 不存在 — 把 logo.svg / docs 等静态资源放到程序目录旁（面板图标会缺失）`, "warn");
+    }
     return new Response("not found", { status: 404 });
   }
 
@@ -288,6 +298,10 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
         return new Response(buf, { headers: { "content-type": "image/png", "cache-control": "public, max-age=3600" } });
       }
     }
+    if (!staticAssetWarned.has(path)) {
+      staticAssetWarned.add(path);
+      adminLog.push(`[assets] ${path} 不存在 — docs/zk-support-qr.png 未随程序部署（打赏二维码缺失）`, "warn");
+    }
     return new Response("not found", { status: 404 });
   }
 
@@ -306,10 +320,18 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
     if (!checkAdminKey(String(body?.key ?? ""), adminKey)) {
       const res = recordFailure(ip);
       adminLog.push(`[panel] failed login from ${ip} (${res.locked ? "locked out" : res.remaining + " left"})`, "warn");
+      // Field report v4.7.1: the panel key and the proxy API key are TWO
+      // different credentials, and a caller presenting the proxy key here saw
+      // a bare "invalid admin key" with no hint which key was expected. Say it.
+      const hint = String(body?.key ?? "").startsWith("sk-zk-")
+        ? " — 你提交的是 API 密钥（sk-zk-…）。登录面板请使用面板密码（Settings 里设置的 panel password，全新安装默认 admin）"
+        : "";
       return errorResponse(
         401,
         "unauthorized",
-        res.locked ? "too many failed attempts — locked for 15 minutes" : "invalid admin key",
+        res.locked
+          ? `too many failed attempts — locked for 15 minutes（连续失败已锁定，15 分钟后重试）`
+          : `invalid admin key${hint}（面板登录密码与 API 密钥是两把不同的钥匙）`,
       );
     }
     recordSuccess(ip);
@@ -454,6 +476,8 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
         successRate: stats.successRate,
         avgTtfbMs: stats.avgTtfbMs,
         tokensTotal: stats.tokensTotal,
+        // Per-model aggregates for the overview's stats tile.
+        perModel: stats.perModel,
       },
       recent: stats.recent,
       serverTime: Date.now(),
@@ -1239,12 +1263,16 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
    */
   if (method === "GET" && path === "/export/logs.csv") {
     const { requestStats } = await import("../proxy/request-stats.js");
-    const { logsToCsv } = await import("./export-import.js");
-    const all = requestStats().recent;
+    const { logsToCsv, engineLogRows } = await import("./export-import.js");
+    // Field report: the CSV previously drew from the 100-entry recent ring, so
+    // "download the log" silently returned a fraction of what the panel showed.
+    // Draw from the PERSISTED admin-log.jsonl (full history, survives restarts)
+    // and mark each row's kind; request-detail rows from the ring are appended
+    // as structured entries.
     const q = (url.searchParams.get("q") ?? "").trim().toLowerCase();
     const statusFilter = url.searchParams.get("status") ?? "all";
     const accountFilter = url.searchParams.get("account") ?? "all";
-    const rows = all.filter((r) => {
+    const rows = requestStats().recent.filter((r) => {
       if (accountFilter !== "all" && r.accountName !== accountFilter) return false;
       if (statusFilter === "ok" && !(r.status >= 200 && r.status < 400)) return false;
       if (statusFilter === "fail" && r.status >= 200 && r.status < 400) return false;
@@ -1254,8 +1282,28 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
       }
       return true;
     });
-    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-    return new Response(logsToCsv(rows), {
+const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    // Engine lines (claim failures, balance polls, asset warnings...) are the
+    // bulk of what operators need when diagnosing; emit every persisted line
+    // with kind=engine, then the structured request rows (kind=request).
+    const engineCsvRows = engineLogRows().map((e) => ({
+      reqId: "engine",
+      started: e.at,
+      format: e.level,
+      model: "engine",
+      stream: false,
+      status: e.level === "error" ? 500 : e.level === "warn" ? 429 : 200,
+      ttfbMs: 0,
+      totalMs: 0,
+      tokens: 0,
+      accountName: (e.text.split("]")[0] || "").replace("[", "") || "engine",
+      ip: "",
+      path: e.text,
+      userAgent: "engine-log",
+      authorized: true,
+    }));
+    const csv = logsToCsv([...engineCsvRows, ...rows].sort((a, b) => a.started - b.started));
+    return new Response(csv, {
       headers: {
         "content-type": "text/csv; charset=utf-8",
         // BOM so Excel reads the UTF-8 correctly instead of mangling non-ASCII

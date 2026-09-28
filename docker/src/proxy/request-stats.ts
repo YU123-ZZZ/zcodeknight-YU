@@ -76,6 +76,9 @@ export interface RequestRecord {
 const RECENT_CAP = 100;
 
 const recent: RequestRecord[] = [];
+// Per-model aggregates. The running mean keeps sum+count so the average stays
+// exact as entries accumulate; resetRequestStats clears it with the rest.
+const perModel = new Map<string, { total: number; succeeded: number; failed: number; ttfbSum: number; ttfbCount: number; tokensTotal: number }>();
 let total = 0;
 let succeeded = 0;
 let failed = 0;
@@ -95,6 +98,7 @@ function persist(): void {
     const tmp = STATS_PATH + ".tmp-" + process.pid;
     writeFileSync(tmp, JSON.stringify({
       total, succeeded, failed, ttfbSum, tokensTotal, recent,
+      perModel: [...perModel.entries()],
     }), "utf-8");
     renameSync(tmp, STATS_PATH);
   } catch {
@@ -113,6 +117,11 @@ function restore(): void {
     if (typeof j.ttfbSum === "number") ttfbSum = j.ttfbSum;
     if (typeof j.tokensTotal === "number") tokensTotal = j.tokensTotal;
     if (Array.isArray(j.recent)) recent.push(...j.recent.filter((r: RequestRecord) => r && typeof r.started === "number").slice(-RECENT_CAP));
+    if (Array.isArray(j.perModel)) {
+      for (const [model, m] of j.perModel) {
+        if (model && m && typeof m.total === "number") perModel.set(model, m);
+      }
+    }
   } catch {
     // A corrupt snapshot reads as "no history" — the engine still starts.
   }
@@ -135,9 +144,26 @@ export function recordRequest(rec: RequestRecord): void {
     failed++;
   }
   tokensTotal += rec.tokens;
+  const mkey = rec.model || "(unspecified)";
+  const m = perModel.get(mkey) ?? { total: 0, succeeded: 0, failed: 0, ttfbSum: 0, ttfbCount: 0, tokensTotal: 0 };
+  m.total++;
+  if (rec.status >= 200 && rec.status < 400) { m.succeeded++; m.ttfbSum += rec.ttfbMs; m.ttfbCount++; }
+  else m.failed++;
+  m.tokensTotal += rec.tokens;
+  perModel.set(mkey, m);
   recent.push(rec);
   if (recent.length > RECENT_CAP) recent.splice(0, recent.length - RECENT_CAP);
   persist();
+}
+
+export interface ModelStat {
+  model: string;
+  total: number;
+  succeeded: number;
+  failed: number;
+  /** Mean TTFB over THIS model's successful requests, ms. */
+  avgTtfbMs: number;
+  tokensTotal: number;
 }
 
 export interface RequestStats {
@@ -151,6 +177,8 @@ export interface RequestStats {
   tokensTotal: number;
   /** Newest first. */
   recent: RequestRecord[];
+  /** Per-model aggregates (same counters as the totals, scoped by model). */
+  perModel: ModelStat[];
 }
 
 /** Snapshot for the overview endpoint. */
@@ -163,6 +191,16 @@ export function requestStats(): RequestStats {
     avgTtfbMs: succeeded > 0 ? Math.round(ttfbSum / succeeded) : 0,
     tokensTotal,
     recent: [...recent].reverse(),
+    perModel: [...perModel.entries()]
+      .map(([model, m]) => ({
+        model,
+        total: m.total,
+        succeeded: m.succeeded,
+        failed: m.failed,
+        avgTtfbMs: m.ttfbCount > 0 ? Math.round(m.ttfbSum / m.ttfbCount) : 0,
+        tokensTotal: m.tokensTotal,
+      }))
+      .sort((a, b) => b.total - a.total),
   };
 }
 
@@ -176,6 +214,7 @@ export function requestStats(): RequestStats {
  * as a bug.
  */
 export function resetRequestStats(): void {
+  perModel.clear();
   recent.length = 0;
   total = 0;
   succeeded = 0;

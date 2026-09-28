@@ -73,6 +73,11 @@ export type TickResult =
 export class ClaimScheduler {
   private stopped = false;
   private holdUntil = 0;
+  // Consecutive NETWORK-ish failures drive an exponential backoff (10min →
+  // 20 → 40 → 80, capped 6h): a dead/unreachable upstream otherwise produces
+  // one ERROR line per account per cooldown — 5 accounts every 10 min — which
+  // is noise, not signal. A single success resets the ladder.
+  private consecutiveErrors = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private readonly now: () => number;
   private readonly log: (message: string) => void;
@@ -174,6 +179,7 @@ export class ClaimScheduler {
     }
 
     if (outcome.ok) {
+      this.consecutiveErrors = 0;
       const endsAtMs = outcome.endsAt !== undefined ? outcome.endsAt * 1000 : undefined;
       this.holdUntil = endsAtMs ?? nowMs + this.deps.config.pollIntervalMs;
       this.log(`claim: claimed plan ${target.planId}${outcome.startsAt !== undefined ? ` (activates ${new Date(outcome.startsAt * 1000).toISOString()})` : ""}`);
@@ -206,9 +212,23 @@ export class ClaimScheduler {
   }
 
   private errorBackoff(message: string): TickResult {
-    const holdMs = this.deps.config.cooldownMs;
+    // Network-shaped failures (DNS timeouts, aborted connections) escalate the
+    // retry interval instead of retrying at a fixed cadence: when the egress
+    // cannot reach zcode.z.ai at all, four accounts × every 10 minutes is a
+    // log flood that carries no new information per line.
+    const networkish = /ETIMEDOUT|ECONNRESET|EAI_AGAIN|getaddrinfo|aborted|network|timeout|socket/i.test(message);
+    if (networkish) {
+      this.consecutiveErrors += 1;
+    } else {
+      this.consecutiveErrors = 0;
+    }
+    const escal = Math.min(this.consecutiveErrors, 6);
+    const holdMs = networkish && this.consecutiveErrors > 1
+      ? Math.min(this.deps.config.cooldownMs * 2 ** (escal - 1), 6 * 60 * 60_000)
+      : this.deps.config.cooldownMs;
     this.holdUntil = this.now() + holdMs;
-    this.log(`claim: ${message}; retry in ${Math.round(holdMs / 1000)}s`);
+    const label = networkish && this.consecutiveErrors > 1 ? `(network ${this.consecutiveErrors}x) ` : "";
+    this.log(`claim: ${label}${message}; retry in ${Math.round(holdMs / 1000)}s`);
     return { action: "error", message, holdMs };
   }
 

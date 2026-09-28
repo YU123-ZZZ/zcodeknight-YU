@@ -22,7 +22,7 @@ ZcodeKnight 把所有账号汇总到一个本地接口后面：自动轮询、�
   <a href="https://img.shields.io/github/issues/YU123-ZZZ/zcodeknight-YU"><img src="https://img.shields.io/github/issues/YU123-ZZZ/zcodeknight-YU?style=for-the-badge&logo=github&label=Issues" alt="Issues"></a>
   <a href="https://github.com/YU123-ZZZ/zcodeknight-YU/blob/master/LICENSE"><img src="https://img.shields.io/badge/License-MIT-c8cdd6?style=for-the-badge" alt="License"></a>
   <a href="https://img.shields.io/github/v/release/YU123-ZZZ/zcodeknight-YU"><img src="https://img.shields.io/github/v/release/YU123-ZZZ/zcodeknight-YU?style=for-the-badge&label=Release&color=4fae7c" alt="Release"></a>
-  <a href="https://github.com/YU123-ZZZ/zcodeknight-YU"><img src="https://komarev.com/ghpvc/?username=YU123-ZZZ&label=Views&color=4f7cff&style=for-the-badge" alt="Views"></a>
+  <a href="https://github.com/YU123-ZZZ/zcodeknight-YU"><img src="https://komarev.com/ghpvc/?username=YU123-ZZZ-zcodeknight-YU&label=Views&color=4f7cff&style=for-the-badge" alt="Views"></a>
 </p>
 
 
@@ -79,6 +79,8 @@ return 200:
 | --- | --- | --- | --- | --- |
 | `glm-5.3-flash` | **3 / 3** | 3 / 5 | 3 / 8 | **3** — above it, `3008` |
 | `glm-5.3` | **1 / 3** | 3 / 5 | 3 / 8 | **1** — above it, `3009` |
+
+**并发额度按什么分？** 按**账号**（每把 API Key / JWT 独立计），不按 IP：上表两行是每个账号各自的额度，5 个账号就能同时跑 5 个 glm-5.3 请求（引擎自动在账号间轮询分配，超出单账号额度的请求会落到下一个空闲账号）。IP 只影响风控（3012 unusual activity 是按出口 IP 累计行为判定的），不影响并发额度本身。 `3009` = 单账号单模型并发超限；`3008` = 单账号总并发超限。
 
 - **`3008` is the account-wide ceiling (3).** Both models hit it at 5 and 8, which
   is why both settle at 3 there.
