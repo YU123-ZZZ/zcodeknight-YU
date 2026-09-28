@@ -1,0 +1,514 @@
+  :root {
+    --bg0: #08090c; --bg1: #12151a; --card: #1c222c; --card-hi: #222936; --line: #333c4a;
+    --steel: #d4dae4; --muted: #8b93a1; --blue: #5b85ff; --blue-dk: #3f66d8;
+    --gold: #e8ad55; --red: #cf5a63; --purple: #9a74e0; --green: #55bd88;
+    --mono: Consolas, "Cascadia Mono", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: linear-gradient(160deg, var(--bg0), var(--bg1));
+    color: var(--steel); font-family: "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+    font-size: 14px; display: flex; height: 100vh; overflow: hidden;
+  }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+  a { color: var(--blue); text-decoration: none; }
+
+  .side {
+    width: 220px; flex: 0 0 220px; background: #101318; border-right: 1px solid var(--line);
+    display: flex; flex-direction: column;
+  }
+  .logo { display: flex; align-items: center; gap: 10px; padding: 18px 16px 14px; }
+  .logo svg { flex: 0 0 34px; }
+  .logo .t1 { font-weight: 700; font-size: 15px; letter-spacing: .5px; color: #e8ecf2; }
+  .logo .t2 { font-size: 11px; color: var(--muted); }
+  /* Nav sits directly under the logo rather than centred.
+   *
+   * It was `justify-content: center` to stop a single large gap opening between
+   * the last button and the footer, but that pushed the whole list into the
+   * middle of the sidebar: the buttons floated away from the logo they belong
+   * to, and their position shifted with the window height. `flex-start` with a
+   * smaller gap keeps them anchored under the brand, and `margin-bottom: auto`
+   * absorbs the leftover height at the BOTTOM instead — same effect (no gap
+   * above the footer), without moving the buttons around. */
+  nav { flex: 1; padding: 6px 10px 10px; display: flex; flex-direction: column; justify-content: flex-start; gap: 5px; margin-bottom: auto; }
+  nav button {
+    display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+    background: rgba(255,255,255,.022); border: 1px solid rgba(255,255,255,.055);
+    color: var(--muted); font-size: 13.5px;
+    padding: 10px 13px; border-radius: 999px; cursor: pointer;
+    font-family: inherit; transition: background .12s, border-color .12s, color .12s;
+  }
+  nav button:hover { background: #1a1f26; color: var(--steel); border-color: rgba(110,168,254,.28); }
+  nav button.on {
+    background: linear-gradient(90deg, #1d2530, #1a1e24); color: #fff;
+    border-color: rgba(110,168,254,.55); box-shadow: inset 2px 0 0 var(--blue);
+  }
+  nav button .ico { width: 18px; text-align: center; opacity: .9; }
+  .side-foot { border-top: 1px solid var(--line); padding: 10px 12px; font-size: 12px; }
+  .foot-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .foot-row a { color: var(--muted); }
+  .foot-row a:hover { color: var(--blue); }
+  .badge-lang {
+    margin-left: auto; background: var(--card); border: 1px solid var(--line); color: var(--steel);
+    border-radius: 6px; padding: 2px 8px; cursor: pointer; font-size: 11px; font-family: inherit;
+  }
+
+  main { flex: 1; overflow-y: auto; padding: 22px 26px; }
+  /* Wider than the old 1080px: with several accounts the cards otherwise left
+     a large empty gutter on the right of a wide window. */
+  .page { display: none; max-width: 1360px; margin: 0 auto; }
+  .page.on { display: block; }
+  h2 { font-size: 17px; color: #e8ecf2; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 12.5px; margin-bottom: 18px; }
+
+  .card {
+    background: linear-gradient(180deg, var(--card-hi), var(--card));
+    border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px 18px; margin-bottom: 14px; position: relative; overflow: hidden;
+    box-shadow: 0 2px 12px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.03);
+  }
+  /* Per-status accent bar on account cards.
+     The badge alone was easy to miss in a long list, so a card whose account is
+     unhealthy now differs from a healthy one at a glance. Mirrors .bal-acc on
+     the overview page, with one addition: `throttled` is its own accent rather
+     than reusing cooldown, because a model-scoped hold means the account is
+     still serving other models — amber "degraded", not the red of "down". */
+  .acc-card { border-left: 3px solid var(--green); }
+  .acc-card.ok { border-left-color: var(--green); }
+  .acc-card.paused { border-left-color: var(--muted); }
+  .acc-card.cooldown { border-left-color: var(--gold); }
+  .acc-card.exhausted { border-left-color: var(--red); }
+  .acc-card.relogin { border-left-color: var(--purple); }
+  .acc-card.error { border-left-color: var(--red); }
+  .acc-card.throttled { border-left-color: var(--gold); }
+  .card::before {
+    content: ""; position: absolute; top: 0; left: 8%; right: 8%; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(160,185,230,.35), transparent);
+  }
+
+  .grid { display: grid; gap: 14px; }
+  .g4 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  /* Account cards fill the row instead of leaving a wide empty gutter on the
+     right. auto-fit + 1fr lets a lone card span the content width, while
+     several accounts share the row evenly (min 300px keeps them legible). */
+  .g2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+
+  .kv .k { font-size: 12px; color: var(--muted); }
+  .kv .v { font-size: 22px; font-weight: 700; color: #e8ecf2; font-family: var(--mono); margin-top: 2px; }
+  .kv .v.bad { color: var(--gold); }
+
+  /* ---- total quota card ---- */
+  .tot-card { background: linear-gradient(120deg, #1d2636, #1c222c 60%); border-color: #3a4658; }
+  .tot-card::before { background: linear-gradient(90deg, transparent, rgba(91,133,255,.5), transparent); }
+  .tot-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+  .tot-label { font-size: 12.5px; color: var(--muted); }
+  .tot-value { font-size: 30px; font-weight: 700; color: #eef3fb; font-family: var(--mono); margin-top: 4px; letter-spacing: .5px; }
+  .tot-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .tot-chips { display: flex; gap: 10px; flex-wrap: wrap; }
+  .tot-chip {
+    background: rgba(91,133,255,.09); border: 1px solid #33415a; border-radius: 10px;
+    padding: 8px 14px; min-width: 118px;
+  }
+  .tot-chip .c1 { font-size: 11.5px; color: var(--muted); margin-bottom: 3px; }
+  .tot-chip .c2 { font-size: 15px; font-family: var(--mono); color: #dbe6f7; }
+
+  /* ---- balance list header / search ---- */
+  .bal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .bal-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .mini-search {
+    background: #101318; border: 1px solid var(--line); color: var(--steel);
+    border-radius: 8px; padding: 5px 10px; font-size: 12.5px; font-family: inherit;
+    min-width: 132px;
+  }
+  .mini-search:focus { outline: none; border-color: var(--blue); }
+  /* One account's balance block.
+     Cards rather than plain stacked rows: three accounts separated only by a
+     14px gap read as one continuous list, so it was hard to tell where one
+     account ended and the next began. Each block now has its own surface and a
+     left accent bar, and the header sticks to the top of its card while the
+     quota rows scroll past it. */
+  .bal-acc {
+    background: #171c24; border: 1px solid var(--line); border-left: 3px solid var(--blue);
+    border-radius: 10px; padding: 12px 14px; margin-bottom: 12px;
+  }
+  .bal-acc:last-child { margin-bottom: 0; }
+  /* The left bar carries the account's status, so the card answers "is this one
+     healthy?" before any badge is read. Blue is the neutral/ok case. */
+  .bal-acc.ok { border-left-color: var(--green); }
+  .bal-acc.paused { border-left-color: var(--muted); }
+  .bal-acc.cooldown { border-left-color: var(--gold); }
+  .bal-acc.exhausted { border-left-color: var(--red); }
+  .bal-acc.relogin { border-left-color: var(--purple); }
+  .bal-acc.error { border-left-color: var(--red); }
+  /* A model-scoped hold: the account still serves other models, so this is
+     amber "degraded" rather than the red that means the account is down. */
+  .bal-acc.throttled { border-left-color: var(--gold); }
+  .bal-acc-head {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    font-size: 13px; margin-bottom: 10px; padding-bottom: 9px;
+    border-bottom: 1px solid #232a34;
+  }
+  .bal-acc-head .nm { font-weight: 600; color: #dfe6f0; }
+  /* The claim button sits at the end of the row rather than after the badges,
+     so it lines up across accounts regardless of badge widths. */
+  .bal-acc-head .claim-one { margin-left: auto; }
+  .bal-empty { color: #6b7280; font-size: 12px; font-style: italic; padding: 2px 0; }
+
+  .btn {
+    background: linear-gradient(180deg, var(--blue), var(--blue-dk)); border: none; color: #fff;
+    padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; font-family: inherit;
+  }
+  .btn:hover { filter: brightness(1.1); }
+  .btn.ghost { background: var(--card); border: 1px solid var(--line); color: var(--steel); }
+  .btn.danger { background: linear-gradient(180deg, #a84450, #8f3540); }
+  .btn.gold { background: linear-gradient(180deg, var(--gold), #b8843a); color: #1a1408; font-weight: 600; }
+  .btn.sm { padding: 4px 10px; font-size: 12px; border-radius: 6px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+
+  .acc-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .acc-name { font-weight: 700; font-size: 15px; color: #e8ecf2; }
+  .pill { font-size: 11px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); font-family: var(--mono); }
+  .pill.zai { color: var(--blue); border-color: #34487c; }
+  .pill.bigmodel { color: var(--gold); border-color: #6b5630; }
+  .pill.plan-paid { color: #7ea8ff; }
+  .pill.plan-free { color: var(--green); }
+  /* The claim state as a pill rather than a button: it reports a fact, and a
+     disabled button would still read as "press me later". */
+  .pill.claim-done { color: var(--green); border-color: rgba(79,174,124,.5); background: rgba(79,174,124,.10); }
+  .claim-done-line { color: var(--green); }
+  .st { font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 6px; }
+  .st.ok { color: var(--green); background: rgba(79,174,124,.12); }
+  .st.cooldown { color: var(--gold); background: rgba(224,163,74,.12); }
+  .st.exhausted { color: var(--red); background: rgba(192,80,88,.12); }
+  .st.relogin { color: var(--purple); background: rgba(138,99,210,.14); }
+  .st.paused { color: var(--muted); background: rgba(139,147,161,.12); }
+  .st.error { color: var(--red); background: rgba(192,80,88,.12); }
+  /* Model-scoped throttle: the account still serves other models, so this is
+     amber "degraded", never the red that means the account is down. */
+  .st.throttled { color: var(--gold); background: rgba(224,163,74,.14); }
+  .hold-box {
+    margin-top: 8px; padding: 7px 10px; border-radius: 8px;
+    background: rgba(224,163,74,.08); border-left: 2px solid var(--gold);
+  }
+  .hold-line { font-size: 12px; color: #d8c39a; font-family: var(--mono); }
+  .hold-line + .hold-line { margin-top: 3px; }
+  .bal-exp { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+  .bal-exp .cd { font-size: 11.5px; }
+  /* Plan window: when the daily allowance stops. Reads as a quiet footnote
+     until it is close, then turns amber so an imminent loss is not missed. */
+  .plan-exp {
+    display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+    font-size: 11.5px; color: var(--muted); margin-top: 5px;
+    padding-top: 5px; border-top: 1px dashed rgba(139,147,161,.18);
+  }
+  .plan-exp .pe-name { color: #b9c3d2; }
+  .plan-exp .pe-units { font-family: var(--mono); color: #97a3b6; }
+  .plan-exp .pe-tag { opacity: .8; }
+  .plan-exp .cd { font-size: 11.5px; }
+  .plan-exp.soon { color: var(--gold); }
+  .plan-exp.soon .pe-name { color: var(--gold); }
+
+  .bar { height: 7px; background: #232830; border-radius: 4px; overflow: hidden; margin: 8px 0 4px; }
+  .bar i {
+    display: block; height: 100%; border-radius: 4px;
+    background: repeating-linear-gradient(45deg, var(--blue), var(--blue) 6px, var(--blue-dk) 6px, var(--blue-dk) 12px);
+  }
+  .bar.low i { background: repeating-linear-gradient(45deg, var(--gold), var(--gold) 6px, #b8843a 6px, #b8843a 12px); }
+  .meta-row { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); font-family: var(--mono); margin-top: 6px; }
+  .acc-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  /* per-card balance block */
+  .acc-bal { margin-top: 12px; }
+  .bal-row { margin-bottom: 8px; }
+  .bal-row:last-child { margin-bottom: 0; }
+  .bal-top { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+  .bal-top span:last-child { font-family: var(--mono); }
+  .bal-none { font-size: 12px; color: #6b7280; font-style: italic; }
+  /* System monitor tiles: dark metal with gold accents, monospace numbers. */
+  .sys-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .sys-tile {
+    background: linear-gradient(160deg, #14181e, #0e1116); border: 1px solid var(--line);
+    border-radius: 12px; padding: 14px 16px; position: relative; overflow: hidden;
+  }
+  .sys-tile::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(224,163,74,.55), transparent); }
+  .sys-tile-wide { grid-column: 1 / -1; }
+  .sys-k { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: #7d8797; margin-bottom: 8px; }
+  .sys-v { font-family: var(--mono); font-size: 22px; color: #ecdfc3; line-height: 1.2; }
+  .sys-v-sm { font-size: 15px; color: #d8dee7; }
+  .sys-unit { font-size: 13px; color: var(--gold); margin-left: 8px; }
+  .sys-bar { margin-top: 10px; height: 7px; background: #0a0c10; border-radius: 4px; overflow: hidden; border: 1px solid var(--line); }
+  .sys-bar > div { height: 100%; background: linear-gradient(90deg, #b8862f, #e0a34a); transition: width .5s ease; }
+  .sys-hint { margin-top: 8px; font-size: 11.5px; color: #6b7280; font-family: var(--mono); }
+  .sys-percore { margin-top: 8px; display: flex; gap: 3px; align-items: flex-end; height: 26px; }
+  .sys-percore > div { flex: 1; background: linear-gradient(180deg, #e0a34a, #8a6420); border-radius: 2px 2px 0 0; min-height: 2px; transition: height .4s ease; }
+  .sys-percore { margin-top: 8px; display: flex; gap: 3px; align-items: flex-end; height: 26px; }
+  .sys-percore > div { flex: 1; background: linear-gradient(180deg, #e0a34a, #8a6420); border-radius: 2px 2px 0 0; min-height: 2px; transition: height .4s ease; }
+  /* New-version top banner: gold-on-dark, sits above everything, dismissible. */
+
+  .upd-banner {
+    position: fixed; top: 10px; left: 50%; transform: translateX(-50%); width: min(720px, 92vw); z-index: 90;
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; margin-bottom: 10px;
+    background: linear-gradient(90deg, rgba(224,163,74,.16), rgba(224,163,74,.05));
+    border: 1px solid rgba(224,163,74,.45); border-radius: 10px;
+    color: #f2d8a0; font-size: 13px; line-height: 1.6;
+  }
+  .upd-banner .ub-link { color: var(--gold); text-decoration: underline; font-weight: 600; }
+  .upd-banner .ub-close { margin-left: auto; background: none; border: none; color: #a8987a; font-size: 16px; cursor: pointer; }
+  /* Unreadable account store: a real problem the operator must act on, so it
+     reads as a warning banner rather than muted helper text. */
+  .store-warn {
+    margin-top: 14px; padding: 11px 13px; border-radius: 10px;
+    background: rgba(220, 90, 90, 0.10); border: 1px solid rgba(220, 90, 90, 0.38);
+    color: #f0b4b4; font-size: 12.5px; line-height: 1.65; word-break: break-all;
+  }
+  /* pending activity grant: claimed but not yet usable */
+  .pending-grant {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin-top: 8px; padding: 7px 9px; border-radius: 8px;
+    background: rgba(224,163,74,.08); border: 1px solid rgba(224,163,74,.35);
+    font-size: 12px;
+  }
+  .pg-tag {
+    background: var(--gold); color: #1a1206; font-weight: 700;
+    padding: 1px 7px; border-radius: 5px; font-size: 11px;
+  }
+  .pg-txt { color: #dfe6f0; }
+  .pg-when { color: var(--gold); font-family: var(--mono); }
+  /* recent-request table (overview) */
+  .tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .tbl th {
+    text-align: left; color: var(--muted); font-weight: 600; padding: 6px 8px;
+    border-bottom: 1px solid var(--line); white-space: nowrap;
+  }
+  .tbl td {
+    padding: 5px 8px; border-bottom: 1px solid #20242c; color: var(--steel);
+    font-family: var(--mono); white-space: nowrap;
+  }
+  .tbl tr:last-child td { border-bottom: none; }
+
+  .empty { text-align: center; color: var(--muted); padding: 40px 0; }
+  .empty .big { font-size: 34px; margin-bottom: 8px; }
+
+  .mask { position: fixed; inset: 0; background: rgba(5,7,10,.72); display: none; align-items: center; justify-content: center; z-index: 50; }
+  .mask.on { display: flex; }
+  /* The login gate is opaque on purpose: the panel's markup is present in the
+     DOM before authentication, so a translucent overlay would let an
+     unauthenticated viewer read the layout, labels, sidebar links and group
+     info through it. Only the login dialog may be visible pre-auth.
+     Deliberately a FLAT colour — no image, no gradient. A decorated login
+     screen is a fingerprint: it tells anyone who reaches the port what this is
+     and invites them to try the key. A plain dark panel gives nothing away. */
+  #key-mask {
+    background: #0b0d10;
+    z-index: 200;
+  }
+  .login-wrap { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+  .login-brand { text-align: center; }
+  .login-crest {
+    display: block; width: 64px; height: 64px; margin: 0 auto;
+    filter: drop-shadow(0 0 22px rgba(79,124,255,.55)) drop-shadow(0 0 48px rgba(79,124,255,.25));
+  }
+  .login-name {
+    margin-top: 8px; font-size: 21px; font-weight: 700; letter-spacing: .06em;
+    color: #eef2f8; text-shadow: 0 1px 12px rgba(0,0,0,.75);
+  }
+  .login-tag { margin-top: 3px; font-size: 12.5px; color: var(--muted); letter-spacing: .18em; }
+  /* The gate dialog floats over artwork, so it needs its own backdrop rather
+     than the shared translucent card. */
+  .login-modal {
+    width: min(420px, 92vw);
+    background: rgba(20,23,28,.94);
+    backdrop-filter: blur(6px);
+    border-color: #333a45;
+    box-shadow: 0 18px 60px rgba(0,0,0,.6);
+  }
+  /* Add-account dialog: the form scrolls, the pool list does not. Previously the
+     whole dialog scrolled as one block, so on a short window the pool list fell
+     below the fold with no visual cue that anything was there. */
+  /* Add-account dialog.
+     Sized to its content with ONE scroll container (the modal's own), and no
+     nested scroller. An inner `overflow-y:auto` area fought the modal's own
+     scrolling, and because the countdown text re-wraps every second the outer
+     scrollbar appeared and disappeared continuously — a visible flicker. The
+     countdown now has a fixed width and tabular numerals so the line never
+     reflows, and the hint reserves its height. */
+  .login-add-modal { display: flex; flex-direction: column; max-height: 92vh; }
+  /* Searchable picker: replaces native <select> where the list is long enough
+     that scrolling it by hand is the problem, or where each row needs to show
+     more than a bare label. */
+  .picker-btn {
+    background: var(--card); border: 1px solid var(--line); color: var(--steel);
+    border-radius: 8px; padding: 7px 10px; font-size: 12.5px; font-family: inherit;
+    cursor: pointer; text-align: left; display: flex; align-items: center;
+    justify-content: space-between; gap: 8px; min-width: 200px;
+  }
+  .picker-btn:hover { border-color: var(--blue); }
+  .picker-btn::after { content: "▾"; color: var(--muted); flex: 0 0 auto; }
+  /* Compact variant for filter rows: the default 200px min-width is sized for
+     account/model pickers, and would push a row of filters onto a second line. */
+  .picker-btn.compact { min-width: 132px; padding: 5px 10px; font-size: 12.5px; }
+  .picker-list { max-height: 46vh; overflow-y: auto; }
+  .picker-item {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 9px 10px; border-radius: 8px; cursor: pointer; font-size: 13px;
+    border: 1px solid transparent;
+  }
+  .picker-item:hover, .picker-item.active { background: #1b2129; border-color: var(--line); }
+  .picker-item .pi-name { font-weight: 600; color: #dfe6f0; }
+  .picker-item .pi-sub { color: var(--muted); font-size: 11.5px; font-family: var(--mono); }
+  .picker-empty { color: var(--muted); font-size: 12.5px; padding: 14px 4px; text-align: center; }
+  /* Until authenticated, hide the application shell outright rather than
+     relying on the overlay alone — belt and braces for anyone who inspects the
+     DOM, and it removes the flash of panel content before the dialog paints. */
+  body.gated .side,
+  body.gated main { visibility: hidden; }
+  .modal { background: var(--card); border: 1px solid var(--line); border-radius: 14px; width: min(560px, 92vw); max-height: 88vh; overflow-y: auto; padding: 22px; }
+  .modal h3 { color: #e8ecf2; margin-bottom: 12px; font-size: 16px; }
+  .modal label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  .modal input, .modal select {
+    width: 100%; background: #101318; border: 1px solid var(--line); color: var(--steel);
+    border-radius: 8px; padding: 8px 10px; font-size: 13px; font-family: inherit;
+  }
+  .modal .row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+  .login-url {
+    background: #101318; border: 1px dashed var(--line); border-radius: 8px; padding: 10px;
+    font-family: var(--mono); font-size: 11.5px; word-break: break-all; margin-top: 8px; color: var(--blue);
+  }
+  /* existing-accounts block inside the add-account modal.
+     Kept in the normal flow rather than pinned inside the scroll area: the
+     modal's own scrollbar is what made this block look missing on a short
+     window — it sat below the fold with nothing indicating more content. */
+  .modal-existing { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 14px; }
+  .me-head {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 12px; color: var(--muted); margin-bottom: 8px;
+  }
+  /* Capped so a large pool cannot push the dialog past the viewport; scrolls
+     within itself instead. */
+  .me-list { max-height: 148px; overflow-y: auto; }
+  .me-row {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 7px 0; border-bottom: 1px solid #20242c; font-size: 12.5px;
+  }
+  .me-row:last-child { border-bottom: none; }
+  .me-row .me-nm { font-weight: 600; color: #dfe6f0; }
+  /* Copy affordance beside the authorize link */
+  .login-url-row { display: flex; gap: 8px; align-items: stretch; margin-top: 8px; }
+  .login-url-row .login-url { flex: 1; margin-top: 0; min-width: 0; }
+  .login-url-row .btn { flex: 0 0 auto; white-space: nowrap; }
+  .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--blue); border-radius: 50%; animation: r 1s linear infinite; vertical-align: -2px; }
+  @keyframes r { to { transform: rotate(360deg); } }
+  /* authorize-link countdown: amber in the last minute, dimmed once dead */
+  /* The countdown ticks every second. Fixed width + tabular numerals stop the
+     line re-wrapping as the digits change, and a reserved line height keeps the
+     block's height constant — without these the dialog's own scrollbar appeared
+     and vanished once a second, which read as the whole card flickering. */
+  .login-wait-line { display: flex; align-items: baseline; gap: 4px; min-height: 20px; }
+  .login-wait-line #login-hint { flex: 1 1 auto; }
+  .login-wait-line .cd { flex: 0 0 auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .cd { font-family: var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); }
+  .cd-warn { color: var(--gold); }
+  .cd-dead { color: var(--red); text-decoration: line-through; }
+  /* online-update progress bar */
+  .upd-bar {
+    height: 8px; border-radius: 6px; background: #101318; border: 1px solid var(--line);
+    overflow: hidden; margin-top: 4px;
+  }
+  .upd-fill {
+    height: 100%; width: 0%; border-radius: 6px;
+    background: linear-gradient(90deg, var(--blue), var(--gold));
+    transition: width .25s ease;
+  }
+  .upd-fill.indet { width: 35%; animation: upd-slide 1.2s ease-in-out infinite alternate; }
+  /* A failed update fills the bar red rather than leaving it near-empty: an
+     almost-empty bar reads as "nothing happened yet", which is the opposite of
+     what the operator needs to see. */
+  .upd-fill.bad { background: var(--red); animation: none; }
+  @keyframes upd-slide { from { margin-left: 0; } to { margin-left: 65%; } }
+
+  .logbox {
+    background: #0d1014; border: 1px solid var(--line); border-radius: 10px;
+    font-family: var(--mono); font-size: 12px; padding: 12px; height: calc(100vh - 240px); min-height: 480px; overflow-y: auto;
+    word-break: break-all; line-height: 1.7;
+  }
+  .logline { padding: 0 4px; border-left: 2px solid transparent; border-radius: 2px; white-space: pre-wrap; }
+  .logline.lv-info { color: #97a3b6; }
+  .logline.lv-ok { color: var(--green); }
+  .logline.lv-warn { color: var(--gold); background: rgba(224,163,74,.09); border-left-color: var(--gold); }
+  .logline.lv-error { color: #ff8f9c; background: rgba(192,80,88,.13); border-left-color: var(--red); }
+
+  /* Merged log row: fixed-width leading columns so times and tags line up
+     across both sources, then the free-text detail takes the rest. */
+  .logline { display: flex; gap: 8px; align-items: baseline; }
+  .lg-t { flex: 0 0 auto; color: #5f6b7d; font-variant-numeric: tabular-nums; }
+  .lg-k { flex: 0 0 auto; font-weight: 700; letter-spacing: .04em; }
+  .lg-k-req { color: #6ea8fe; }
+  .lg-k-info { color: #6b7686; }
+  .lg-k-ok { color: var(--green); }
+  .lg-k-warn { color: var(--gold); }
+  .lg-k-error { color: #ff8f9c; }
+  .lg-s { flex: 0 0 auto; font-weight: 700; }
+  .lg-s.ok { color: var(--green); }
+  .lg-s.error { color: #ff8f9c; }
+  .lg-m { flex: 0 0 auto; color: #cfd6e2; }
+  .lg-d { flex: 0 1 auto; color: #97a3b6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lg-d-full { white-space: pre-wrap; word-break: break-all; }
+  .lg-a { flex: 0 0 auto; color: var(--purple); }
+  .lg-x { flex: 0 0 auto; margin-left: auto; color: #5f6b7d; font-variant-numeric: tabular-nums; }
+
+  .chat-wrap { display: flex; flex-direction: column; height: calc(100vh - 140px); }
+  .chat-tools { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .chat-tools select {
+    background: var(--card); border: 1px solid var(--line); color: var(--steel);
+    border-radius: 8px; padding: 6px 10px; font-size: 12.5px; font-family: inherit; min-width: 150px;
+  }
+  .chat-scroll { flex: 1; overflow-y: auto; padding: 6px 4px; display: flex; flex-direction: column; }
+  .chat-empty {
+    margin: auto; max-width: 520px; text-align: center;
+    color: #6b7280; font-size: 13px; line-height: 1.9;
+    padding: 26px 28px; border: 1px dashed #2b323d; border-radius: 12px;
+  }
+  .msg { max-width: 80%; padding: 9px 13px; border-radius: 12px; line-height: 1.65; margin-bottom: 10px; white-space: pre-wrap; word-break: break-word; font-size: 13.5px; }
+  .msg.user { margin-left: auto; background: var(--blue-dk); color: #fff; }
+  .msg.bot { background: var(--card); border: 1px solid var(--line); }
+  .msg.err { margin: 0 auto; background: rgba(192,80,88,.14); color: #ffb3ba; font-size: 12.5px; text-align: center; }
+  /* Model-switch divider: a centred note, quieter than a message. It is part of
+     the transcript (a reply that follows was produced by a DIFFERENT model), so
+     it must not look like something either side said. */
+  .msg.note {
+    margin: 2px auto 10px; max-width: none; padding: 3px 10px; background: transparent;
+    border: 1px dashed var(--line); border-radius: 999px; color: var(--muted);
+    font-size: 11.5px; text-align: center; white-space: nowrap;
+  }
+  .msg .think { color: var(--muted); font-size: 12px; border-left: 2px solid var(--line); padding-left: 8px; margin-bottom: 6px; }
+  .chat-in { display: flex; gap: 10px; margin-top: 10px; }
+  .chat-in textarea {
+    flex: 1; background: var(--card); border: 1px solid var(--line); color: var(--steel);
+    border-radius: 10px; padding: 10px 12px; font-size: 13.5px; font-family: inherit; resize: none; height: 64px;
+  }
+  .chat-in textarea:focus { outline: none; border-color: var(--blue); }
+
+  .set-row { display: flex; align-items: center; justify-content: space-between; padding: 11px 0; border-bottom: 1px solid #20242c; gap: 16px; }
+  .set-row:last-child { border-bottom: none; }
+  .set-row .lbl { font-size: 13.5px; }
+  .set-row .hint { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .set-row input, .set-row select {
+    background: #101318; border: 1px solid var(--line); color: var(--steel); border-radius: 8px;
+    padding: 6px 10px; font-size: 13px; width: 220px; font-family: var(--mono);
+  }
+
+  /* Donation QR: the source image is a two-code sheet (WeChat + Alipay), so it
+     needs real size to stay scannable. 280px made the codes too small to read
+     on a laptop screen — the modal is widened to match. */
+  .donate-img { width: 420px; max-width: 100%; border-radius: 10px; border: 1px solid var(--line); display: block; margin: 12px auto; }
+
+  .toast {
+    position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
+    background: #1d2530; border: 1px solid var(--blue); color: var(--steel);
+    border-radius: 10px; padding: 10px 20px; font-size: 13px; z-index: 99;
+    box-shadow: 0 8px 30px rgba(0,0,0,.5); display: none;
+  }
+  .toast.on { display: block; }

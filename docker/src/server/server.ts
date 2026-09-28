@@ -34,7 +34,7 @@
 import { createServer, type Server } from "node:http";
 import { Readable } from "node:stream";
 import { timingSafeEqual } from "node:crypto";
-import { adminPanelHtml, webuiHtml } from "./panel-html.js";
+import { adminPanelCssAsset, adminPanelHtml, adminPanelJsAsset, webuiHtml } from "./panel-html.js";
 import { createAdminHandler, adminLog } from "./routes-admin.js";
 import type { ProxyConfig } from "../config/types.js";
 import type { AuthManager } from "../auth/manager.js";
@@ -127,6 +127,29 @@ export function createFetchHandler(opts: ServerOptions): (req: Request) => Promi
     // Admin API — own auth (admin key), sits before the proxy-key gate.
     const adminHandled = await adminHandler?.(req);
     if (adminHandled) return adminHandled;
+
+    // Panel static assets (v4.7.0 split). Served BEFORE the /admin catch-all —
+    // they live under /admin/assets/. no-cache + ETag: the browser revalidates
+    // every page load and gets a 304 unless the file changed, so editing
+    // panel.css/panel.js in the source tree shows up on refresh (the same
+    // live-override contract as the HTML) while repeat visits cost nothing.
+    const ifNoneMatch = req.headers.get("if-none-match");
+    if (method === "GET" && path === "/admin/assets/panel.css") {
+      const { text, etag } = adminPanelCssAsset();
+      if (ifNoneMatch === etag) return new Response(null, { status: 304, headers: { etag } });
+      return new Response(text, {
+        status: 200,
+        headers: { "content-type": "text/css; charset=utf-8", "cache-control": "no-cache", etag },
+      });
+    }
+    if (method === "GET" && path === "/admin/assets/panel.js") {
+      const { text, etag } = adminPanelJsAsset();
+      if (ifNoneMatch === etag) return new Response(null, { status: 304, headers: { etag } });
+      return new Response(text, {
+        status: 200,
+        headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-cache", etag },
+      });
+    }
 
     if (method === "GET" && (path === "/admin" || path === "/admin/" || path.startsWith("/admin/") || path === "/panel")) {
       return new Response(adminPanelHtml(), {

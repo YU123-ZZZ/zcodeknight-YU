@@ -114,7 +114,14 @@ const DEFAULTS = {
   // claimable keeps generating traffic with nothing to show for it.
   CLAIM_AUTO: true,
   CLAIM_ORIGIN: "https://zcode.z.ai",
-  CLAIM_POLL_INTERVAL_MS: 300000,
+  // 5 HOURS, not the original 5 minutes. A poll round is upstream traffic
+  // (preview + captcha + claim) from the pool's egress, and 3012 risk control
+  // counts exactly that traffic. An activity that appears while nobody polls
+  // is claimed at most 5h late; a pool hammering previews every 5 min earns
+  // the whole egress a block that costs far more than 5h of one grant.
+  // NEW accounts still claim immediately on their first resync — the newbie
+  // grant is the one thing worth breaking cadence for (claim/state.ts).
+  CLAIM_POLL_INTERVAL_MS: 18_000_000,
   CLAIM_COOLDOWN_MS: 600000,
   CLAIM_PLAN_ID: "",
   PROBE_ENABLED: true,

@@ -172,7 +172,7 @@ logging:
       // permanently-ineligible account from retrying aggressively.
       auto: true,
       origin: "https://zcode.z.ai",
-      pollIntervalMs: 300000,
+      pollIntervalMs: 18000000,
       cooldownMs: 600000,
       planId: "",
     });

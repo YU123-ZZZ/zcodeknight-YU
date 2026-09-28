@@ -38,32 +38,35 @@
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { adminPanelCss, adminPanelHtml, adminPanelJs } from "./panel-html.js";
 
 const PANEL = join(import.meta.dir, "admin.txt");
 const html = readFileSync(PANEL, "utf-8");
+// v4.7.0 split: the panel script and stylesheet are separate files served as
+// /admin/assets/panel.js and /admin/assets/panel.css. The script now comes from
+// its own file; the tiny language-probe block stays inline in the HTML.
+const panelJs = adminPanelJs();
+const panelCss = adminPanelCss();
 
 /**
- * Every inline script block the panel ships, in document order.
+ * Every script program the panel ships, in document order.
  *
- * There is more than one: a tiny language-detection block in <head> sets the
- * document's lang before the body paints, and the panel script carries the UI.
- * A single greedy `<script>([\s\S]*)<\/script>` spans both AND the markup
- * between them, so the parse test was fed HTML — which is how this broke when
- * the head block was added.
+ * There are two: a tiny language-detection block in <head> sets the document's
+ * lang before the body paints, and the panel script (its own file since the
+ * v4.7.0 split) carries the UI.
  */
 function panelScripts(): string[] {
   const out: string[] = [];
   const re = /<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html))) out.push(m[1]);
+  out.push(panelJs);
   return out;
 }
 
-/** The main panel script — the longest inline block (the head one is tiny). */
+/** The main panel script — served from panel.js since the split. */
 function panelScript(): string {
-  const blocks = panelScripts();
-  if (!blocks.length) throw new Error("panel has no <script> block");
-  return blocks.reduce((a, b) => (b.length > a.length ? b : a));
+  return panelJs;
 }
 
 describe("panel integrity", () => {
@@ -99,12 +102,13 @@ describe("panel integrity", () => {
     // bug to the user and is easy to introduce when adding markup.
     const keys = new Set<string>();
     for (const m of html.matchAll(/data-i18n(?:-ph)?="([a-z0-9_]+)"/gi)) keys.add(m[1]);
-    for (const m of html.matchAll(/\bT\("([a-z0-9_]+)"\)/gi)) keys.add(m[1]);
+    // The dictionaries and every T() call live in panel.js since the split.
+    for (const m of panelJs.matchAll(/\bT\("([a-z0-9_]+)"\)/gi)) keys.add(m[1]);
 
     const missing: string[] = [];
     for (const key of keys) {
       // Both dictionaries define keys as `key: "..."`; require one per language.
-      const hits = [...html.matchAll(new RegExp(`\\b${key}:\\s*"`, "g"))].length;
+      const hits = [...panelJs.matchAll(new RegExp(`\\b${key}:\\s*"`, "g"))].length;
       if (hits < 2) missing.push(`${key} (${hits} definition(s))`);
     }
     expect(missing).toEqual([]);
@@ -159,7 +163,7 @@ describe("panel integrity", () => {
     const script = panelScript();
     expect(script).toContain("card acc-card");
     for (const st of ["ok", "paused", "cooldown", "exhausted", "relogin", "error", "throttled"]) {
-      expect(html).toContain(`.acc-card.${st} {`);
+      expect(panelCss).toContain(`.acc-card.${st} {`);
     }
   });
 
@@ -172,7 +176,7 @@ describe("panel integrity", () => {
     const badge = [...script.matchAll(/st_throttled/g)].length;
     expect(badge).toBeGreaterThanOrEqual(2);
     for (const st of ["ok", "cooldown", "exhausted", "relogin", "paused", "error", "throttled"]) {
-      expect(html).toContain(`.bal-acc.${st} {`);
+      expect(panelCss).toContain(`.bal-acc.${st} {`);
     }
   });
 
@@ -238,10 +242,10 @@ describe("panel integrity", () => {
     expect(html).toContain('id="ask-mask"');
     expect(html).toContain('id="ask-ok"');
     expect(html).toContain('id="ask-cancel"');
-    expect(html).toContain("function askConfirm");
+    expect(panelScript()).toContain("function askConfirm");
     // Esc/Enter support, so the dialog is usable without a mouse.
-    expect(html).toContain("askClose(true)");
-    expect(html).toContain("askClose(false)");
+    expect(panelScript()).toContain("askClose(true)");
+    expect(panelScript()).toContain("askClose(false)");
   });
 
   it("remembers the last page and restores it on load", () => {

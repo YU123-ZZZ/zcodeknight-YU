@@ -46,7 +46,7 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { ensureNodeFetchNoTimeouts } from "./runtime/node-fetch-compat.js";
 
-export const VERSION = "4.6.8";
+export const VERSION = "4.7.0";
 
 if (require.main === module) main();
 
@@ -292,7 +292,11 @@ async function serve(configPath: string | undefined, debug: boolean): Promise<vo
     import("./claim/multi-runtime.js")
       .then((m) => {
         m.startMultiClaim(config);
-        console.log(`  claim: multi-account auto ON (poll ${Math.round(config.claim.pollIntervalMs / 1000)}s)`);
+        const pollSec = Math.round(config.claim.pollIntervalMs / 1000);
+        const pollTxt = pollSec >= 3600 && pollSec % 3600 === 0
+          ? `${pollSec / 3600}h`
+          : pollSec >= 60 && pollSec % 60 === 0 ? `${pollSec / 60}min` : `${pollSec}s`;
+        console.log(`  claim: multi-account auto ON (poll ${pollTxt}; new accounts claim on first sight)`);
       })
       .catch((err) => console.error(`[claim] scheduler failed to start: ${(err as Error).message}`));
   }

@@ -21,9 +21,9 @@
  * restated the logic would keep passing after the panel changed.
  */
 import { describe, it, expect } from "bun:test";
-import { adminPanelHtml } from "./panel-html.js";
+import { adminPanelCss, adminPanelSource } from "./panel-html.js";
 
-const html = adminPanelHtml();
+const html = adminPanelSource();
 
 /** Evaluate one function declaration from the panel and hand it back. */
 function liftFunction<T>(name: string): T {
@@ -404,7 +404,7 @@ describe("a model switch is noted in the transcript", () => {
   });
 
   it("repaints as a divider, not as something either side said", () => {
-    expect(html).toContain(".msg.note {");
+    expect(adminPanelCss()).toContain(".msg.note {");
     const cls = /function pgBubbleClass\(role\) \{[\s\S]*?\n\}/.exec(html);
     expect(cls).not.toBeNull();
     expect(cls![0]).toContain('role === "note" ? "note"');

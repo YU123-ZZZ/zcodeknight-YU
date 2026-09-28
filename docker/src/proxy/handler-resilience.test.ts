@@ -37,8 +37,9 @@
  * Both tests use the start-plan path with an injected captcha module via
  * `mock.module("./captcha.js")` (same technique as captcha-pool.test.ts).
  */
-import { describe, it, expect, mock } from "bun:test";
+import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { proxyRequest } from "./handler.js";
+import { clearRiskHolds } from "./risk-hold.js";
 import type { ProxyConfig, ProxyIdentity } from "../config/types.js";
 import { AuthManager } from "../auth/manager.js";
 
@@ -84,6 +85,12 @@ const ANTHROPIC_OK = JSON.stringify({
 });
 
 describe("proxyRequest — start-plan resilience (PR #34 review P1/P3)", () => {
+  beforeEach(() => {
+    // The 3012 tests leave a model-wide silent window behind (that IS the
+    // feature); later tests must not inherit it or their 3009/3012 responses
+    // come from the hold fast-fail instead of the classifier under test.
+    clearRiskHolds();
+  });
   it("retries an in-body 3007 captcha challenge with a fresh token", async () => {
     // Mock the captcha module: config enabled, token take returns distinct
     // tokens per call so we can assert the retry used a FRESH token.
@@ -222,8 +229,8 @@ describe("proxyRequest — start-plan resilience (PR #34 review P1/P3)", () => {
     expect(resp.headers.get("retry-after")).toBe("30");
     // Deliberately vague: the panel holds the diagnosis, the wire message does
     // not leak pool internals (account count, ceilings, cooldown machinery).
-    expect(body.error.message).toMatch(/高峰保护期/);
-    expect(body.error.message).toMatch(/稍后重试/);
+    expect(body.error.message).toMatch(/流量保护/);
+    expect(body.error.message).toMatch(/自动恢复/);
     expect(body.error.message).not.toMatch(/3012/);
     expect(body.error.message).not.toMatch(/账号/);
   });
@@ -258,8 +265,8 @@ describe("proxyRequest — start-plan resilience (PR #34 review P1/P3)", () => {
     expect(resp.status).toBe(429);
     expect(resp.headers.get("retry-after")).toBe("5");
     // Vague on purpose; names the model but not the pool machinery.
-    expect(body.error.message).toMatch(/并发高峰/);
-    expect(body.error.message).toMatch(/稍后重试/);
+    expect(body.error.message).toMatch(/同时请求数已达上限/);
+    expect(body.error.message).toMatch(/请稍等几秒后重试/);
     expect(body.error.message).not.toMatch(/3009/);
   });
 });

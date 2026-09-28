@@ -34,7 +34,7 @@
 import { describe, it, expect } from "bun:test";
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { adminPanelHtml, webuiHtml } from "./panel-html.js";
+import { adminPanelHtml, adminPanelSource, webuiHtml } from "./panel-html.js";
 
 const ADMIN = join(import.meta.dir, "admin.txt");
 const WEBUI = join(import.meta.dir, "webui.txt");
@@ -101,7 +101,9 @@ describe("the panel footer version cannot drift", () => {
   });
 
   it("the fill site wires foot-ver from the overview payload", () => {
-    const html = readFileSync(ADMIN, "utf-8");
+    // The wiring lives in panel.js since the v4.7.0 split; the source view
+    // stitches HTML + JS back together for exactly this kind of scan.
+    const html = adminPanelSource();
     expect(html.includes('"foot-ver"')).toBe(true);
     expect(/ov\.version[\s\S]{0,400}foot-ver/.test(html)).toBe(true);
   });

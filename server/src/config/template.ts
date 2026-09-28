@@ -173,7 +173,7 @@ probe:
 claim:
   enabled: true
   auto: true
-  pollIntervalMs: 300000    # one round every 5 min
+  pollIntervalMs: 18000000  # one round every 5 h - risk-control friendly; new accounts claim immediately on first sight
   cooldownMs: 600000        # per-account retry hold after a finished round
 
 # Outbound proxy for the engine's own upstream traffic.

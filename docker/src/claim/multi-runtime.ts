@@ -38,6 +38,7 @@ import { getCaptchaToken } from "../proxy/captcha.js";
 import { loadAccounts } from "../auth/account-store.js";
 import { getDefaultAccountPool } from "../auth/account-pool.js";
 import { adminLog } from "../server/routes-admin.js";
+import { isKnownAccount, markAccountSeen } from "./state.js";
 import type { LogLevel } from "../android/control.js";
 
 /** `${process.platform}-${process.arch}` — mirrors the client's `TH()`. */
@@ -53,6 +54,19 @@ export function claimPlatform(): string {
  * burst into a smooth ramp that costs the same and does not look like an attack.
  */
 const CLAIM_STAGGER_MS = 10_000;
+
+/**
+ * Head start given to accounts the claim system has ALREADY seen (persisted in
+ * claim-state.json) before their first tick after an engine start.
+ *
+ * A brand-new account claims immediately — the newbie grant is worth breaking
+ * cadence for. An account that was merely there across a restart does not need
+ * an instant round: the 5h poll interval means its next useful tick is hours
+ * away anyway, so waiting a few minutes after start costs nothing and keeps a
+ * restart loop (the captcha-sandbox OOM has done 6 in a day) from firing a
+ * full preview + captcha + claim burst per restart.
+ */
+const RESUME_DELAY_MS = 3 * 60_000;
 
 interface AccountScheduler {
   accountId: string;
@@ -105,6 +119,12 @@ export class MultiClaimManager {
         // (via the stop loop below) and resuming recreates it within a minute.
         const claimRuntime = pool.getRuntime(record.id);
         if (claimRuntime?.status === "paused") continue;
+        // First sight (persisted across restarts — see state.ts): this is the
+        // "new account" case, and it claims IMMEDIATELY, because the newbie
+        // activity grant is first-come-first-served. Everything else resumes
+        // the normal cadence after the resume delay.
+        const firstSight = !isKnownAccount(record.id);
+        markAccountSeen(record.id);
         const scheduler = new ClaimScheduler({
           getJwt: async () => {
             const rt = pool.getRuntime(record.id);
@@ -135,9 +155,13 @@ export class MultiClaimManager {
             adminLog.push(`[claim:${record.name}] ${message}`, level);
           },
         });
-        scheduler.start(stagger);
+        scheduler.start(firstSight ? stagger : RESUME_DELAY_MS + stagger);
         stagger += CLAIM_STAGGER_MS;
         this.entries.set(record.id, { accountId: record.id, scheduler });
+        if (firstSight) {
+          console.log(`[claim:${record.name}] new account — immediate first claim round (newbie grant check)`);
+          adminLog.push(`[claim:${record.name}] 检测到新账号，立即执行首轮活动检测/领取`, "info");
+        }
       }
       // Stop schedulers for deleted accounts — and for accounts paused after
       // their scheduler was already running (a pause lands within one resync

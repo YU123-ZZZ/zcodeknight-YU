@@ -20,8 +20,9 @@
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { adminPanelCss, adminPanelSource } from "./panel-html.js";
 
-const html = readFileSync(join(import.meta.dir, "admin.txt"), "utf-8");
+const html = adminPanelSource();
 
 describe("a failed account action is reported, not swallowed", () => {
   /**
@@ -97,7 +98,7 @@ describe("the plan toggle is shown but inert where it cannot stick", () => {
   it("the disabled style exists, so an inert button does not look clickable", () => {
     // Without this the button keeps its normal appearance and the operator just
     // clicks a thing that does nothing.
-    expect(html).toContain(".btn:disabled {");
+    expect(adminPanelCss()).toContain(".btn:disabled {");
   });
 });
 
@@ -142,8 +143,8 @@ describe("the panel starts gated", () => {
     // .side + main are the panel chrome. Everything else — the login dialog, the
     // masks, the toasts — is a sibling and must stay usable while gated, or a
     // fresh visitor would get a blank page with no way to log in.
-    expect(html).toContain("body.gated .side,");
-    expect(html).toContain("body.gated main { visibility: hidden; }");
+    expect(adminPanelCss()).toContain("body.gated .side,");
+    expect(adminPanelCss()).toContain("body.gated main { visibility: hidden; }");
     // #login-mask must NOT be inside main, or gating would hide the only way in.
     const mainStart = html.indexOf("<main>");
     const mainEnd = html.indexOf("</main>");

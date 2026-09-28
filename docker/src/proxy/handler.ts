@@ -56,6 +56,7 @@ import { transformRequestBody } from "./body-transformer.js";
 import { isCaptchaChallenged, retryOnCaptchaChallenge } from "./captcha-retry.js";
 import { type ClientSessionResult } from "./client-session.js";
 import { resolveSessionContext } from "./session-context.js";
+import { listRiskHolds, markRiskHold, riskHoldRemaining } from "./risk-hold.js";
 import { gzipSync } from "node:zlib";
 
 // captcha.ts is loaded lazily inside the `startPlan` branch (only path that
@@ -172,6 +173,25 @@ export async function proxyRequest(
   // Multi-account dispatch: the lease rides on the credential object. The
   // effective plan/provider/device identity come from the ACCOUNT record, not
   // the global config — each account is its own upstream client.
+  //
+  // Risk-control silence comes FIRST: a model inside its post-3012 window is
+  // answered here, without leasing an account or touching upstream. Every
+  // forwarded request during an IP block is evidence against the egress, and
+  // the whole point of the hold is to stop feeding it (see risk-hold.ts).
+  // Pinned test dispatches bypass the hold — the operator explicitly asked for
+  // that account/model, usually to check whether the block has lifted.
+  const riskLeftMs = riskHoldRemaining(meta.model);
+  if (riskLeftMs > 0 && !opts.testAccountId) {
+    const unlockClock = new Date(Date.now() + riskLeftMs).toLocaleTimeString();
+    if (debug) debugError(reqId, "risk_hold", `${meta.model} silenced, ${Math.ceil(riskLeftMs / 1000)}s left (3012 backoff)`);
+    printRow(reqId, format, meta, 429, started, Date.now(), 0, 0, 0, "", true);
+    return errorResponse(
+      429,
+      "rate_limited",
+      `模型「${meta.model}」处于临时保护期，预计 ${unlockClock} 自动恢复，请稍后重试。`,
+      { "retry-after": String(Math.ceil(riskLeftMs / 1000)) },
+    );
+  }
   let cred: Credential;
   let accountId = "";
   let accountName = "";
@@ -545,10 +565,20 @@ export async function proxyRequest(
          * rotation for `cooldownMs`. The intent is the cooling-off period, not
          * any claim that this is a concurrency condition; `concurrency_rejected`
          * is simply the only outcome kind that carries a backoff.
+         *
+         * The MODEL-level silence (risk-hold) is the second half of the answer,
+         * and it IS model-scoped on purpose: the datacenter measurements show
+         * blocks holding one model for hours while others pass, so silencing
+         * the affected model engine-wide stops the evidence feed without
+         * benching the models that still work.
          */
+        markRiskHold(meta.model);
+        const holds = listRiskHolds();
+        const held = holds.find((h) => h.model === meta.model);
+        const unlockClock = held ? new Date(held.unlockAt).toLocaleTimeString() : "";
         reportOutcomeToPool(auth, accountId, {
           kind: "concurrency_rejected",
-          note: "上游风控 3012 unusual activity — 出口 IP 被标记，账号进入冷却避让（降低请求量后会自动恢复）",
+          note: `上游风控 3012 unusual activity — 出口 IP 被标记；${meta.model || "该模型"} 进入 30 分钟静默期${unlockClock ? `（至 ${unlockClock}）` : ""}，期间不再请求上游，自动恢复`,
         });
       }
       releaseLeaseFor(auth, cred);
@@ -565,8 +595,8 @@ export async function proxyRequest(
         429,
         "rate_limited",
         isConcurrency
-          ? `当前请求的模型（${model}）触发渠道并发高峰，请稍后重试。渠道容量会自动恢复，无需更换配置。`
-          : `当前渠道处于高峰保护期，请求暂时被限制，请稍后重试。渠道容量会自动恢复。`,
+          ? `模型「${model}」的同时请求数已达上限，请稍等几秒后重试，一般会自动恢复，无需修改配置。`
+          : `渠道正在进行流量保护，请求暂时被限制。请稍后重试，一般会自动恢复。`,
         { "retry-after": isConcurrency ? "5" : "30" },
       );
     }
@@ -609,7 +639,10 @@ export async function proxyRequest(
       // it) still means the egress is being risk-controlled. Reported WITHOUT a
       // model on purpose: the flag is per IP, so holding one model while the
       // rest stay dispatchable just produces another 3012 on the next request.
-      // See the account-wide note in the 3012 branch above.
+      // See the account-wide note in the 3012 branch above. The model-scoped
+      // risk-hold still applies — that is the mechanism that actually stops
+      // the retry storm (risk-hold.ts).
+      markRiskHold(failedModel);
       outcome = { kind: "concurrency_rejected" };
     }
   }
@@ -744,7 +777,7 @@ function spacingFailure(
   printRow(reqId, format, meta, 503, started, Date.now(), 0, 0, 0);
   const headers = waitMs && waitMs > 0 ? { "retry-after": String(Math.max(1, Math.ceil(waitMs / 1000))) } : undefined;
   const message = kind === "pool_busy"
-    ? "所有账号的并发槽位已占满，本请求被直接拒绝（未排队）。请稍后重试；并发释放后会自动恢复。/ All account slots are busy — request rejected without queueing. Retry shortly."
+    ? "当前使用人数已达并发上限，本次请求未进入等待队列，请稍后重试。/ The pool is at its concurrency limit — the request was rejected without queueing. Please retry shortly."
     : (err as Error).message;
   return errorResponse(503, kind === "pool_busy" ? "pool_busy" : "credential_unavailable", message, headers);
 }

@@ -38,9 +38,12 @@
  * when the file is not there, which is exactly the standalone-binary case.
  */
 import { readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import embeddedAdmin from "./admin.txt" with { type: "text" };
+import embeddedAdminCss from "./admin.css.txt" with { type: "text" };
+import embeddedAdminJs from "./admin.js.txt" with { type: "text" };
 import embeddedWebui from "./webui.txt" with { type: "text" };
 
 /**
@@ -98,6 +101,67 @@ function liveOrEmbedded(dir: string, file: string, fallback: string): string {
 /** The admin panel HTML, fresh from disk when the source tree is present. */
 export function adminPanelHtml(): string {
   return liveOrEmbedded(baseDir(), "admin.txt", embeddedAdmin);
+}
+
+/** The admin panel stylesheet (v4.7.0: split out of the HTML so the browser caches it). */
+export function adminPanelCss(): string {
+  return liveOrEmbedded(baseDir(), "admin.css.txt", embeddedAdminCss);
+}
+
+/** The admin panel script (v4.7.0: split out of the HTML so the browser caches it). */
+export function adminPanelJs(): string {
+  return liveOrEmbedded(baseDir(), "admin.js.txt", embeddedAdminJs);
+}
+
+/**
+ * HTML + JS in one string — the pre-split view of the panel.
+ *
+ * The split moved the panel's script and styles into separately-served files,
+ * but a dozen tests regex functions and dictionaries out of the panel source
+ * and they should not care where the boundary fell. This returns the same
+ * combined text those tests have always seen: HTML first, the script wrapped
+ * in a <script> block after it.
+ */
+export function adminPanelSource(): string {
+  return adminPanelHtml() + "\n<script>\n" + adminPanelJs() + "\n</script>\n";
+}
+
+export interface PanelAsset {
+  text: string;
+  /** Strong ETag (content hash) — the asset routes answer If-None-Match with 304. */
+  etag: string;
+}
+
+function asset(text: string): PanelAsset {
+  return { text, etag: `"${createHash("sha1").update(text).digest("hex").slice(0, 20)}"` };
+}
+
+const cssCache = new Map<string, PanelAsset>();
+const jsCache = new Map<string, PanelAsset>();
+
+/**
+ * Asset text plus its ETag. The ETag is computed on the live file's bytes, so
+ * editing the file changes the hash and the next request gets the fresh body —
+ * the same live-override contract as the HTML, extended to the assets.
+ */
+export function adminPanelCssAsset(): PanelAsset {
+  const text = adminPanelCss();
+  const hit = cssCache.get(text.length + ":" + text.slice(0, 64));
+  if (hit && hit.text === text) return hit;
+  const made = asset(text);
+  cssCache.clear();
+  cssCache.set(text.length + ":" + text.slice(0, 64), made);
+  return made;
+}
+
+export function adminPanelJsAsset(): PanelAsset {
+  const text = adminPanelJs();
+  const hit = jsCache.get(text.length + ":" + text.slice(0, 64));
+  if (hit && hit.text === text) return hit;
+  const made = asset(text);
+  jsCache.clear();
+  jsCache.set(text.length + ":" + text.slice(0, 64), made);
+  return made;
 }
 
 /** The OpenAI-compatible WebUI HTML, fresh from disk when present. */

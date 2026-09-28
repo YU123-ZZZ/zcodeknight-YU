@@ -166,7 +166,16 @@ async function probeOneAccount(
   const startPlan = record.plan === "start-plan";
   const captchaModule = startPlan ? await import("../proxy/captcha.js") : null;
 
-  for (const model of catalog) {
+  // Models inside their post-3012 silent window are skipped, not probed: a
+  // probe is a real upstream request from the same egress IP that just got
+  // flagged, and feeding it one more request per account per model during the
+  // block is exactly what the hold exists to prevent. The stale record is kept
+  // (same policy as a fully blocked sweep below).
+  const { riskHoldRemaining } = await import("../proxy/risk-hold.js");
+  const probed = catalog.filter((m) => riskHoldRemaining(m) === 0);
+  const skippedByRiskHold = catalog.length - probed.length;
+
+  for (const model of probed) {
     let captchaHeaders: Record<string, string> | undefined;
     if (captchaModule) {
       try {
@@ -241,6 +250,12 @@ async function probeOneAccount(
     n === "captcha rejected" || n.startsWith("blocked") || n.startsWith("inconclusive");
   if (results.length > 0 && results.every((r) => inconclusive(r.note))) {
     console.warn(`[probe] ${record.name}: all ${results.length} models blocked (captcha/risk control) — keeping the previous result`);
+    return null;
+  }
+  if (results.length === 0 && skippedByRiskHold > 0) {
+    // Every catalog model was inside its silent window: probing would only
+    // feed the block, and there is nothing new to record. Keep the previous.
+    console.warn(`[probe] ${record.name}: all ${skippedByRiskHold} models in 3012 risk-hold — keeping the previous result`);
     return null;
   }
 

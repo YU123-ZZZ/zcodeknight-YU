@@ -22,7 +22,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { GlobalWindow } from "happy-dom";
-import { adminPanelHtml } from "./panel-html.js";
+import { adminPanelSource } from "./panel-html.js";
 
 let win: GlobalWindow;
 
@@ -43,7 +43,7 @@ afterEach(() => {
  * be evaluated on its own without booting the panel.
  */
 function loadBalanceEmptyText(): (rec: unknown) => string {
-  const html = adminPanelHtml();
+  const html = adminPanelSource();
   const fn = /function balanceEmptyText\(rec\) \{[\s\S]*?\n\}/.exec(html);
   if (!fn) throw new Error("balanceEmptyText not found in the panel");
   // The two dictionaries, taken verbatim so the assertions check the text the
