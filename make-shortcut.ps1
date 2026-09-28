@@ -50,3 +50,5 @@ if ($check.TargetPath -ne $bat) { Write-Host "ERROR: shortcut target is wrong: $
 Write-Host "created : $lnk"
 Write-Host "target  : $($check.TargetPath)"
 Write-Host "icon    : $($check.IconLocation)"
+
+# ZcodeKnight v4.7.1

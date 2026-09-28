@@ -184,3 +184,5 @@ for /f "tokens=1,* delims==" %%e in ('wmic process where "ProcessId=!P!" get Exe
 echo   PID !P!  !IMG_%P%!   listening !PORTS!
 if defined EXEPATH echo         !EXEPATH!
 exit /b 0
+
+rem ZcodeKnight v4.7.1

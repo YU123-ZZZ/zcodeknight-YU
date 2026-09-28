@@ -94,21 +94,6 @@ function bypassList(extra: string): string {
  * setting work on either runtime instead of silently doing nothing on one.
  */
 export async function applyNetworkProxy(cfg: NetworkProxyConfig): Promise<void> {
-  // Multi-URL rotation: `url` may list several proxies comma-separated. When it
-  // does, a background timer walks the list and re-applies one per window —
-  // spreading the pool's egress across exits instead of concentrating every
-  // request on one IP (the shape 3012 risk control weighs). A single URL keeps
-  // the shipped fixed behaviour, byte for byte.
-  const rawList = cfg.enabled
-    ? cfg.url.split(",").map((s) => s.trim()).filter(Boolean)
-    : [];
-  stopRotation();
-  if (rawList.length > 1) {
-    startRotation(rawList, cfg.noProxy);
-    rotateTo(rawList[0], cfg.noProxy);
-    return;
-  }
-
   const want = cfg.enabled && cfg.url ? cfg.url.trim() : "";
 
   if (!want) {
@@ -122,64 +107,6 @@ export async function applyNetworkProxy(cfg: NetworkProxyConfig): Promise<void> 
   for (const k of NO_PROXY_ENV_KEYS) process.env[k] = bypassList(cfg.noProxy);
   installed = want;
   await installDispatcher(want, bypassList(cfg.noProxy));
-}
-
-/**
- * Rotation state. ROTATE_EVERY_MS at 10 minutes: slow enough that one exit
- * serves many requests (a per-request hop would break upstream session
- * affinity and look MORE robotic, not less), fast enough that a blocked exit
- * is left behind within minutes.
- */
-const ROTATE_EVERY_MS = 10 * 60_000;
-
-let rotateTimer: ReturnType<typeof setInterval> | null = null;
-let rotateList: string[] = [];
-let rotateIndex = 0;
-let rotateNoProxy = "";
-
-function startRotation(list: string[], noProxy: string): void {
-  rotateList = list;
-  rotateIndex = 0;
-  rotateNoProxy = noProxy;
-  rotateTimer = setInterval(() => {
-    rotateIndex = (rotateIndex + 1) % rotateList.length;
-    void rotateTo(rotateList[rotateIndex], rotateNoProxy);
-  }, ROTATE_EVERY_MS);
-  (rotateTimer as unknown as { unref?: () => void }).unref?.();
-}
-
-function stopRotation(): void {
-  if (rotateTimer) clearInterval(rotateTimer);
-  rotateTimer = null;
-  rotateList = [];
-  rotateIndex = 0;
-}
-
-/** Apply one proxy from the rotation list; a dead entry just logs and waits for the next hop. */
-async function rotateTo(url: string, noProxy: string): Promise<void> {
-  try {
-    for (const k of PROXY_ENV_KEYS) process.env[k] = url;
-    for (const k of NO_PROXY_ENV_KEYS) process.env[k] = bypassList(noProxy);
-    installed = url;
-    await installDispatcher(url, bypassList(noProxy));
-    // Lazy import avoids a cycle: routes-admin imports the panel, which this
-    // feeds; a direct import would pull the whole admin surface into every test.
-    const { adminLog } = await import("../server/routes-admin.js");
-    adminLog.push(`[proxy] rotation -> ${maskProxyUrl(url)} (${rotateIndex + 1}/${rotateList.length})`, "info");
-  } catch (e) {
-    const { adminLog } = await import("../server/routes-admin.js");
-    adminLog.push(`[proxy] rotation entry failed: ${(e as Error).message} — staying on previous until next hop`, "warn");
-  }
-}
-
-/** `socks://user:pass@host:port` → `socks://host:port` — credentials never reach the log. */
-export function maskProxyUrl(url: string): string {
-  try {
-    const u = new URL(url);
-    return `${u.protocol}//${u.host}`;
-  } catch {
-    return "(unparsable)";
-  }
 }
 
 /**
@@ -220,6 +147,13 @@ export async function applyDirectDispatcher(): Promise<void> {
 }
 
 /** For tests: forget the installed state without touching the environment. */
+async function stopClashRotateIfAny(): Promise<void> {
+  try {
+    const m = await import("./clash-rotate.js");
+    m.stopClashRotate();
+  } catch {}
+}
+
 export function resetProxyStateForTest(): void {
   installed = "";
 }

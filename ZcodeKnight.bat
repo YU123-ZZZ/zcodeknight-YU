@@ -196,3 +196,5 @@ start "" "http://127.0.0.1:!PORT!/admin"
 rem Brief pause so the browser has time to start before this window vanishes.
 ping -n 2 127.0.0.1 >nul 2>&1
 exit /b 0
+
+rem ZcodeKnight v4.7.1

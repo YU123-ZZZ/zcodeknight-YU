@@ -219,3 +219,5 @@ else
   die "启动失败，日志尾部：
 $(tail -n 20 "$LOGFILE" 2>/dev/null)"
 fi
+
+# ZcodeKnight v4.7.1

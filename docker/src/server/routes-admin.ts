@@ -55,6 +55,9 @@ import { LogBuffer } from "../android/control.js";
 import { VERSION } from "../index.js";
 import { getSystemSnapshot, noteSystemPoll, startSystemSampler } from "./system-metrics.js";
 
+/** Static host facts for /system — enumerated once, never change at runtime. */
+let sysStatic: { platform: string; osRelease: string; hostname: string; cpuModel: string; cpuCores: number; cpuSpeedMhz: number; ifaceIp: string } | null = null;
+
 
 /**
  * Earliest next auto-claim check across account schedulers, for the settings
@@ -375,34 +378,40 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
   const pool = getDefaultAccountPool();
 
   // ---- system monitor (CPU / memory / disk / network / uptime) ----
-  // Read-only host snapshot for the panel's System page. Everything comes from
-  // node:os (+ /proc on Linux) — no shell, no elevation. Cost per call: one
-  // os.cpus() snapshot plus one stat() — negligible next to a request, and the
-  // panel samples it every 5s.
-  //
-  // Live CPU% needs TWO snapshots (os.cpus() times are cumulative since boot),
-  // so the previous sample is cached module-side and the delta is returned.
-  // The cache also feeds the network rates (same pattern as the reference
-  // monitor: /proc/net/dev deltas on Linux; disabled elsewhere — Windows has
-  // no byte counters os can read without WMI).
-  // ---- system monitor (CPU / memory / disk / network / uptime) ----
   // v4.7.1: collection lives in system-metrics.ts on a 2s background timer
   // (sub2api-style pre-aggregation). This handler only records the poll and
   // reads the cache — no wmic, no awaits, an instant reply that never blocks
   // the proxy. The idle gate lives in the sampler: ticks stop 15s after the
   // last poll, so an unwatched panel costs nothing.
+  // Static host facts are enumerated once (see sysStatic) — the handler body
+  // is a cache read plus process.memoryUsage(), nothing else.
   if (method === "GET" && path === "/system") {
     const os = await import("node:os");
     noteSystemPoll();
     const snap = getSystemSnapshot();
     const procMem = process.memoryUsage();
-    const out: Record<string, unknown> = {
+    // Static host facts (model/cores/hostname/...) change never — cache them
+    // at first call instead of re-enumerating os.cpus() (24 cores on this box)
+    // three times per poll.
+    sysStatic = sysStatic ?? {
       platform: `${os.platform()} ${os.arch()}`,
       osRelease: os.release(),
       hostname: os.hostname(),
       cpuModel: os.cpus()[0]?.model?.trim() ?? "unknown",
       cpuCores: os.cpus().length,
       cpuSpeedMhz: os.cpus()[0]?.speed ?? 0,
+      ifaceIp: (() => {
+        const nets = os.networkInterfaces();
+        for (const k of Object.keys(nets)) {
+          for (const a of nets[k]) {
+            if (a.family === "IPv4" && !a.internal) return a.address;
+          }
+        }
+        return "";
+      })(),
+    };
+    const out: Record<string, unknown> = {
+      ...sysStatic,
       cpuUsagePct: snap?.cpuUsagePct ?? null,
       cpuPerCore: snap?.cpuPerCore ?? [],
       loadAvg1: snap?.loadAvg1 ?? 0,
@@ -420,15 +429,6 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
       procHeapTotalBytes: procMem.heapTotal,
       nodeVersion: process.version,
       pid: process.pid,
-      ifaceIp: (() => {
-        const nets = os.networkInterfaces();
-        for (const k of Object.keys(nets)) {
-          for (const a of nets[k]) {
-            if (a.family === "IPv4" && !a.internal) return a.address;
-          }
-        }
-        return "";
-      })(),
       engineUptimeSec: Math.round(process.uptime()),
       startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString(),
     };

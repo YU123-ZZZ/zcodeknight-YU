@@ -88,3 +88,5 @@ echo   Next: create a release (tag v2.0.0) and attach ZcodeKnight.exe as an asse
 echo         so the panel's "Check for updates" can find it.
 echo.
 pause
+
+rem ZcodeKnight v4.7.1
