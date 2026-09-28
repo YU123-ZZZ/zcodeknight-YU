@@ -4,6 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
+ * 版本 Version: v4.7.1
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -32,6 +33,7 @@
  * skipped; accounts added later are picked up on the next resync tick.
  */
 import type { ProxyConfig } from "../config/types.js";
+import { engineError } from "../monitor/engine-log.js";
 import { ClaimScheduler } from "./scheduler.js";
 import { createClaimClient } from "./client.js";
 import { getCaptchaToken } from "../proxy/captcha.js";
@@ -174,8 +176,18 @@ export class MultiClaimManager {
         }
       }
     } catch (e) {
-      console.error(`[claim] multi-account resync failed: ${(e as Error).message}`);
+      engineError("claim", `multi-account resync failed: ${(e as Error).message}`);
     }
+  }
+
+  /** Earliest next-check unix-ms across all account schedulers (admin countdown). */
+  nextCheckAt(): number {
+    let min = 0;
+    for (const { scheduler } of this.entries.values()) {
+      const t = scheduler.nextTickAt();
+      if (t > 0 && (min === 0 || t < min)) min = t;
+    }
+    return min;
   }
 
   /** Account ids with a live scheduler (admin introspection). */
@@ -209,6 +221,16 @@ export function stopMultiClaim(): void {
   if (!defaultManager) return;
   defaultManager.stop();
   defaultManager = null;
+}
+
+/**
+ * Earliest next auto-claim check (unix-ms) across live schedulers, 0 when the
+ * scheduler is off. A module-level accessor because nextCheckAt is an INSTANCE
+ * method on the manager — the /config handler must not call it on the module
+ * namespace (that 500-ed the whole config read; caught live 2026-09-28).
+ */
+export function multiClaimNextCheckAt(): number {
+  return defaultManager ? defaultManager.nextCheckAt() : 0;
 }
 
 /** Whether the auto-claim timers are currently armed. */

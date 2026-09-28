@@ -4,6 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
+ * 版本 Version: v4.7.1
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -22,6 +23,7 @@
  * ──────────────────────────────────────────────────────────────────────────
  */
 
+import { engineError } from "../monitor/engine-log.js";
 import {
   CaptchaCpuGovernor,
   resolveCpuGovernorConfig,
@@ -551,7 +553,7 @@ export class CaptchaTokenPool {
         if (r.status === "fulfilled") {
           this.pushToken(r.value);
         } else {
-          console.warn("[captcha-pool] parallel solve failed:", r.reason);
+          engineError("captcha", `parallel solve failed: ${r.reason}`, "warn");
         }
       }
       remaining -= wave;
@@ -600,9 +602,7 @@ export class CaptchaTokenPool {
     this.stormStrikes += 1;
     const holdMs = Math.min(5 * 60_000 * 2 ** (this.stormStrikes - 1), 30 * 60_000);
     this.mintHoldUntil = now + holdMs;
-    console.warn(
-      `[captcha] mint storm detected (${fails} failures/5min, ${succs} successes/3min; latest: ${latestReason.slice(0, 120)}) -> requesting IP reset, mint paused ${Math.round(holdMs / 1000)}s`,
-    );
+    engineError("captcha", `mint storm detected (${fails} failures/5min, ${succs} successes/3min) -> mint paused ${Math.round(holdMs / 1000)}s`, "warn");
     // md-report fix: a storm means dozens of failed solves in 5 minutes, and
     // any pooled window from that wave may be half-poisoned (the leak that
     // grew RSS to 793MB on a 2G box). Force-discard it now — the next healthy

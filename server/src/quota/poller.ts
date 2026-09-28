@@ -4,6 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
+ * 版本 Version: v4.7.1
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -38,6 +39,7 @@
  * surface, so a coding-plan key account has nothing to poll.
  */
 import type { ProxyConfig } from "../config/types.js";
+import { engineError } from "../monitor/engine-log.js";
 import type { QuotaSnapshot } from "../server/routes-quota.js";
 import { collectQuotaSnapshot } from "../server/routes-quota.js";
 import { loadAccounts } from "../auth/account-store.js";
@@ -243,7 +245,7 @@ export async function refreshAll(config: ProxyConfig): Promise<void> {
       if (!seen.has(id)) balances.delete(id);
     }
   } catch (e) {
-    console.error(`[balance] refresh failed: ${(e as Error).message}`);
+    engineError("balance", `refresh failed: ${(e as Error).message}`);
   } finally {
     running = false;
   }

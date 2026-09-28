@@ -4,6 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
+ * 版本 Version: v4.7.1
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -315,14 +316,26 @@ function nodeReqToWebRequest(req: import("node:http").IncomingMessage, signal?: 
   // everywhere else: behind Docker's port mapping or any reverse proxy, every
   // log line claimed 127.0.0.1 no matter who actually called.
   //
-  // Stamped as `x-real-ip` ONLY when the client sent neither header of its own.
-  // `x-forwarded-for` / `x-real-ip` arriving on the wire are the client's claim
-  // and keep winning, because a reverse proxy sets them deliberately; this only
-  // fills the gap where there is nothing to trust. The header lives on the
-  // in-process Request object and never reaches the client.
+  // Stamped as `x-real-ip` ONLY when the client sent neither header of its own
+  // AND the socket peer looks like a trusted relay (loopback / private range —
+  // the shape of a reverse proxy on the same host or LAN). A direct internet
+  // client that sets `x-forwarded-for` itself must not have that claim honoured:
+  // the login rate limiter keys off the extracted IP, so an untrusted header
+  // would let an attacker rotate a fake IP per attempt and never hit the 8-try
+  // lockout. Verified 2026-09-28: spoofed XFF against a bare deployment rotated
+  // the limiter bucket and bypassed the lockout entirely. The raw peer is kept
+  // in `x-real-ip-raw` (in-process only) so the limiter can still bucket an
+  // untrusted direct caller by its real address.
   const peer = req.socket?.remoteAddress;
-  if (peer && !headers.has("x-forwarded-for") && !headers.has("x-real-ip")) {
+  const peerTrustedRelay = !!peer && (
+    peer === "127.0.0.1" || peer === "::1" || peer.startsWith("::ffff:127.")
+    || peer.startsWith("10.") || peer.startsWith("192.168.")
+    || /^(:ffff:)?172\.(1[6-9]|2\d|3[01])\./.test(peer)
+  );
+  if (peer && peerTrustedRelay && !headers.has("x-forwarded-for") && !headers.has("x-real-ip")) {
     headers.set("x-real-ip", peer);
+  } else if (peer) {
+    headers.set("x-real-ip-raw", peer);
   }
   const host = headers.get("host") ?? "localhost";
   const url = `http://${host}${req.url ?? "/"}`;

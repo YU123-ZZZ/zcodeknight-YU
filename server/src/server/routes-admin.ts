@@ -4,6 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
+ * 版本 Version: v4.7.1
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -46,13 +47,23 @@ import {
 import { getDefaultAccountPool, type RuntimeSnapshot } from "../auth/account-pool.js";
 import { ZaiOAuthClient, BigmodelPollOAuthClient, type OAuthFlowClient } from "../auth/oauth.js";
 import { join } from "node:path";
-import { spawnSync } from "node:child_process";
 import { dataFile } from "../paths.js";
 import { KeyResolver } from "../auth/resolver.js";
 import type { ProviderId } from "../provider/types.js";
 import type { ProxyIdentity } from "../config/types.js";
 import { LogBuffer } from "../android/control.js";
 import { VERSION } from "../index.js";
+import { getSystemSnapshot, noteSystemPoll, startSystemSampler } from "./system-metrics.js";
+
+
+/**
+ * Earliest next auto-claim check across account schedulers, for the settings
+ * countdown. Lives here rather than inline in the config handler: the value
+ * comes off the MultiClaimManager INSTANCE (an instance method), not the
+ * module namespace — calling it on the import object is  (caught live 2026-09-28, where it 500-ed the whole /config read
+ * and left every settings toggle showing its placeholder).
+ */
+
 import {
   SESSION_COOKIE, createSession, getSession, getSessionWithCookie, destroySession,
   parseCookies, loginAllowed, recordFailure, recordSuccess,
@@ -64,18 +75,9 @@ import {
 /** Live log ring shared with the request path (wired in serve()). */
 export const adminLog = new LogBuffer(2000, dataFile("admin-log.jsonl"));
 
-// System-monitor sampling state (module-level: deltas must survive between
-// requests, and they live for the life of the process — a per-call let would
-// reset on every poll and the live CPU%/net rates would never appear).
-let _prevCpuSample: { at: number; idle: number; total: number } | null = null;
-let _prevNetSample: { at: number; rx: number; tx: number } | null = null;
-// Windows has no /proc and os.loadavg() is always 0 there, so the load tile is
-// fed from the processor-queue length instead (the Windows analogue of load
-// average). Cached between polls for the same delta reason as the samples
-// above: wmic is a process spawn (~100ms), so it runs on a timer, not per call.
-let _winLoad: { at: number; value: number } | null = null;
-// GPU names change never; query wmic once and remember.
-let _gpuName: string | null | undefined;
+// System metrics live in system-metrics.ts since v4.7.1: a background timer
+// samples the host (idle-gated, async, zero event-loop blocking) and GET
+// /system reads its cache. See the module header for the "why".
 adminLog.hydrateFromDisk();
 
 /** A pending OAuth login session (add-account flow). */
@@ -169,14 +171,18 @@ const DEFAULT_ADMIN_KEY = "admin";
 
 /** Extract the client IP for rate limiting. */
 function clientIp(req: Request): string {
-  // `x-forwarded-for` / `x-real-ip` are the client's claim and win; the HTTP
-  // server fills `x-real-ip` with the peer socket address when the client sent
-  // neither (see nodeReqToWebRequest). "unknown" rather than "local" for the
-  // same reason the request log uses it: a caller with no address must not be
-  // recorded — or rate-limited — as if it were localhost.
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-    || req.headers.get("x-real-ip")
-    || "unknown";
+  // `x-forwarded-for` / `x-real-ip` are honoured only when the server stamped
+  // them (nodeReqToWebRequest fills `x-real-ip` from the socket peer ONLY for
+  // trusted-relay peers — loopback/LAN). A direct internet client claiming its
+  // own `x-forwarded-for` must not rotate the limiter bucket per attempt: that
+  // bypassed the login lockout entirely (verified 2026-09-28). When no stamped
+  // value exists, fall back to the raw socket peer via `x-real-ip-absent` —
+  // but the server always stamps for trusted peers, so an unlabeled request
+  // from an untrusted peer means "no trustworthy IP": bucket it under the peer
+  // address the request layer kept in `x-real-ip-raw` when untrusted.
+  const stamped = req.headers.get("x-real-ip");
+  if (stamped) return stamped;
+  return req.headers.get("x-real-ip-raw") || "unknown";
 }
 
 /**
@@ -379,55 +385,36 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
   // The cache also feeds the network rates (same pattern as the reference
   // monitor: /proc/net/dev deltas on Linux; disabled elsewhere — Windows has
   // no byte counters os can read without WMI).
+  // ---- system monitor (CPU / memory / disk / network / uptime) ----
+  // v4.7.1: collection lives in system-metrics.ts on a 2s background timer
+  // (sub2api-style pre-aggregation). This handler only records the poll and
+  // reads the cache — no wmic, no awaits, an instant reply that never blocks
+  // the proxy. The idle gate lives in the sampler: ticks stop 15s after the
+  // last poll, so an unwatched panel costs nothing.
   if (method === "GET" && path === "/system") {
     const os = await import("node:os");
-    const { readFile } = await import("node:fs/promises");
-    const cpus = os.cpus();
-    const totalMem = os.totalmem();
-    const freeMem = os.freemem();
-    const load = os.loadavg();
+    noteSystemPoll();
+    const snap = getSystemSnapshot();
     const procMem = process.memoryUsage();
-    // Live CPU% from the delta between this snapshot and the previous one.
-    // First call returns null — the panel shows "—" until the second tick (5s).
-    const snap = cpus.reduce(
-      (acc, c) => {
-        acc.idle += c.times.idle;
-        acc.total += c.times.user + c.times.nice + c.times.sys + c.times.idle + c.times.irq;
-        return acc;
-      },
-      { idle: 0, total: 0 },
-    );
-    let cpuUsagePct: number | null = null;
-    if (_prevCpuSample && snap.total > _prevCpuSample.total) {
-      const dTotal = snap.total - _prevCpuSample.total;
-      const dIdle = snap.idle - _prevCpuSample.idle;
-      cpuUsagePct = Math.max(0, Math.min(100, Math.round(((dTotal - dIdle) / dTotal) * 1000) / 10));
-    }
-    _prevCpuSample = { at: Date.now(), idle: snap.idle, total: snap.total };
-    // Per-core busy% for the bar strip.
-    const cpuPerCore = cpus.map((c) => {
-      const t = c.times;
-      const total = t.user + t.nice + t.sys + t.idle + t.irq;
-      const busy = total > 0 ? Math.round(((total - t.idle) / total) * 1000) / 10 : 0;
-      // Cumulative busy% since boot — honest per-core view without history.
-      return busy;
-    });
-
-    const out = {
+    const out: Record<string, unknown> = {
       platform: `${os.platform()} ${os.arch()}`,
       osRelease: os.release(),
       hostname: os.hostname(),
-      cpuModel: cpus[0]?.model?.trim() ?? "unknown",
-      cpuCores: cpus.length,
-      cpuSpeedMhz: cpus[0]?.speed ?? 0,
-      cpuUsagePct,
-      cpuPerCore,
-      loadAvg1: Math.round(load[0] * 100) / 100,
-      loadAvg5: Math.round(load[1] * 100) / 100,
-      loadAvg15: Math.round(load[2] * 100) / 100,
-      memTotalBytes: totalMem,
-      memFreeBytes: freeMem,
-      memUsedPct: totalMem > 0 ? Math.round(((totalMem - freeMem) / totalMem) * 1000) / 10 : 0,
+      cpuModel: os.cpus()[0]?.model?.trim() ?? "unknown",
+      cpuCores: os.cpus().length,
+      cpuSpeedMhz: os.cpus()[0]?.speed ?? 0,
+      cpuUsagePct: snap?.cpuUsagePct ?? null,
+      cpuPerCore: snap?.cpuPerCore ?? [],
+      loadAvg1: snap?.loadAvg1 ?? 0,
+      loadAvg5: snap?.loadAvg5 ?? 0,
+      loadAvg15: snap?.loadAvg15 ?? 0,
+      ...(snap?.loadIsQueue ? { loadIsQueue: true } : {}),
+      memTotalBytes: snap?.memTotalBytes ?? os.totalmem(),
+      memFreeBytes: snap?.memFreeBytes ?? os.freemem(),
+      memUsedPct: snap?.memUsedPct ?? 0,
+      ...(snap?.diskTotalBytes ? { diskTotalBytes: snap.diskTotalBytes, diskFreeBytes: snap.diskFreeBytes, diskUsedPct: snap.diskUsedPct } : {}),
+      ...(snap?.netRxKbS !== undefined ? { netRxKbS: snap.netRxKbS, netTxKbS: snap.netTxKbS } : {}),
+      ...(snap?.gpuName ? { gpuName: snap.gpuName } : {}),
       procRssBytes: procMem.rss,
       procHeapUsedBytes: procMem.heapUsed,
       procHeapTotalBytes: procMem.heapTotal,
@@ -445,139 +432,6 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
       engineUptimeSec: Math.round(process.uptime()),
       startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString(),
     };
-    // Disk usage via fs.statfs — works on Linux AND Windows (Node 18.15+),
-    // unlike the /proc-only path used before. Falls back silently where the
-    // runtime lacks statfs.
-    try {
-      const { statfs } = await import("node:fs/promises");
-      const sf = await statfs(process.platform === "win32" ? "C:/" : "/");
-      if (sf.blocks > 0) {
-        out.diskTotalBytes = Number(sf.blocks) * Number(sf.bsize);
-        out.diskFreeBytes = Number(sf.bavail) * Number(sf.bsize);
-        out.diskUsedPct = out.diskTotalBytes > 0
-          ? Math.round(((out.diskTotalBytes - out.diskFreeBytes) / out.diskTotalBytes) * 1000) / 10
-          : 0;
-      }
-    } catch {}
-    if (os.platform() === "linux") {
-      // Linux: /proc has the real numbers — load from loadavg, network byte
-      // counters from net/dev (deltas against the previous poll).
-      try {
-        const loadtxt = await readFile("/proc/loadavg", "utf-8").catch(() => "");
-        if (loadtxt) {
-          const p = loadtxt.split(/\s+/);
-          out.loadAvg1 = Math.round(parseFloat(p[0]) * 100) / 100;
-          out.loadAvg5 = Math.round(parseFloat(p[1]) * 100) / 100;
-          out.loadAvg15 = Math.round(parseFloat(p[2]) * 100) / 100;
-        }
-        const netdev = await readFile("/proc/net/dev", "utf-8").catch(() => "");
-        if (netdev) {
-          let rx = 0, tx = 0;
-          for (const line of netdev.split("\n").slice(2)) {
-            const m = line.match(/^\s*(\S+):\s*(\d+)\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+(\d+)/);
-            if (!m || m[1] === "lo") continue;
-            rx += Number(m[2]);
-            tx += Number(m[3]);
-          }
-          const nowMs = Date.now();
-          if (_prevNetSample && nowMs > _prevNetSample.at) {
-            const dtSec = (nowMs - _prevNetSample.at) / 1000;
-            out.netRxKbS = Math.max(0, Math.round(((rx - _prevNetSample.rx) / dtSec / 1024) * 10) / 10);
-            out.netTxKbS = Math.max(0, Math.round(((tx - _prevNetSample.tx) / dtSec / 1024) * 10) / 10);
-          }
-          _prevNetSample = { at: nowMs, rx, tx };
-        }
-        // Process count from /proc (cheap single readdir).
-        try {
-          const pids = await readFile("/proc/loadavg", "utf-8").catch(() => "");
-          const pm = pids.match(/(\d+)\/(\d+)/);
-          if (pm) out.processCount = Number(pm[2]);
-        } catch {}
-      } catch {}
-    } else if (os.platform() === "win32") {
-      // Windows: os.loadavg() is hard-zero, so the load tile uses the processor
-      // queue length (Sysmon) — the closest Windows analogue, same "runnable
-      // entities waiting" semantics. wmic is a ~100ms spawn, so the sample is
-      // throttled to once per 4s and served from cache in between.
-      try {
-        if (!_winLoad || Date.now() - _winLoad.at > 4000) {
-          const r = spawnSync(
-            "wmic",
-            ["path", "Win32_PerfFormattedData_PerfOS_System", "get", "ProcessorQueueLength", "/format:csv"],
-            // windowsHide: without it every sample flashes a console window on
-            // a desktop run — one per panel poll. timeout bounds a hung wmic.
-            { timeout: 3000, windowsHide: true },
-          );
-          const txt = r.stdout?.toString() ?? "";
-          // CSV rows look like "NODE,0" — take the field after the last comma.
-          const lines = txt.split("\n").map((l) => l.trim()).filter((l) => /,/.test(l) && !/^Node,/.test(l));
-          const last = lines[lines.length - 1] ?? "";
-          const val = Number(last.slice(last.lastIndexOf(",") + 1));
-          if (Number.isFinite(val)) _winLoad = { at: Date.now(), value: val };
-        }
-        if (_winLoad) {
-          out.loadAvg1 = _winLoad.value;
-          out.loadAvg5 = _winLoad.value;
-          out.loadAvg15 = _winLoad.value;
-          // Tells the panel these are one queue-length sample, not a 1/5/15m
-          // history — and that 0 is a real reading (idle), not "no data".
-          out.loadIsQueue = true;
-        }
-      } catch {}
-      // Network rates from the Tcpip perf counters (raw byte totals, same delta
-      // trick as /proc/net/dev). First poll returns no rates — panel shows "—".
-      try {
-        const r = spawnSync(
-          "wmic",
-          ["path", "Win32_PerfRawData_Tcpip_NetworkInterface",
-            "get", "BytesReceivedPersec,BytesTotalPersec", "/format:csv"],
-          { timeout: 3000, windowsHide: true },
-        );
-        const lines = (r.stdout?.toString() ?? "").split("\n").map((l) => l.trim()).filter((l) => l && !/^Node,/.test(l));
-        let rx = 0, tx = 0;
-        for (const line of lines) {
-          const cols = line.split(",");
-          if (cols.length < 3) continue;
-          const total = Number(cols[cols.length - 1]);
-          const recv = Number(cols[cols.length - 2]);
-          // Skip the loopback-ish aggregate rows that report zero.
-          if (!Number.isFinite(total) || !Number.isFinite(recv)) continue;
-          rx += recv;
-          tx += Math.max(0, total - recv);
-        }
-        if (rx + tx > 0) {
-          const nowMs = Date.now();
-          if (_prevNetSample && nowMs > _prevNetSample.at) {
-            const dtSec = (nowMs - _prevNetSample.at) / 1000;
-            out.netRxKbS = Math.max(0, Math.round(((rx - _prevNetSample.rx) / dtSec / 1024) * 10) / 10);
-            out.netTxKbS = Math.max(0, Math.round(((tx - _prevNetSample.tx) / dtSec / 1024) * 10) / 10);
-          }
-          _prevNetSample = { at: nowMs, rx, tx };
-        }
-      } catch {}
-    }
-    // GPU name — queried once per process (wmic spawn, names never change
-    // mid-run). Filtered to the real adapters: this machine also lists USB
-    // display-dongle adapters that would read as noise.
-    try {
-      if (_gpuName === undefined) {
-        const r = spawnSync(
-          "wmic",
-          ["path", "Win32_VideoController", "get", "Name", "/format:csv"],
-          { timeout: 3000, windowsHide: true },
-        );
-        const names = (r.stdout?.toString() ?? "").split("\n")
-          .map((l) => l.trim())
-          // Rows are "NODE,<name>"; the bare header row is just "Node,Name".
-          .filter((l) => /,/.test(l) && !/^Node,/.test(l))
-          .map((l) => l.slice(l.indexOf(",") + 1).trim())
-          // Remote-display / USB-monitor dongles register as adapters but are
-          // noise next to the real GPU; keep only the hardware ones.
-          .filter((n) => n && n !== "Name" && !/Virtual Display|IddDriver|AskLink|Oray/i.test(n));
-        _gpuName = names.length ? names.join(" + ") : null;
-      }
-      if (_gpuName) out.gpuName = _gpuName;
-    } catch {}
     return json(out);
   }
 
@@ -1140,6 +994,9 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
       claim: {
         auto: (await import("../claim/multi-runtime.js")).isMultiClaimRunning(),
         pollIntervalMs: config.claim.pollIntervalMs,
+        // Earliest next auto check across accounts — the panel renders this as
+        // a countdown next to the claim buttons.
+        nextCheckAt: (await import("../claim/multi-runtime.js")).multiClaimNextCheckAt(),
       },
       // Panel session behaviour. Read from the live session module rather than
       // from `config` so a value changed from the UI is reflected immediately,

@@ -4,6 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
+ * 版本 Version: v4.7.1
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -160,12 +161,12 @@ export async function runUpdateCheckOnce(currentVersion: string): Promise<Update
  * Deliberately not hourly: the check is unauthenticated against the GitHub API,
  * which allows 60 requests/hour PER IP — a shared or NAT'ed address can already
  * be near that, and a release is not a thing that needs minute-level freshness.
- * Five days also keeps the panel's "new version available" prompt rare enough
+ * Three days also keeps the panel's "new version available" prompt rare enough
  * that it still reads as news.
  *
  * `ZCODE_KNIGHT_UPDATE_INTERVAL_HOURS` overrides it (0 disables the timer).
  */
-const DEFAULT_CHECK_INTERVAL_HOURS = 5 * 24;
+const DEFAULT_CHECK_INTERVAL_HOURS = 3 * 24;
 
 function checkIntervalMs(): number {
   const raw = process.env.ZCODE_KNIGHT_UPDATE_INTERVAL_HOURS?.trim();

@@ -4,6 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
+ * 版本 Version: v4.7.1
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -27,6 +28,7 @@
  * @see .omo/plans/ZcodeKnight-YU.md Task 7
  */
 import { loadConfig } from "./config/loader.js";
+import { engineError } from "./monitor/engine-log.js";
 import { AuthManager } from "./auth/manager.js";
 import { startServer, type ProxyServer } from "./server/server.js";
 import { startControlListener, LogBuffer, type ControlState } from "./android/control.js";
@@ -46,7 +48,7 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { ensureNodeFetchNoTimeouts } from "./runtime/node-fetch-compat.js";
 
-export const VERSION = "4.7.0";
+export const VERSION = "4.7.1";
 
 if (require.main === module) main();
 
@@ -286,8 +288,13 @@ async function serve(configPath: string | undefined, debug: boolean): Promise<vo
     // don't pay the full solve latency (in-process happy-dom backend).
     import("./proxy/captcha.js")
       .then((m) => m.startCaptchaPool(config.identity.appVersion))
-      .catch((err) => console.error(`[captcha] pool warmup failed: ${(err as Error).message}`));
+      .catch((err) => engineError("captcha", `pool warmup failed: ${(err as Error).message}`));
   }
+  // Background host sampler for the panel System page: idle-gated (zero cost
+  // when nobody is watching), async, and GET /system only reads its cache.
+  import("./server/system-metrics.js")
+    .then((m) => m.startSystemSampler())
+    .catch(() => {});
   if (config.claim.enabled && config.claim.auto) {
     import("./claim/multi-runtime.js")
       .then((m) => {
@@ -298,20 +305,20 @@ async function serve(configPath: string | undefined, debug: boolean): Promise<vo
           : pollSec >= 60 && pollSec % 60 === 0 ? `${pollSec / 60}min` : `${pollSec}s`;
         console.log(`  claim: multi-account auto ON (poll ${pollTxt}; new accounts claim on first sight)`);
       })
-      .catch((err) => console.error(`[claim] scheduler failed to start: ${(err as Error).message}`));
+      .catch((err) => engineError("claim", `scheduler failed to start: ${(err as Error).message}`));
   }
   // Background balance polling: keeps the panel's balance bars fresh without
   // every page load paying one billing round-trip per account.
   void import("./quota/poller.js")
     .then((m) => m.startBalancePolling(config))
-    .catch((err) => console.error(`[balance] poller failed to start: ${(err as Error).message}`));
+    .catch((err) => engineError("balance", `poller failed to start: ${(err as Error).message}`));
   // Periodic release check, so the panel can offer a new version without the
-  // user having to think to ask. Every 5 days by default; the answer is cached
+  // user having to think to ask. Every 3 days by default; the answer is cached
   // in memory and the panel reads it on load instead of re-checking (the GitHub
   // API is unauthenticated here, 60 requests/hour per IP).
   void import("./update/updater.js")
     .then((m) => m.startUpdateCheckScheduler(VERSION))
-    .catch((err) => console.error(`[update] scheduler failed to start: ${(err as Error).message}`));
+    .catch((err) => engineError("update", `scheduler failed to start: ${(err as Error).message}`));
   // Automatic model probing: keeps `/v1/models` honest without anyone pressing
   // the panel button. Defaults ON — a stale model list makes clients offer
   // models the accounts reject with 3006.
@@ -436,7 +443,7 @@ async function runAndroid(): Promise<void> {
         m.startAutoClaim(config, auth);
         console.log(`[claim] auto ON (poll ${Math.round(config.claim.pollIntervalMs / 1000)}s; waits for login)`);
       })
-      .catch((err) => console.error(`[claim] scheduler failed to start: ${(err as Error).message}`));
+      .catch((err) => engineError("claim", `scheduler failed to start: ${(err as Error).message}`));
   }
 
   const controlPort = Number(process.env.ZCODE_CONTROL_PORT ?? 0) || 0;

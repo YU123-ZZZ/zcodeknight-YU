@@ -4,6 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
+ * 版本 Version: v4.7.1
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -48,6 +49,7 @@ import { credentialString, type Credential } from "../auth/types.js";
 import { getDefaultAccountPool, type DispatchOutcome } from "../auth/account-pool.js";
 import { leasedAccount, leaseIsOverflow, LEASE_SYM as LEASE_SYM_EXPORT } from "../auth/multi-auth-manager.js";
 import { adminLog } from "../server/routes-admin.js";
+import { engineError } from "../monitor/engine-log.js";
 import type { LogLevel } from "../android/control.js";
 import { recordRequest } from "./request-stats.js";
 import type { ProxyIdentity } from "../config/types.js";
@@ -427,12 +429,13 @@ export async function proxyRequest(
         isAborted: () => clientReq.signal.aborted,
         onRetry: (attempt, err) => {
           if (debug) debugError(reqId, "upstream_connect_retry", `attempt ${attempt}/${MAX_CONNECT_ATTEMPTS - 1} failed (${err.message}), retrying in ${500 * attempt}ms`);
-          console.log(`${reqId} upstream connect failed (${err.message}), retry ${attempt + 1}/${MAX_CONNECT_ATTEMPTS} in ${500 * attempt}ms`);
+          engineError("upstream", `${reqId} connect failed (${err.message}), retry ${attempt + 1}/${MAX_CONNECT_ATTEMPTS} in ${500 * attempt}ms`, "warn");
         },
       },
     );
   } catch (err) {
     if (debug) debugError(reqId, "upstream_unreachable", (err as Error).message);
+    engineError("upstream", `${reqId} unreachable: ${(err as Error).message}`);
     printRow(reqId, format, meta, 502, started, Date.now(), 0, 0, 0);
     reportOutcomeToPool(auth, accountId, { kind: "error", message: (err as Error).message });
     releaseLeaseFor(auth, cred);

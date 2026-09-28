@@ -101,7 +101,7 @@ const I18N = {
     set_model_cd: "模型冷却（秒）", set_model_cd_hint: "单个模型撞 3009 后的避让时间。故意设得短：这个冲突在另一个请求结束时就没了，按账号冷却那么久会让高并发时模型一直显示被限流",
     set_spacing: "同账号最小间隔（毫秒）", set_spacing_hint: "同一账号两次请求的最短间隔，降低风控命中；0 关闭",
     set_proxy: "出口代理", set_proxy_hint: "上游请求走代理。撞 3012 时可以试，但不是官方解法——拦截看的是请求形状，不只是地址。保存后立即生效，本机回环始终直连",
-    set_proxy_url: "代理地址", set_proxy_url_hint: "如 http://127.0.0.1:7890 或 socks5://用户:密码@主机:1080；留空则读 HTTPS_PROXY 环境变量",
+    set_proxy_url: "代理地址", set_proxy_url_hint: "如 http://127.0.0.1:7890 或 socks5://用户:密码@主机:1080；多个地址用英文逗号分隔，每 10 分钟自动轮换；留空则读 HTTPS_PROXY 环境变量",
     set_proxy_noproxy: "直连白名单", set_proxy_noproxy_hint: "逗号分隔，这些主机不走代理",
     set_proxy_save: "保存代理设置",
     set_proxy_on: "当前出口：{h}", set_proxy_off: "当前直连（未走代理）",
@@ -125,7 +125,7 @@ const I18N = {
     imp_reading: "正在读取压缩包…", imp_zip_ready: "已读取 ZIP：{f}（{n} 字节）——点导入开始恢复",
     imp_stage_check: "校验数据完整性…", imp_stage_write: "写入账号与设置…", imp_stage_done: "导入完成，正在刷新界面…",
     exp_counts: "现有 {l} 条日志 · {p} 份探测结果", imp_archived: "已备份原数据到",
-    set_claim_auto: "活动额度自动领取", set_claim_auto_hint: "每 5 分钟检查一次活动，有可领的自动领；关掉后可手动领取",
+    set_claim_auto: "活动额度自动领取", set_claim_auto_hint: "自动轮询检测活动，有可领的自动领取；新账号入池会立即检测领取", set_claim_now: "立即领取", set_claim_now_hint: "一键检测并领取全部账号", set_claim_all: "检测并全部领取", claim_countdown: "下次自动检测：", claim_done: "完成：", claim_none: "无",
     on: "已开启", off: "已关闭",
     set_update: "更新检查", set_update_cur: "当前版本", set_update_idle: "点「检查更新」获取最新版本",
     upd_check: "检查更新", upd_checking: "检查中…", upd_avail: "有新版本：", upd_current: "已是最新版本",
@@ -267,7 +267,7 @@ const I18N = {
     set_model_cd: "Model cooldown (seconds)", set_model_cd_hint: "Hold on ONE model after a 3009 collision. Kept short on purpose: the condition clears when the competing request finishes, and holding it as long as the account cooldown is what made a busy model look permanently rate-limited",
     set_spacing: "Min spacing per account (ms)", set_spacing_hint: "Shortest gap between two requests on one account — lowers risk-control hits; 0 disables",
     set_proxy: "Outbound proxy", set_proxy_hint: "Route upstream traffic through a proxy. Worth trying against risk control (3012) but not a documented fix — the block follows request shape, not just the address. Applies immediately; loopback always stays direct",
-    set_proxy_url: "Proxy URL", set_proxy_url_hint: "e.g. http://127.0.0.1:7890 or socks5://user:pass@host:1080; empty falls back to the HTTPS_PROXY env var",
+    set_proxy_url: "Proxy URL", set_proxy_url_hint: "e.g. http://127.0.0.1:7890 or socks5://user:pass@host:1080; comma-separate several URLs to auto-rotate every 10 min; empty falls back to the HTTPS_PROXY env var",
     set_proxy_noproxy: "Direct hosts", set_proxy_noproxy_hint: "Comma-separated hosts that bypass the proxy",
     set_proxy_save: "Save proxy settings",
     set_proxy_on: "Egress: {h}", set_proxy_off: "Direct connection (no proxy)",
@@ -291,7 +291,7 @@ const I18N = {
     imp_reading: "Reading archive…", imp_zip_ready: "ZIP loaded: {f} ({n} bytes) — press Import to restore",
     imp_stage_check: "Verifying data…", imp_stage_write: "Writing accounts and settings…", imp_stage_done: "Import finished — refreshing…",
     exp_counts: "{l} log rows · {p} probe results", imp_archived: "previous data archived to",
-    set_claim_auto: "Auto-claim activity quota", set_claim_auto_hint: "Checks every 5 minutes and claims automatically; turn off to claim by hand",
+    set_claim_auto: "Auto-claim activity quota", set_claim_auto_hint: "Detects activity rounds automatically and claims when one is live; new accounts claim on first sight", set_claim_now: "Claim all now", set_claim_now_hint: "One click: detect and claim for every account", set_claim_all: "Detect && claim all", claim_countdown: "Next auto check:", claim_done: "done:", claim_none: "none",
     on: "ON", off: "OFF",
     set_update: "Online update", set_update_cur: "Current version", set_update_idle: "Click “Check for updates”",
     upd_check: "Check for updates", upd_checking: "Checking…", upd_avail: "New version available:", upd_current: "Already up to date",
@@ -673,7 +673,7 @@ async function loadSystemInfo() {
   document.getElementById("sys-uptime").textContent = upTxt;
   document.getElementById("sys-started").textContent = new Date(d.startedAt).toLocaleString();
   document.getElementById("sys-node").textContent = d.nodeVersion;
-  if (!sysTimer) sysTimer = setInterval(loadSystemInfo, 5000);
+  if (!sysTimer) sysTimer = setInterval(loadSystemInfo, 3000);
   // A hidden tab (browser minimised, another window on top) would keep the
   // 5s poll alive; skip those ticks and refresh once the tab is visible again.
   if (!sysVisibleWatcher) {
@@ -2699,6 +2699,8 @@ async function loadSettings() {
       const b = document.getElementById("set-claim-auto");
       b.textContent = claimAuto ? T("on") : T("off");
       b.className = "btn " + (claimAuto ? "" : "ghost");
+      claimNextAt = Number(cfg.claim.nextCheckAt) || 0;
+      renderClaimCountdown();
     }
     if (cfg.proxy) {
       proxyOn = !!cfg.proxy.enabled;
@@ -3023,6 +3025,47 @@ document.getElementById("set-claim-auto").onclick = async (e) => {
     btn.className = "btn " + (claimAuto ? "" : "ghost");
     toast(T("saved"));
   } catch (err) { toast(String(err)); }
+  btn.disabled = false;
+};
+
+
+// ── One-click detect & claim all + next-check countdown ───────────────────
+// The scheduler already claims automatically; this is the manual trigger the
+// user asked for. nextCheckAt comes from /settings (earliest scheduler hold),
+// and the countdown text rides next to the claim-all button so the operator
+// can see when the next automatic round fires without opening the log.
+let claimNextAt = 0;
+let claimCountdownTimer = null;
+function renderClaimCountdown() {
+  const el = document.getElementById("claim-next");
+  if (!el) return;
+  if (!claimNextAt) { el.textContent = ""; return; }
+  const left = Math.max(0, Math.ceil((claimNextAt - Date.now()) / 1000));
+  const h = Math.floor(left / 3600), m = Math.floor((left % 3600) / 60), s = left % 60;
+  const p = (n) => String(n).padStart(2, "0");
+  el.textContent = left > 0
+    ? T("claim_countdown") + " " + (h > 0 ? h + "h " : "") + p(m) + ":" + p(s)
+    : "";
+}
+setInterval(renderClaimCountdown, 1000);
+document.getElementById("set-claim-all").onclick = async (e) => {
+  const btn = e.target;
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = "...";
+  try {
+    const r = await api("/accounts/claim", { method: "POST", body: JSON.stringify({ all: true }) });
+    const d = await r.json();
+    const ok = (d.results || []).filter((x) => x.ok).length;
+    const total = (d.results || []).length;
+    toast(T("claim_done") + " " + ok + "/" + total);
+    // A manual round resets the scheduler hold, so refresh the countdown.
+    try {
+      const cfg = await (await api("/config")).json();
+      claimNextAt = Number(cfg.claim && cfg.claim.nextCheckAt) || 0;
+    } catch {}
+  } catch (err) { toast(String(err)); }
+  btn.textContent = old;
   btn.disabled = false;
 };
 

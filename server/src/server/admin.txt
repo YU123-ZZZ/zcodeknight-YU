@@ -333,9 +333,16 @@
       <div class="set-row">
         <div>
           <div class="lbl" data-i18n="set_claim_auto">Auto-claim activity quota</div>
-          <div class="hint" data-i18n="set_claim_auto_hint">Checks every 5 minutes and claims automatically; turn off to claim by hand</div>
+          <div class="hint" data-i18n="set_claim_auto_hint">Detects activity rounds automatically and claims when one is live; new accounts claim on first sight</div>
         </div>
         <button class="btn ghost" id="set-claim-auto">—</button>
+      </div>
+      <div class="set-row">
+        <div>
+          <div class="lbl" data-i18n="set_claim_now">Claim all now</div>
+          <div class="hint"><span data-i18n="set_claim_now_hint">One click: detect and claim for every account</span><span id="claim-next" style="margin-left:8px;color:var(--muted)"></span></div>
+        </div>
+        <button class="btn" id="set-claim-all" data-i18n="set_claim_all">Detect & claim all</button>
       </div>
       <div class="set-row">
         <div></div>
@@ -349,7 +356,7 @@
         <button class="btn ghost" id="set-proxy-toggle">—</button>
       </div>
       <div class="set-row">
-        <div><div class="lbl" data-i18n="set_proxy_url">Proxy URL</div><div class="hint" data-i18n="set_proxy_url_hint">e.g. http://127.0.0.1:7890 or socks5://user:pass@host:1080; empty falls back to the HTTPS_PROXY env var</div></div>
+        <div><div class="lbl" data-i18n="set_proxy_url">Proxy URL</div><div class="hint" data-i18n="set_proxy_url_hint">e.g. http://127.0.0.1:7890 or socks5://user:pass@host:1080; comma-separate several URLs to auto-rotate every 10 min; empty falls back to the HTTPS_PROXY env var</div></div>
         <input id="set-proxy-url" placeholder="http://127.0.0.1:7890" style="width:320px;font-family:var(--mono);font-size:12px">
       </div>
       <div class="set-row">

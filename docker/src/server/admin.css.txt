@@ -249,13 +249,21 @@
 
   .upd-banner {
     position: fixed; top: 10px; left: 50%; transform: translateX(-50%); width: min(720px, 92vw); z-index: 90;
-    display: flex; align-items: center; gap: 10px;
-    padding: 10px 16px; margin-bottom: 10px;
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 14px; margin-bottom: 10px;
     background: linear-gradient(90deg, rgba(224,163,74,.16), rgba(224,163,74,.05));
     border: 1px solid rgba(224,163,74,.45); border-radius: 10px;
     color: #f2d8a0; font-size: 13px; line-height: 1.6;
+    max-height: 60vh; overflow-y: auto;
   }
-  .upd-banner .ub-link { color: var(--gold); text-decoration: underline; font-weight: 600; }
+  /* Text takes the flexible space and wraps freely; the action link and the
+     close button stay on one line at the top-right instead of being squeezed
+     into vertical letter-stacks. */
+  .upd-banner #upd-banner-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+  .upd-banner .ub-link {
+    color: var(--gold); text-decoration: underline; font-weight: 600;
+    flex: 0 0 auto; white-space: nowrap; align-self: center; padding-left: 4px;
+  }
   .upd-banner .ub-close { margin-left: auto; background: none; border: none; color: #a8987a; font-size: 16px; cursor: pointer; }
   /* Unreadable account store: a real problem the operator must act on, so it
      reads as a warning banner rather than muted helper text. */
