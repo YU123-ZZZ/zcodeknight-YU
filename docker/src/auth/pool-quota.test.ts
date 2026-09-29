@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.1
+ * 版本 Version: v4.7.2
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -129,10 +129,22 @@ describe("quota-aware dispatch", () => {
     expect(new Set(order).size).toBe(3);       // all three participate
   });
 
-  it("treats a null quota as unknown, not as exhausted", async () => {
+  it("gives known-quota accounts strict priority over unknown-quota ones", async () => {
+    // Field report v4.7.2: unknown accounts hold NO bucket for the model —
+    // mixing them into the rotation sent requests upstream refused with
+    // 1005 "exceed quota limit" (they hold no grant). Known accounts now
+    // take strict priority; unknown are the fallback when no known exists.
     const { pool } = await setupPool(2, { "acct-0": null, "acct-1": 800 });
     const order = pickOrder(pool, 4);
-    expect(new Set(order).size).toBe(2);       // acct-0 still gets traffic
+    expect(order.every((n) => n === "acct-1")).toBe(true);
+    expect(new Set(order).size).toBe(1);
+  });
+
+  it("falls back to unknown-quota accounts when NO account has bucket data", async () => {
+    const { pool } = await setupPool(2, { "acct-0": null, "acct-1": null });
+    const order = pickOrder(pool, 4);
+    // All-unknown pool: round-robin over both, exactly as before.
+    expect(new Set(order).size).toBe(2);
   });
 
   it("rotates between equal balances instead of pinning one account", async () => {

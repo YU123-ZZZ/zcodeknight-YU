@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.1
+ * 版本 Version: v4.7.2
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -70,8 +70,30 @@ function intervalMs(config: ProxyConfig): number {
 }
 
 /** Cached balance for one account (undefined when never polled). */
+// Cache hit-rate counters (field request: make the cache's value visible).
+// A "hit" = dispatch-time quota lookup found a cached balance; a "miss" = the
+// balance had to come from a live billing round-trip.
+let cacheHits = 0;
+let cacheMisses = 0;
+
 export function getBalance(accountId: string): AccountBalance | undefined {
   return balances.get(accountId);
+}
+
+/** Cache hit-rate counters for the overview panel. */
+export function quotaCacheStats(): { hits: number; misses: number; rate: number } {
+  const total = cacheHits + cacheMisses;
+  return {
+    hits: cacheHits,
+    misses: cacheMisses,
+    rate: total > 0 ? Math.round((cacheHits / total) * 1000) / 10 : 0,
+  };
+}
+
+/** Count one dispatch-time cache outcome (hit = balance was cached). */
+export function noteQuotaCacheLookup(accountId: string): void {
+  if (balances.has(accountId)) cacheHits++;
+  else cacheMisses++;
 }
 
 /** All cached balances, for the overview page. */

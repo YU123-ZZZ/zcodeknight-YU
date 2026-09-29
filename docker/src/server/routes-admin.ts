@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.1
+ * 版本 Version: v4.7.2
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -53,10 +53,6 @@ import type { ProviderId } from "../provider/types.js";
 import type { ProxyIdentity } from "../config/types.js";
 import { LogBuffer } from "../android/control.js";
 import { VERSION } from "../index.js";
-import { getSystemSnapshot, noteSystemPoll, startSystemSampler } from "./system-metrics.js";
-
-/** Static host facts for /system — enumerated once, never change at runtime. */
-let sysStatic: { platform: string; osRelease: string; hostname: string; cpuModel: string; cpuCores: number; cpuSpeedMhz: number; ifaceIp: string } | null = null;
 
 
 /**
@@ -78,9 +74,6 @@ import {
 /** Live log ring shared with the request path (wired in serve()). */
 export const adminLog = new LogBuffer(2000, dataFile("admin-log.jsonl"));
 
-// System metrics live in system-metrics.ts since v4.7.1: a background timer
-// samples the host (idle-gated, async, zero event-loop blocking) and GET
-// /system reads its cache. See the module header for the "why".
 adminLog.hydrateFromDisk();
 
 /** A pending OAuth login session (add-account flow). */
@@ -399,64 +392,6 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
   }
   const pool = getDefaultAccountPool();
 
-  // ---- system monitor (CPU / memory / disk / network / uptime) ----
-  // v4.7.1: collection lives in system-metrics.ts on a 2s background timer
-  // (sub2api-style pre-aggregation). This handler only records the poll and
-  // reads the cache — no wmic, no awaits, an instant reply that never blocks
-  // the proxy. The idle gate lives in the sampler: ticks stop 15s after the
-  // last poll, so an unwatched panel costs nothing.
-  // Static host facts are enumerated once (see sysStatic) — the handler body
-  // is a cache read plus process.memoryUsage(), nothing else.
-  if (method === "GET" && path === "/system") {
-    const os = await import("node:os");
-    noteSystemPoll();
-    const snap = getSystemSnapshot();
-    const procMem = process.memoryUsage();
-    // Static host facts (model/cores/hostname/...) change never — cache them
-    // at first call instead of re-enumerating os.cpus() (24 cores on this box)
-    // three times per poll.
-    sysStatic = sysStatic ?? {
-      platform: `${os.platform()} ${os.arch()}`,
-      osRelease: os.release(),
-      hostname: os.hostname(),
-      cpuModel: os.cpus()[0]?.model?.trim() ?? "unknown",
-      cpuCores: os.cpus().length,
-      cpuSpeedMhz: os.cpus()[0]?.speed ?? 0,
-      ifaceIp: (() => {
-        const nets = os.networkInterfaces();
-        for (const k of Object.keys(nets)) {
-          for (const a of nets[k]) {
-            if (a.family === "IPv4" && !a.internal) return a.address;
-          }
-        }
-        return "";
-      })(),
-    };
-    const out: Record<string, unknown> = {
-      ...sysStatic,
-      cpuUsagePct: snap?.cpuUsagePct ?? null,
-      cpuPerCore: snap?.cpuPerCore ?? [],
-      loadAvg1: snap?.loadAvg1 ?? 0,
-      loadAvg5: snap?.loadAvg5 ?? 0,
-      loadAvg15: snap?.loadAvg15 ?? 0,
-      ...(snap?.loadIsQueue ? { loadIsQueue: true } : {}),
-      memTotalBytes: snap?.memTotalBytes ?? os.totalmem(),
-      memFreeBytes: snap?.memFreeBytes ?? os.freemem(),
-      memUsedPct: snap?.memUsedPct ?? 0,
-      ...(snap?.diskTotalBytes ? { diskTotalBytes: snap.diskTotalBytes, diskFreeBytes: snap.diskFreeBytes, diskUsedPct: snap.diskUsedPct } : {}),
-      ...(snap?.netRxKbS !== undefined ? { netRxKbS: snap.netRxKbS, netTxKbS: snap.netTxKbS } : {}),
-      ...(snap?.gpuName ? { gpuName: snap.gpuName } : {}),
-      procRssBytes: procMem.rss,
-      procHeapUsedBytes: procMem.heapUsed,
-      procHeapTotalBytes: procMem.heapTotal,
-      nodeVersion: process.version,
-      pid: process.pid,
-      engineUptimeSec: Math.round(process.uptime()),
-      startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString(),
-    };
-    return json(out);
-  }
-
   // ---- overview ----
   if (method === "GET" && path === "/overview") {
     const summary = pool.summary();
@@ -478,6 +413,8 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
         tokensTotal: stats.tokensTotal,
         // Per-model aggregates for the overview's stats tile.
         perModel: stats.perModel,
+        // Balance-cache hit rate (field request: make the cache visible).
+        quotaCache: (await import("../quota/poller.js")).quotaCacheStats(),
       },
       recent: stats.recent,
       serverTime: Date.now(),
@@ -1717,7 +1654,7 @@ async function resolveLoginSession(
     // ends it early. Not applied to a re-login of an existing account.
     let newAccountRest = false;
     if (!existed) {
-      const restMs = Number(process.env.ZCODE_NEW_ACCOUNT_REST_MS ?? 5 * 60_000);
+      const restMs = Number(process.env.ZCODE_NEW_ACCOUNT_REST_MS ?? 3 * 60_000);
       if (restMs > 0) {
         await updateAccount(record.id, {
           paused: true,

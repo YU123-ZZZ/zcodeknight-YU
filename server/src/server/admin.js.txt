@@ -82,7 +82,6 @@ const I18N = {
     set_api: "接口地址（OpenAI 格式）", set_api_hint: "填到你的编程工具里",
     set_key: "API 密钥", set_key_hint: "填到你的编程工具里（点右侧复制）；留空则关闭客户端鉴权", save_pool: "保存池设置", copy: "复制",
     set_key_regen: "随机生成", set_key_save: "保存密钥",
-    sys_title: "系统信息", sys_sub: "主机快照 — CPU、内存与引擎运行状态", nav_system_label: "", sys_host: "主机名", sys_os: "操作系统", sys_cpu: "处理器", sys_load: "负载", sys_mem: "内存", sys_proc: "引擎进程", sys_uptime: "引擎运行时长", sys_node: "Node.js 版本", sys_disk: "磁盘", sys_net: "网络", sys_gpu: "显卡", sys_load_q: "处理器队列长度", sys_load_hint: "队列长度（Windows 无负载均值）",
     set_key_confirm: "改密钥后所有已配置的客户端都要同步更新，否则会全部 401。确认改成 {k}？",
     set_key_confirm_empty: "留空将关闭客户端鉴权，任何能访问本机端口的人都能直接调用。确认？",
     set_panel_pw: "面板登录密码", set_panel_pw_hint: "登录本面板用的密码；与上面的 API Key 互不影响。留空新密码则恢复用 API Key 登录",
@@ -126,7 +125,7 @@ const I18N = {
     imp_reading: "正在读取压缩包…", imp_zip_ready: "已读取 ZIP：{f}（{n} 字节）——点导入开始恢复",
     imp_stage_check: "校验数据完整性…", imp_stage_write: "写入账号与设置…", imp_stage_done: "导入完成，正在刷新界面…",
     exp_counts: "现有 {l} 条日志 · {p} 份探测结果", imp_archived: "已备份原数据到",
-    set_claim_auto: "活动额度自动领取", set_claim_auto_hint: "默认开启。每 5 小时自动检测一次活动，检测到可领的才领取；新账号入池会立即检测领取（新人额度）。关闭后一切靠手动", set_claim_now: "立即领取", set_claim_now_hint: "一键检测并领取全部账号", set_claim_all: "检测并全部领取", claim_countdown: "下次自动检测：", claim_done: "完成：", claim_none: "无",
+    set_claim_auto: "活动额度自动领取", set_claim_auto_hint: "默认开启。每 5 小时自动检测一次活动，检测到可领的才领取；新账号入池会立即检测领取（新人额度）。关闭后一切靠手动", set_claim_now: "立即领取", set_claim_now_hint: "一键检测并领取全部账号", set_claim_all: "检测并全部领取", claim_countdown: "下次自动检测：", claim_due_now: "即将检测", claim_done: "完成：", claim_none: "无",
     on: "已开启", off: "已关闭",
     set_update: "更新检查", set_update_cur: "当前版本", set_update_idle: "点「检查更新」获取最新版本",
     upd_check: "检查更新", upd_checking: "检查中…", upd_avail: "有新版本：", upd_current: "已是最新版本",
@@ -145,7 +144,7 @@ const I18N = {
     login_pending: "还没有完成授权，请先在授权页登录",
     popup_blocked: "浏览器拦截了新窗口，请用「复制」按钮手动打开链接",
     open_ok: "已用 {b} 无痕窗口打开授权页",
-    key_title: "管理密钥", key_sub: "输入管理密钥或面板密码。全新安装的默认密钥是 admin。", sess_expired: "登录已过期（闲置超时），请重新登录", key_ph: "管理密钥", key_empty: "密钥不能为空", key_login: "进入面板",
+    key_title: "管理密钥", key_sub: "输入管理密钥或面板密码。全新安装的默认密钥是 admin。", sess_expired: "登录已过期（闲置超时），请重新登录", sess_expired_banner: "登录会话已失效，页面已停止刷新。", sess_expired_relogin: "重新登录", key_ph: "管理密钥", key_empty: "密钥不能为空", key_login: "进入面板",
     donate_title: "支持作者", donate_sub: "如果这个工具帮到了你，请作者喝杯咖啡 ☕", close: "关闭",
     st_ok: "正常", st_cooldown: "冷却中", st_exhausted: "已耗尽", st_relogin: "需重登",
     st_paused: "已暂停", st_error: "异常", st_throttled: "限流",
@@ -249,7 +248,6 @@ const I18N = {
     set_api: "Endpoint (OpenAI format)", set_api_hint: "Paste into your coding tools",
     set_key: "API Key", set_key_hint: "Paste into your coding tools (copy on the right); empty disables client auth", save_pool: "Save pool settings", copy: "Copy",
     set_key_regen: "Generate", set_key_save: "Save key",
-    sys_title: "System", sys_sub: "Host machine snapshot — CPU, memory and engine runtime", sys_host: "Host", sys_os: "OS", sys_cpu: "CPU", sys_load: "Load", sys_mem: "Memory", sys_proc: "Engine process", sys_uptime: "Engine uptime", sys_node: "Node.js version", sys_disk: "Disk", sys_net: "Network", sys_gpu: "GPU", sys_load_q: "Processor queue length", sys_load_hint: "Queue length (no load average on Windows)",
     set_key_confirm: "Changing the key means every configured client must be updated or they will all get 401. Change it to {k}?",
     set_key_confirm_empty: "Leaving it empty disables client auth — anyone who can reach this port can call it directly. Continue?",
     set_panel_pw: "Panel password", set_panel_pw_hint: "Password for logging into THIS panel; independent of the API key above. Leave the new password empty to fall back to the API key",
@@ -293,7 +291,7 @@ const I18N = {
     imp_reading: "Reading archive…", imp_zip_ready: "ZIP loaded: {f} ({n} bytes) — press Import to restore",
     imp_stage_check: "Verifying data…", imp_stage_write: "Writing accounts and settings…", imp_stage_done: "Import finished — refreshing…",
     exp_counts: "{l} log rows · {p} probe results", imp_archived: "previous data archived to",
-    set_claim_auto: "Auto-claim activity quota", set_claim_auto_hint: "ON by default. Detects activity every 5 hours and claims only when one is live; brand-new accounts claim immediately (newbie grant). Turn off for full manual control", set_claim_now: "Claim all now", set_claim_now_hint: "One click: detect and claim for every account", set_claim_all: "Detect && claim all", claim_countdown: "Next auto check:", claim_done: "done:", claim_none: "none",
+    set_claim_auto: "Auto-claim activity quota", set_claim_auto_hint: "ON by default. Detects activity every 5 hours and claims only when one is live; brand-new accounts claim immediately (newbie grant). Turn off for full manual control", set_claim_now: "Claim all now", set_claim_now_hint: "One click: detect and claim for every account", set_claim_all: "Detect && claim all", claim_countdown: "Next auto check:", claim_due_now: "due now", claim_done: "done:", claim_none: "none",
     on: "ON", off: "OFF",
     set_update: "Online update", set_update_cur: "Current version", set_update_idle: "Click “Check for updates”",
     upd_check: "Check for updates", upd_checking: "Checking…", upd_avail: "New version available:", upd_current: "Already up to date",
@@ -312,7 +310,7 @@ const I18N = {
     login_pending: "Not authorized yet — please sign in on the authorization page first",
     popup_blocked: "The browser blocked the new window — use Copy and open the link manually",
     open_ok: "Opened the authorize page in a private {b} window",
-    key_title: "Admin key", key_sub: "Enter the admin key or your panel password. A fresh install defaults to admin.", sess_expired: "Session expired (idle timeout) — please sign in again", key_ph: "Admin key", key_empty: "Key cannot be empty", key_login: "Enter panel",
+    key_title: "Admin key", key_sub: "Enter the admin key or your panel password. A fresh install defaults to admin.", sess_expired: "Session expired (idle timeout) — please sign in again", sess_expired_banner: "Your session has expired and the page stopped refreshing.", sess_expired_relogin: "Re-login", key_ph: "Admin key", key_empty: "Key cannot be empty", key_login: "Enter panel",
     donate_title: "Support the author", donate_sub: "If this tool helps you, buy the author a coffee ☕", close: "Close",
     st_ok: "OK", st_cooldown: "Cooldown", st_exhausted: "Exhausted", st_relogin: "Re-login",
     st_paused: "Paused", st_error: "Error", st_throttled: "Throttled",
@@ -594,96 +592,6 @@ function esc(s) { const d = document.createElement("div"); d.textContent = s ?? 
  * last visit without a synthetic click — a click would run the nav button's own
  * bookkeeping twice and briefly flash the wrong page.
  */
-let sysTimer = null;
-let sysVisibleWatcher = false;
-async function loadSystemInfo() {
-  // The poll only runs while the System page is the visible one; the server
-  // side samples wmic on Windows, and a hidden tab firing it every 5s would
-  // keep spawning processes nobody is watching.
-  if (!document.getElementById("page-system").classList.contains("on")) return;
-  let d;
-  try {
-    d = await (await api("/system")).json();
-  } catch (e) { return; }
-  const fmtMB = (b) => (b / 1048576).toFixed(0);
-  const fmtGB = (b) => (b / 1073741824).toFixed(1);
-  document.getElementById("sys-host").textContent = d.hostname || "-";
-  const ifaceEl = document.getElementById("sys-iface");
-  if (ifaceEl) ifaceEl.textContent = d.ifaceIp ? "(" + d.ifaceIp + ")" : "";
-  const pidEl = document.getElementById("sys-pid");
-  if (pidEl) pidEl.textContent = d.pid || "-";
-  document.getElementById("sys-os").textContent = d.platform + " " + d.osRelease;
-  document.getElementById("sys-cpu").textContent = d.cpuModel.split("@")[0].trim() || d.cpuModel;
-  document.getElementById("sys-cores").textContent = d.cpuCores + " × " + (d.cpuSpeedMhz ? (d.cpuSpeedMhz / 1000).toFixed(1) + "GHz" : "");
-  const cpuPctEl = document.getElementById("sys-cpu-pct");
-  if (d.cpuUsagePct === null || d.cpuUsagePct === undefined) {
-    cpuPctEl.textContent = "—";
-    document.getElementById("sys-cpu-pct-unit").textContent = "";
-    document.getElementById("sys-cpu-bar").style.width = "0%";
-  } else {
-    cpuPctEl.textContent = d.cpuUsagePct;
-    document.getElementById("sys-cpu-pct-unit").textContent = "%";
-    document.getElementById("sys-cpu-bar").style.width = d.cpuUsagePct + "%";
-  }
-  const pc = document.getElementById("sys-percore");
-  if (pc) {
-    pc.innerHTML = (d.cpuPerCore || []).map((p) =>
-      '<div title="' + p + '%" style="height:' + Math.max(4, p) + '%"></div>').join("");
-  }
-  const diskEl = document.getElementById("sys-disk");
-  if (diskEl) {
-    if (d.diskTotalBytes) {
-      const usedGB = ((d.diskTotalBytes - d.diskFreeBytes) / 1073741824).toFixed(1);
-      const totalGB = (d.diskTotalBytes / 1073741824).toFixed(1);
-      diskEl.textContent = usedGB + " / " + totalGB + " GB";
-      document.getElementById("sys-disk-bar").style.width = d.diskUsedPct + "%";
-      document.getElementById("sys-disk-detail").textContent = "free " + (d.diskFreeBytes / 1073741824).toFixed(1) + " GB · " + d.diskUsedPct + "%";
-    } else { diskEl.textContent = "—"; }
-  }
-  const netEl = document.getElementById("sys-net");
-  if (netEl) {
-    netEl.textContent = d.netRxKbS === undefined ? "—"
-      : "↓ " + d.netRxKbS + " KB/s · ↑ " + d.netTxKbS + " KB/s";
-  }
-  // Queue-length mode (Windows) reports one live sample: 0 means idle, which
-  // is a reading, not missing data — so only "undefined" renders as "—".
-  const hasLoad = d.loadIsQueue || d.loadAvg1 || d.loadAvg5 || d.loadAvg15;
-  document.getElementById("sys-load").textContent = hasLoad
-    ? d.loadAvg1 + " / " + d.loadAvg5 + " / " + d.loadAvg15
-    : "—";
-  // On Windows the three numbers are one processor-queue sample repeated —
-  // showing "3 / 3 / 3" implies a history that does not exist, so the tile
-  // says so in its hint line instead.
-  document.getElementById("sys-load-hint").textContent =
-    d.platform.startsWith("win") ? T("sys_load_hint") : "1m / 5m / 15m";
-  const gpuEl = document.getElementById("sys-gpu");
-  if (gpuEl) {
-    gpuEl.style.display = d.gpuName ? "" : "none";
-    gpuEl.textContent = d.gpuName ? T("sys_gpu") + " · " + d.gpuName : "";
-  }
-  const usedB = d.memTotalBytes - d.memFreeBytes;
-  document.getElementById("sys-mem").textContent = fmtGB(usedB) + " / " + fmtGB(d.memTotalBytes) + " GB";
-  document.getElementById("sys-mem-pct").textContent = d.memUsedPct + "%";
-  document.getElementById("sys-mem-bar").style.width = d.memUsedPct + "%";
-  document.getElementById("sys-mem-detail").textContent = "free " + fmtGB(d.memFreeBytes) + " GB";
-  document.getElementById("sys-proc").textContent = fmtMB(d.procRssBytes) + " MB";
-  document.getElementById("sys-heap").textContent = "heap " + fmtMB(d.procHeapUsedBytes) + " / " + fmtMB(d.procHeapTotalBytes) + " MB";
-  const up = d.engineUptimeSec;
-  const upTxt = up >= 86400 ? Math.floor(up / 86400) + "d " + Math.floor((up % 86400) / 3600) + "h"
-    : up >= 3600 ? Math.floor(up / 3600) + "h " + Math.floor((up % 3600) / 60) + "m"
-    : Math.floor(up / 60) + "m " + (up % 60) + "s";
-  document.getElementById("sys-uptime").textContent = upTxt;
-  document.getElementById("sys-started").textContent = new Date(d.startedAt).toLocaleString();
-  document.getElementById("sys-node").textContent = d.nodeVersion;
-  if (!sysTimer) sysTimer = setInterval(loadSystemInfo, 3000);
-  // A hidden tab (browser minimised, another window on top) would keep the
-  // 5s poll alive; skip those ticks and refresh once the tab is visible again.
-  if (!sysVisibleWatcher) {
-    sysVisibleWatcher = true;
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) loadSystemInfo(); });
-  }
-}
-
 function showPage(name) {
   const btn = document.querySelector('#nav button[data-page="' + name + '"]');
   const page = document.getElementById("page-" + name);
@@ -697,8 +605,6 @@ function showPage(name) {
   if (name === "models") loadProbeAccounts();
   if (name === "logs") pollLogs();
   if (name === "settings") loadExportSummary();
-  if (name === "system") { loadSystemInfo(); }
-  else if (sysTimer) { clearInterval(sysTimer); sysTimer = null; }
   return true;
 }
 
@@ -723,8 +629,32 @@ function lastPage() {
   return "overview";
 }
 
+// Global session gate: polling timers must not fire before boot() has
+// completed a login (or after the session dies and the gate is back up).
+// Without this, a timed-out session left the overview polling /overview at
+// 401 forever — the page showed "—" and "加载中…" with no hint why.
+let zkAuthed = false;
+// Session-expiry visibility: when the gate is up and data pages show stale
+// "loading" placeholders, the operator has no idea WHY. This banner says so
+// and offers one-click re-entry to the login dialog.
+function showSessionExpiredBanner() {
+  if (document.body.querySelector("#zk-session-expired")) return;
+  const b = document.createElement("div");
+  b.id = "zk-session-expired";
+  b.style.cssText = "position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:95;padding:10px 16px;border-radius:10px;background:rgba(224,163,74,.16);border:1px solid rgba(224,163,74,.45);color:#f2d8a0;font-size:13px;display:flex;align-items:center;gap:10px";
+  const link = document.createElement("a");
+  link.href = "#";
+  link.textContent = T("sess_expired_relogin");
+  link.style.cssText = "color:var(--gold);text-decoration:underline;font-weight:600";
+  link.onclick = (e) => { e.preventDefault(); b.remove(); boot(); };
+  b.appendChild(document.createTextNode(T("sess_expired_banner")));
+  b.appendChild(link);
+  document.body.appendChild(b);
+}
+
 async function refreshOverview() {
   // Same function-object guard as loadBalances — no outer mutable binding.
+  if (!zkAuthed) return; // not logged in yet (or session expired)
   if (refreshOverview._inflight) return; // previous poll still in flight
   refreshOverview._inflight = true;
   try {
@@ -752,6 +682,20 @@ async function refreshOverview() {
       document.getElementById("ov-okfail").textContent = ov.requests.succeeded + " / " + ov.requests.failed;
       document.getElementById("ov-tokens").textContent = fmtNum(ov.requests.tokensTotal);
       renderPerModelTiles(ov.requests.perModel || []);
+      // Balance-cache hit rate (field request): shows how much of the dispatch
+      // traffic was served from the background poller's cache vs live billing.
+      const qc = ov.requests.quotaCache;
+      const tokEl = document.getElementById("ov-tokens");
+      if (tokEl && qc && (qc.hits + qc.misses) > 0) {
+        let sub = tokEl.parentElement.querySelector(".qc-sub");
+        if (!sub) {
+          sub = document.createElement("div");
+          sub.className = "qc-sub";
+          sub.style.cssText = "font-size:11px;line-height:1.7;color:var(--muted);margin-top:4px;font-family:var(--mono)";
+          tokEl.parentElement.appendChild(sub);
+        }
+        sub.textContent = "余额缓存命中 " + qc.rate + "% (" + qc.hits + "/" + (qc.hits + qc.misses) + ")";
+      }
     }
     renderRecent(ov.recent || []);
   } catch (e) {
@@ -762,6 +706,7 @@ async function refreshOverview() {
     console.warn("overview refresh failed:", e);
     const el = document.getElementById("ov-recent");
     if (el) el.innerHTML = '<span class="bal-empty">' + esc(T("log_err") + " " + e) + "</span>";
+    showSessionExpiredBanner();
   } finally {
     refreshOverview._inflight = false;
   }
@@ -776,26 +721,26 @@ async function refreshOverview() {
  */
 function renderPerModelTiles(rows) {
   const targets = [
-    ["ov-rate", (m) => (m.total ? Math.round(m.succeeded / m.total * 100) : 0) + "%"],
-    ["ov-ttfb", (m) => fmtMs(m.avgTtfbMs)],
-    ["ov-okfail", (m) => m.succeeded + " / " + m.failed],
-    ["ov-tokens", (m) => fmtNum(m.tokensTotal)],
+    ["ov-rate", { label: "ov_rate", get: (m) => (m.total ? Math.round(m.succeeded / m.total * 100) : 0) + "%" }],
+    ["ov-ttfb", { label: "ov_ttfb", get: (m) => fmtMs(m.avgTtfbMs) }],
+    ["ov-okfail", { label: "ov_ok", get: (m) => m.succeeded + " / " + m.failed }],
+    ["ov-tokens", { label: "ov_tokens", get: (m) => fmtNum(m.tokensTotal) }],
   ];
-  for (const [id, val] of targets) {
+  for (const [id, spec] of targets) {
     const el = document.getElementById(id);
     if (!el) continue;
-    // Keep the headline value in the .v element; the per-model lines go into a
-    // small sub-block appended inside the same tile.
     let sub = el.parentElement.querySelector(".pm-sub");
     if (!rows.length) { if (sub) sub.remove(); continue; }
     if (!sub) {
       sub = document.createElement("div");
       sub.className = "pm-sub";
-      sub.style.cssText = "font-size:11px;line-height:1.7;color:var(--muted);margin-top:4px;font-family:var(--mono)";
+      sub.style.cssText = "display:grid;grid-auto-flow:column;gap:14px;margin-top:4px;font-size:11px;line-height:1.7;color:var(--muted);font-family:var(--mono);overflow-x:auto";
       el.parentElement.appendChild(sub);
     }
+    // One COLUMN per model: header row shows the model name, the value row
+    // sits under it — reads left-to-right, fits a normal screen.
     sub.innerHTML = rows.map((m) =>
-      '<div>' + esc(m.model) + ' · ' + esc(val(m)) + '</div>').join("");
+      '<div><div>' + esc(m.model) + '</div><div style="color:var(--text)">' + esc(spec.get(m)) + '</div></div>').join("");
   }
 }
 
@@ -2388,6 +2333,7 @@ function renderMergedLog(rows, entries, filter) {
 let logSince = 0;
 let logEntries = [];
 async function pollLogs() {
+  if (!zkAuthed) return;
   try {
     const [rq, lg] = await Promise.all([
       api("/requests?limit=200"),
@@ -3096,15 +3042,20 @@ function renderClaimCountdown() {
   const d = Math.floor(left / 86400), h = Math.floor((left % 86400) / 3600),
         m = Math.floor((left % 3600) / 60), s = left % 60;
   const p = (n) => String(n).padStart(2, "0");
-  el.textContent = left > 0
-    ? T("claim_countdown") + " " + (d > 0 ? d + "d " : "") + (h > 0 ? h + "h " : "") + p(m) + ":" + p(s)
-    : "";
+  if (left <= 0) {
+    // Expired: the round is due right now — say so instead of going blank
+    // (the "sometimes no countdown" report).
+    el.textContent = T("claim_countdown") + " " + T("claim_due_now");
+    return;
+  }
+  el.textContent = T("claim_countdown") + " " + (d > 0 ? d + "d " : "") + (h > 0 ? h + "h " : "") + p(m) + ":" + p(s);
 }
 setInterval(renderClaimCountdown, 1000);
 // Refresh nextCheckAt periodically: the scheduler advances holdUntil after
 // every round, so a snapshot taken when the page opened goes stale. Light
 // poll - one small JSON every 30s, only while Settings is visible.
 setInterval(async () => {
+  if (!zkAuthed) return;
   if (!document.getElementById("page-settings")?.classList.contains("on")) return;
   try {
     const cfg = await (await api("/config")).json();
@@ -3485,6 +3436,7 @@ async function boot() {
   // Kept here as well because boot() re-enters after a failed login attempt, and
   // the gate must still be on at that point.
   document.body.classList.add("gated");
+  zkAuthed = false; // any re-boot starts from "not authed" until login completes
   if (!(await resumeSession())) {
     const key = await askAdminKey();
     if (!key) return;                       // left the gate: stay blank
@@ -3495,6 +3447,9 @@ async function boot() {
     }
   }
   // Only now is the panel revealed. Nothing above this line may un-hide it.
+  zkAuthed = true;
+  const expBanner = document.body.querySelector("#zk-session-expired");
+  if (expBanner) expBanner.remove();
   document.body.classList.remove("gated");
   // Restore the page the user was on. Done before the data loads so the right
   // page is visible immediately rather than after Overview flashes.
@@ -3509,7 +3464,6 @@ async function boot() {
   const cur = lastPage();
   if (cur === "accounts") { refreshAccounts(); }
   else if (cur === "logs") { pollLogs(); }
-  else if (cur === "system") { loadSystemInfo(); }
   else { refreshOverview(); loadBalances(); }
   // Non-critical page state fills in after first paint, off the critical path.
   loadSettings();

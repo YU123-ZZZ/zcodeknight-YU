@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.1
+ * 版本 Version: v4.7.2
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -201,5 +201,52 @@ describe("responsesToChatCompletions", () => {
   it("forwards reasoning.effort to reasoning_effort on the chat request", () => {
     const r = responsesToChatCompletions(baseReq({ reasoning: { effort: "high" } }));
     expect(r.chatRequest.reasoning_effort).toBe("high");
+  });
+
+  // ── EasyInputMessage shorthand (field report 2026-09-29: bare {role,content}
+  // items were silently dropped → messages:[] → upstream 1214) ──
+
+  it("translates bare {role, content} items (no type field) as messages", () => {
+    const r = responsesToChatCompletions(baseReq({
+      input: [
+        { role: "system", content: "sys" },
+        { role: "user", content: "hello" },
+        { role: "assistant", content: [{ type: "output_text", text: "hi" }] },
+        { role: "user", content: [{ type: "input_text", text: "again" }] },
+      ] as ResponsesRequest["input"],
+    }));
+    const msgs = r.chatRequest.messages.filter((m) => m.role !== "system");
+    expect(msgs.length).toBe(3);
+    expect(msgs[0].role).toBe("user");
+    expect(msgs[1].role).toBe("assistant");
+    expect(msgs[2].role).toBe("user");
+  });
+
+  it("keeps the tool-call invariant when bare items mix with function calls", () => {
+    const r = responsesToChatCompletions(baseReq({
+      input: [
+        { role: "user", content: "run it" },
+        { type: "function_call", call_id: "c1", name: "f", arguments: "{}" },
+        { type: "function_call_output", call_id: "c1", output: "ok" },
+        { role: "assistant", content: "done" },
+      ] as ResponsesRequest["input"],
+    }));
+    const msgs = r.chatRequest.messages;
+    const ai = msgs.findIndex((m) => m.role === "assistant" && (m as { tool_calls?: unknown }).tool_calls);
+    expect(ai).toBeGreaterThan(-1);
+    expect(msgs[ai + 1] && (msgs[ai + 1] as { role: string }).role).toBe("tool");
+    expect(msgs[ai + 2] && (msgs[ai + 2] as { role: string }).role).toBe("assistant");
+  });
+
+  it("throws ToolTranslationError when input yields no user/assistant/tool messages", () => {
+    expect(() => responsesToChatCompletions(baseReq({
+      input: [{ type: "web_search_call" }] as ResponsesRequest["input"],
+    }))).toThrow(ToolTranslationError);
+  });
+
+  it("throws ToolTranslationError for a system-only conversation", () => {
+    expect(() => responsesToChatCompletions(baseReq({
+      input: [{ role: "system", content: "only system" }] as ResponsesRequest["input"],
+    }))).toThrow(ToolTranslationError);
   });
 });

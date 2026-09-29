@@ -1,5 +1,7 @@
 <div align="center">
 
+Two-stage shutdown: first SIGTERM/SIGINT triggers a graceful stop; a second signal within 10s — or a stop that has not finished in 10s — exits immediately, so a wedged event loop no longer requires SIGKILL (field report v4.7.2).
+
 <img src="logo.svg" width="96" alt="ZcodeKnight" />
 
 # ZcodeKnight
@@ -51,13 +53,14 @@ ZcodeKnight manages a whole **pool of accounts** and spreads requests across the
 | Capability | Detail |
 | --- | --- |
 | **Multi-account pool** | Add any number of accounts. Requests round-robin between them. |
+| **Claim cadence & stability notes** | Auto-claim polls every **5 hours** (network failures back off exponentially 10min→6h); brand-new accounts claim immediately for the newbie grant; next-check countdown in Settings. **Memory/stability**: the captcha sandbox window is reused across solves (≈48% CPU cut) and hard-discarded on stall/failure with global-alias teardown, so a crashed mint cannot poison the engine; system metrics sample on an idle-gated 2s background timer (zero cost when unwatched). If you run a 2G-memory host, watch RSS and set `CAPTCHA_WINDOW_REUSE=0` as a first isolation step when diagnosing. |
 | **Per-account concurrency gate** | The upstream free tier caps concurrency at **3 per account**, and one model — `glm-5.3` — at **1**. Each account gets its own gate, and the per-model ceiling is applied on top. Measured, not guessed — see the table below. |
 | **Per-model concurrency ceilings** | Two different limits exist upstream, told apart by their error codes. `3008` = the account-wide ceiling of 3. `3009` = a stricter ceiling on one model. See the measured table below. |
 | **Burst rejection** | When every slot is full, an exceeded request is rejected AT ONCE with a plain-language 503 `pool_busy` (中英文) — no queue, no self-inflicted 3008/3009. Operators who prefer wait-for-a-slot can set `ZCODE_QUEUE_BUDGET_MS` (ms). |
 | **Cooldown / exhaustion avoidance** | `429`/`3008`/`3009` → 60s cooldown. Risk control `3012` → account rest with an explicit "egress IP flagged" note. Quota signals (`1113`, `402`) → 30-minute hold. `401`/`403` → "needs re-login". Every bench reason is written to the account card, so 封禁/风控/限流/配额 are told apart at a glance. A dead account never blocks the others. |
 | **Three API flavors, one port** | `/v1/chat/completions` (OpenAI), `/v1/messages` (Anthropic), `/v1/responses` (Codex). |
 | **Per-account identity** | Every account keeps its own device fingerprint (`X-Device-Mid`) and its own AES-GCM encrypted credential — each looks like a separate desktop client. |
-| **New-account rest** | A brand-new account is auto-paused for 5 minutes (`ZCODE_NEW_ACCOUNT_REST_MS`) with a live countdown on its card — immediately hammering a fresh login is a classic risk-control signature. The 恢复 button ends the rest early; the window clears itself when it expires. |
+| **New-account rest** | A brand-new account is auto-paused for 3 minutes (seconds-precision countdown on its card) (`ZCODE_NEW_ACCOUNT_REST_MS`) with a live countdown on its card — immediately hammering a fresh login is a classic risk-control signature. The 恢复 button ends the rest early; the window clears itself when it expires. |
 | **Outbound proxy rotation** | The Settings proxy accepts several URLs comma-separated and rotates between them every 10 minutes (each hop logged, credentials masked). A single URL keeps the fixed behaviour. |
 | **Risk-control silence (3012)** | When upstream answers `3012 unusual activity`, the affected model goes quiet engine-wide for 30 minutes: requests are answered locally with 429 + a stated recovery time instead of hammering the block (every forwarded request feeds the risk engine). Other models keep flowing; the pool log shows the unlock time. Model probes inside the window are skipped too. |
 | **Persistent login** | Credentials are encrypted on disk and reloaded on boot. Log in once, stay logged in. |
@@ -66,7 +69,7 @@ ZcodeKnight manages a whole **pool of accounts** and spreads requests across the
 | **Pending-grant visibility** | An activity package that is granted but not yet activated shows as a gold PENDING row with its activation time in local time — instead of looking like a failed claim, which is what an empty balance bar suggests. |
 | **Model probing** | Test which models each account can actually use — one tiny request per model. **Off by default and run by hand**: an unattended sweep is ~90 upstream calls for 8 accounts, and those count against the same IP budget as your traffic. |
 | **Playground** | Pick an account × model, send a real request, verify the whole chain. |
-| **Online update** | Checks GitHub releases every 3 days (idle-friendly; `ZCODE_KNIGHT_UPDATE_INTERVAL_HOURS` overrides or disables), shows a gold banner + Settings entry when a new version exists, downloads with a progress bar, then restarts to apply. Download and apply are separate steps — it never restarts behind your back. |
+| **Online update** | Checks GitHub releases every 2 days (idle-friendly; `ZCODE_KNIGHT_UPDATE_INTERVAL_HOURS` overrides or disables), shows a gold banner + Settings entry when a new version exists, downloads with a progress bar, then restarts to apply. Download and apply are separate steps — it never restarts behind your back. |
 | **Black-knight web panel** | Dark metal UI, zero CDN, works offline, full EN/中文 switch, served from the engine at `/admin`. Since v4.7.0 the stylesheet and script ship as separate cached resources (`/admin/assets/panel.css`, `/admin/assets/panel.js`) with ETag revalidation — smaller first paint, edits show up on refresh. |
 
 ### Measured concurrency ceilings
@@ -235,6 +238,26 @@ upstream (api.z.ai / open.bigmodel.cn)
 - **Zero-dependency panel.** The whole admin UI is one HTML file with inline CSS/JS, no CDN,
   no framework — it works with no internet connection.
 
+## Memory & stability — known behavior
+
+```
+引擎内存曲线的两个已知模式（2026-09-29 实测）：
+
+1. 上游 502/风控风暴期间的内存堆积：上游连续 20+ 秒不响应时，连接与流缓冲会堆积，
+   Private 内存可短暂冲到 2GB 级；风暴过去后自动回落（实测回落到 700MB 级）。这不是
+   永久泄漏——判断方法：压测/风暴后等待 30 秒再看 RSS，回落即正常。
+2. captcha 沙箱窗口复用：窗口跨求解复用（CPU 省 ~48%），停顿/失败即硬丢弃并
+   撕除全局别名。极端情况下单次求解崩溃可能污染全局，引擎已有守卫降级为 503。
+
+小内存主机（2G）建议：CAPTCHA_WINDOW_REUSE=0 关闭窗口复用是最快的第一步隔离手段；
+配合 systemd MemoryMax 观察是否触顶。日志 CSV 导出现在包含全量引擎历史，可用于回溯。
+
+官方开源仓库调研（2026-09-29）：ZCode 官方仓库（zai-org/ZCode）最新 v3.14.3（09-24），
+更新集中在 workflow 界面与 token 效率，未发现验证码（captcha）机制变更或关闭；
+无直接可借鉴的内存修复。引擎的 captcha 铸造为自研实现，与官方客户端路径无关。
+```
+
+---
 ## How to use
 
 ### 1. Start

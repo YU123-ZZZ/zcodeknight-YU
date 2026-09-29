@@ -63,7 +63,6 @@
     <button data-page="models"><span class="ico">◐</span><span data-i18n="nav_models">Model Probe</span></button>
     <button data-page="invite"><span class="ico">＋</span><span data-i18n="nav_invite">Invite</span></button>
     <button data-page="settings"><span class="ico">⚙</span><span data-i18n="nav_settings">Settings</span></button>
-    <button data-page="system"><span class="ico">▣</span><span data-i18n="nav_system">System</span></button>
   </nav>
   <div class="side-foot">
     <div class="foot-row">
@@ -442,57 +441,7 @@
       </div>
     </div>
   </div>
-  <div class="page" id="page-system">
-    <h2 data-i18n="sys_title">System</h2>
-    <div class="sub" data-i18n="sys_sub">Live host monitor — refreshes every 5 seconds</div>
-    <div class="sys-grid">
-      <div class="sys-tile sys-tile-wide">
-        <div class="sys-k" data-i18n="sys_mem">Memory</div>
-        <div class="sys-v"><span id="sys-mem">—</span><span class="sys-unit" id="sys-mem-pct">—</span></div>
-        <div class="sys-bar"><div id="sys-mem-bar" style="width:0"></div></div>
-        <div class="sys-hint" id="sys-mem-detail">—</div>
-      </div>
-      <div class="sys-tile">
-        <div class="sys-k" data-i18n="sys_cpu">CPU</div>
-        <div class="sys-v"><span id="sys-cpu-pct">—</span><span class="sys-unit" id="sys-cpu-pct-unit"></span></div>
-        <div class="sys-bar"><div id="sys-cpu-bar" style="width:0"></div></div>
-        <div class="sys-hint"><span id="sys-cpu">—</span> · <span id="sys-cores">—</span></div>
-        <div class="sys-hint" id="sys-gpu" style="display:none"></div>
-        <div id="sys-percore" class="sys-percore"></div>
-      </div>
-      <div class="sys-tile">
-        <div class="sys-k" data-i18n="sys_disk">Disk</div>
-        <div class="sys-v" id="sys-disk">—</div>
-        <div class="sys-bar"><div id="sys-disk-bar" style="width:0"></div></div>
-        <div class="sys-hint" id="sys-disk-detail">—</div>
-      </div>
-      <div class="sys-tile">
-        <div class="sys-k" data-i18n="sys_net">Network</div>
-        <div class="sys-v sys-v-sm" id="sys-net">—</div>
-        <div class="sys-hint" id="sys-net-hint">RX ↓ / TX ↑</div>
-      </div>
-      <div class="sys-tile">
-        <div class="sys-k" data-i18n="sys_load">Load</div>
-        <div class="sys-v" id="sys-load">—</div>
-        <div class="sys-hint" id="sys-load-hint">1m / 5m / 15m</div>
-      </div>
-      <div class="sys-tile">
-        <div class="sys-k" data-i18n="sys_proc">Engine RSS</div>
-        <div class="sys-v" id="sys-proc">—</div>
-        <div class="sys-hint" id="sys-heap">—</div>
-      </div>
-      <div class="sys-tile">
-        <div class="sys-k" data-i18n="sys_uptime">Engine uptime</div>
-        <div class="sys-v" id="sys-uptime">—</div>
-        <div class="sys-hint" id="sys-started">—</div>
-      </div>
-      <div class="sys-tile sys-tile-wide">
-        <div class="sys-k" data-i18n="sys_host">Host</div>
-        <div class="sys-v sys-v-sm"><span id="sys-host">—</span> <span class="sys-unit" id="sys-iface"></span></div>
-        <div class="sys-hint"><span id="sys-os">—</span> · <span data-i18n="sys_node">Node.js</span> <span id="sys-node">—</span> · PID <span id="sys-pid">—</span></div>
-      </div>
-    </div>
-  </div>
+  
 </main>
 
 <div class="mask" id="login-mask">

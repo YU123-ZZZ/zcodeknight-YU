@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.1
+ * 版本 Version: v4.7.2
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -426,7 +426,20 @@ export class AccountPool {
    * the network stack into a unit test).
    */
   setQuotaLookup(lookup: ((accountId: string, model?: string) => number | null) | undefined): void {
-    this.opts.quotaLookup = lookup;
+    // Wrap with cache-hit accounting: a non-null return means the background
+    // poller had a cached balance (hit); null means no cache — the request
+    // needed (or will need) a live billing round-trip. The poller exposes the
+    // counters on its overview panel. The lazy dynamic import keeps the
+    // pool-to-poller dependency one-way (see the comment above).
+    this.opts.quotaLookup = lookup
+      ? (accountId: string, model?: string) => {
+          const left = lookup(accountId, model);
+          void import("../quota/poller.js")
+            .then((m) => m.noteQuotaCacheLookup(accountId))
+            .catch(() => {});
+          return left;
+        }
+      : lookup;
   }
 
   /** (Re)load accounts from the store into runtime state, preserving counters. */
@@ -468,7 +481,7 @@ export class AccountPool {
           const restLeft = (record.newAccountRestUntil ?? 0) - this.now();
           if (restLeft > 0) {
             existing.status = "paused";
-            existing.statusNote = `new account resting — auto-resumes in ${Math.ceil(restLeft / 60_000)} min (or press 恢复)`;
+            existing.statusNote = `新号冷却中 — ${Math.ceil(restLeft / 1000)}s 后自动恢复（或点 恢复 立即加入池）`;
           } else {
             existing.status = "paused";
             existing.statusNote = "paused by admin";
@@ -1059,7 +1072,17 @@ export class AccountPool {
       // Least-remaining-first among known buckets; cursor breaks ties so equal
       // balances still rotate instead of pinning one account.
       known.sort((a, b) => a.left - b.left || a.rt.record.id.localeCompare(b.rt.record.id));
-      const ordered = [...known.map((k) => k.rt), ...unknown];
+      // Field report v4.7.2: when SOME accounts hold a bucket for this model
+      // and others report unknown (no bucket at all), mixing them into one
+      // rotation sent requests to unknown accounts that upstream then refused
+      // with 1005 "exceed quota limit" (they hold no grant for the model).
+      // Known-positive accounts now take strict priority; unknown accounts are
+      // the fallback ONLY when no known-positive account is eligible — which
+      // keeps the "failed billing poll must not look like an empty account"
+      // guarantee for pools where no account has bucket data.
+      const ordered = known.length > 0
+        ? known.map((k) => k.rt)
+        : unknown;
       if (ordered.length > 0) {
         this.rrCursor = this.rrCursor % ordered.length;
         const chosen = ordered[this.rrCursor]!;

@@ -5,7 +5,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.1
+ * 版本 Version: v4.7.2
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -106,7 +106,7 @@ function ensureSyncFetchWorker(): Worker {
   return _syncFetchWorker;
 }
 
-function syncFetchBlocking(url: string, init: Record<string, unknown>, timeoutMs = 30_000): {
+function syncFetchBlocking(url: string, init: Record<string, unknown>, timeoutMs = 8_000): {
   status: number; statusText: string; headers: Record<string, string>;
   setCookie: string[]; body: Buffer;
 } | { error: string } {
@@ -161,12 +161,18 @@ const _DEBUG = /^(1|true|yes)$/i.test(
 
 // ── Globals shared across solves ────────────────────────────────────────────
 const _requestLog = [];
+// Hard cap: every frame request (scripts/XHR/fetch/images) pushes here, and a
+// stalled solve storm can generate thousands of entries per minute. Uncapped,
+// this array was a confirmed RSS growth vector on the 2G deploy (field report
+// v4.7.2: 180MB → 722MB in 40 minutes). 2000 entries is far more than the
+// stall detector and timeout diagnostics ever read (they use the last 12).
 const solveTimes = [];
 // Consecutive-stall tracker per pe bundle URL: the same cached pe version
 // can stall every attempt (bad rotated VM variant / stale cache). After two
 // stalls on one URL, evict its memory + disk cache entry so the next init
 // fetches fresh bytes from the CDN instead of re-stalling on them.
 const _stallCounts = new Map();
+// Cap: pe URLs rotate over time; without eviction this map only grows.
 // Set after a stall: the next solve in this process fetches dynamicJS fresh
 // (bypassing mem+disk cache) instead of re-using the bytes that just stalled.
 let _bypassPeCacheOnce = false;
@@ -177,6 +183,7 @@ function noteStallAndMaybeEvict(peUrl) {
     _bypassPeCacheOnce = true;
     const n = (_stallCounts.get(peUrl) || 0) + 1;
     _stallCounts.set(peUrl, n);
+  if (_stallCounts.size > 50) { const firstKey = _stallCounts.keys().next().value; _stallCounts.delete(firstKey); }
     if (n >= 2 && !_DEBUG) {
       process.stderr.write(`[pe-cache-evict] ${peUrl.split("/").pop()} stalled ${n}x — evicting cache\n`);
     }
@@ -364,6 +371,7 @@ function makeInterceptor(bypassPeCache = false) {
     async beforeAsyncRequest({ request, window: w }) {
       const url = request.url;
       _requestLog.push({ at: Date.now(), method: request.method, url });
+      if (_requestLog.length > 2000) _requestLog.splice(0, _requestLog.length - 2000);
       injectRequestHeaders(request);
       if (/\balicdn\.com/i.test(url)) {
         let body = skipPeCache(url) ? null : getCachedBody(url);
@@ -439,6 +447,7 @@ function makeInterceptor(bypassPeCache = false) {
     beforeSyncRequest({ request, window: w }) {
       const url = request.url;
       _requestLog.push({ at: Date.now(), method: request.method, url, sync: true });
+      if (_requestLog.length > 2000) _requestLog.splice(0, _requestLog.length - 2000);
       injectRequestHeaders(request);
       let body = null;
       if (/\balicdn\.com/i.test(url)) {
@@ -2284,10 +2293,24 @@ function handleCaptchaResult(result) {
 const _reusePool = { window: null, browserFrame: null, solves: 0, lastUsedAt: 0 };
 const REUSE_MAX_SOLVES = Number(process.env.CAPTCHA_REUSE_MAX_SOLVES || 25);
 const REUSE_MAX_IDLE_MS = Number(process.env.CAPTCHA_REUSE_MAX_IDLE_MS || 120_000);
+// RSS self-guard (field report v4.7.2: on a 2G host the D-state hang hits at
+// ~740MB). Before staging a reused window, if RSS exceeds this threshold the
+// pooled window is discarded and a full GC forced — trading one fresh-window
+// boot for staying under the hang line. 0 disables.
+const RSS_GUARD_MB = Number(process.env.CAPTCHA_RSS_GUARD_MB || 600);
 
 function takeReusableWindow() {
   const p = _reusePool;
   if (!p.window) return null;
+  // RSS self-guard runs on every take, before any reuse decision.
+  if (RSS_GUARD_MB > 0) {
+    const rssMb = process.memoryUsage.rss() / 1048576;
+    if (rssMb > RSS_GUARD_MB) {
+      discardReusableWindow();
+      try { Bun.gc(true); } catch (_) {}
+      console.warn(`[captcha] RSS ${Math.round(rssMb)}MB > guard ${RSS_GUARD_MB}MB — discarded reuse window, GC forced`);
+    }
+  }
   if (p.solves >= REUSE_MAX_SOLVES) { discardReusableWindow(); return null; }
   if (Date.now() - p.lastUsedAt > REUSE_MAX_IDLE_MS) { discardReusableWindow(); return null; }
   return { window: p.window, browserFrame: p.browserFrame, reused: true };
@@ -2362,6 +2385,12 @@ async function solveTraceless(opts) {
 
     const param = await new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
+        // Clear the stall detector FIRST: after this reject, catch/finally
+        // destroys the window, but a live stallTimer keeps polling _requestLog
+        // while holding a reference to the closed window — that reference is
+        // exactly what blocked GC and drove the slow RSS climb (field report
+        // v4.7.2: 180MB → 722MB in 40 minutes).
+        clearInterval(stallTimer);
         const peUrl = (() => { try { return w.__lastPeUrl || "?"; } catch (_) { return "?"; } })();
         const reqs = _requestLog
           .filter((r) => r.at >= solveStart)

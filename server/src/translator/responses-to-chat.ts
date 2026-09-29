@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.1
+ * 版本 Version: v4.7.2
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -115,6 +115,17 @@ export function responsesToChatCompletions(req: ResponsesRequest): ResponsesToCh
   const built = buildMessagesFromItems(inputItems);
   messages.push(...built);
 
+  // Hard guard: forwarding a system-only (or empty) conversation hands the
+  // upstream `messages: []`, which Zhipu rejects with the opaque 1214
+  // "messages 参数非法". Fail locally with an actionable error instead —
+  // covering both the dropped-everything shape and system-only conversations
+  // (the anthropic upstream wants at least one non-system message).
+  if (!messages.some((m) => m.role !== "system")) {
+    throw new ToolTranslationError(
+      "request carries no translatable user/assistant/tool input — refusing to forward an empty messages array upstream",
+    );
+  }
+
   // ── tools + bookkeeping ──
   const customToolNames = new Set<string>();
   const namespaceMap = new Map<string, { namespace: string; name: string }>();
@@ -178,7 +189,22 @@ function normaliseInput(input: ResponsesRequest["input"]): ResponsesInputItem[] 
     return [{ type: "message", role: "user", content: input }];
   }
   if (!Array.isArray(input)) return [];
-  return input.filter((x): x is ResponsesInputItem => x !== null && typeof x === "object");
+  const items: ResponsesInputItem[] = [];
+  for (const x of input) {
+    if (x === null || typeof x !== "object") continue;
+    // The Responses spec's EasyInputMessage shorthand is a bare {role, content}
+    // with NO `type` field — ZCode's native glm provider sends exactly that.
+    // Tag it as a message so buildMessagesFromItems doesn't silently drop the
+    // whole conversation (which reached the upstream as messages:[] → Zhipu
+    // 1214 "messages 参数非法"; field report 2026-09-29).
+    const item = x as { type?: string; role?: string };
+    if (!item.type && typeof item.role === "string") {
+      items.push({ ...item, type: "message" } as ResponsesInputItem);
+    } else {
+      items.push(x as ResponsesInputItem);
+    }
+  }
+  return items;
 }
 
 /**

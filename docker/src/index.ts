@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.1
+ * 版本 Version: v4.7.2
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -48,7 +48,7 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { ensureNodeFetchNoTimeouts } from "./runtime/node-fetch-compat.js";
 
-export const VERSION = "4.7.1";
+export const VERSION = "4.7.2";
 
 if (require.main === module) main();
 
@@ -290,11 +290,6 @@ async function serve(configPath: string | undefined, debug: boolean): Promise<vo
       .then((m) => m.startCaptchaPool(config.identity.appVersion))
       .catch((err) => engineError("captcha", `pool warmup failed: ${(err as Error).message}`));
   }
-  // Background host sampler for the panel System page: idle-gated (zero cost
-  // when nobody is watching), async, and GET /system only reads its cache.
-  import("./server/system-metrics.js")
-    .then((m) => m.startSystemSampler())
-    .catch(() => {});
   if (config.claim.enabled && config.claim.auto) {
     import("./claim/multi-runtime.js")
       .then((m) => {
@@ -313,7 +308,7 @@ async function serve(configPath: string | undefined, debug: boolean): Promise<vo
     .then((m) => m.startBalancePolling(config))
     .catch((err) => engineError("balance", `poller failed to start: ${(err as Error).message}`));
   // Periodic release check, so the panel can offer a new version without the
-  // user having to think to ask. Every 3 days by default; the answer is cached
+  // user having to think to ask. Every 2 days by default; the answer is cached
   // in memory and the panel reads it on load instead of re-checking (the GitHub
   // API is unauthenticated here, 60 requests/hour per IP).
   void import("./update/updater.js")
@@ -345,13 +340,23 @@ async function serve(configPath: string | undefined, debug: boolean): Promise<vo
   }
   if (debug) console.log(`  debug: ON`);
 
-  process.on("SIGINT", () => {
-    console.log("\nShutting down...");
+  // Two-stage shutdown (field report v4.7.2: during a D-state hang SIGTERM
+  // never completed and the operator had to SIGKILL). First signal: graceful
+  // stop. Second signal within 10s — or the stop not finishing in 10s — exits
+  // immediately, so a wedged event loop no longer requires SIGKILL.
+  let shuttingDown = false;
+  const shutdown = (sig: string) => {
+    if (shuttingDown) {
+      console.log(`\n${sig} again — exiting immediately`);
+      process.exit(1);
+    }
+    shuttingDown = true;
+    console.log(`\nShutting down (${sig})...`);
     server.stop(true);
-  });
-  process.on("SIGTERM", () => {
-    server.stop(true);
-  });
+    setTimeout(() => process.exit(1), 10_000).unref?.();
+  };
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
 }
 
 /**

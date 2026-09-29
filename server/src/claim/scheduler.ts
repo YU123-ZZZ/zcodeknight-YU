@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.1
+ * 版本 Version: v4.7.2
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -73,11 +73,18 @@ export type TickResult =
 export class ClaimScheduler {
   private stopped = false;
   private holdUntil = 0;
+  private lastRoundDate = "";
   // Consecutive NETWORK-ish failures drive an exponential backoff (10min →
   // 20 → 40 → 80, capped 6h): a dead/unreachable upstream otherwise produces
   // one ERROR line per account per cooldown — 5 accounts every 10 min — which
   // is noise, not signal. A single success resets the ladder.
   private consecutiveErrors = 0;
+  // Daily-reset force retry (field report v4.7.2: an account whose claim
+  // preview failed 4x on network errors sat out the WHOLE next day because the
+  // exponential backoff survived the 00:00 quota reset — upstream opened a
+  // fresh claim window but the scheduler was still sleeping out an 80-minute
+  // hold). Track the last ticked LOCAL date; on change, clear backoff state and
+  // tick immediately so every account gets a same-day attempt.
   private timer: ReturnType<typeof setTimeout> | null = null;
   private readonly now: () => number;
   private readonly log: (message: string) => void;
@@ -89,6 +96,19 @@ export class ClaimScheduler {
 
   /** Earliest unix-ms the next tick can run (holdUntil); 0 = immediate. */
   nextTickAt(): number {
+    return this.holdUntil;
+  }
+
+  /**
+   * nextTickAt for the PANEL countdown. A short hold (< 15 min) is an internal
+   * error-retry backoff (captcha 3007, network blip) — not a scheduled detection
+   * round. Reporting it as "下次自动检测" made the countdown jump to ~4 minutes
+   * after a failed manual claim (field report v4.7.2). Such holds report 0 so
+   * the panel shows "due now" instead.
+   */
+  nextCheckAtForDisplay(): number {
+    const left = this.holdUntil - this.now();
+    if (left > 0 && left < 15 * 60_000) return 0;
     return this.holdUntil;
   }
 
@@ -124,6 +144,15 @@ export class ClaimScheduler {
   async tick(): Promise<TickResult> {
     if (this.stopped) return { action: "stopped" };
     const nowMs = this.now();
+    // Daily quota reset (00:00 local): force an immediate round regardless of
+    // backoff, and reset the error ladder — yesterday's network failures say
+    // nothing about today's reachability.
+    const today = new Date(nowMs).toDateString();
+    if (this.lastRoundDate && today !== this.lastRoundDate) {
+      this.consecutiveErrors = 0;
+      this.holdUntil = 0;
+    }
+    this.lastRoundDate = today;
     if (nowMs < this.holdUntil) return { action: "skipped_hold" };
 
     let jwt: string | undefined;
