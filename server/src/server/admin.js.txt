@@ -3,7 +3,7 @@ const I18N = {
   zh: {
     tagline: "黑骑士网关",
     nav_overview: "概览", nav_accounts: "账号池", nav_playground: "测试页", nav_logs: "日志",
-    nav_invite: "邀请好友", nav_settings: "设置", nav_system: "系统信息",
+    nav_invite: "邀请好友", nav_changelog: "更新日志", nav_settings: "设置", nav_system: "系统信息",
     author: "作者主页", donate: "打赏", free_notice: "完全开源免费 · 收费的都是骗子", bal_none: "暂无余额数据（需重新登录该账号）",
     // An empty balance row has four different causes and the panel used to print
     // the re-login line for all of them — telling the operator to re-login an
@@ -78,6 +78,8 @@ const I18N = {
     md_carried: "×未复测",
     inv_title: "邀请好友", inv_sub: "敬请期待",
     inv_placeholder: "该功能暂未开放。邀请功能上线后由本代理处理，目前无需在此配置。",
+    cl_title: "版本更新日志", cl_sub: "每个版本修复了什么 —— 新版本在前",
+    cl_known_issues: "已知遗留问题与说明",
     set_title: "设置", set_sub: "修改后部分项需重启代理生效",
     set_api: "接口地址（OpenAI 格式）", set_api_hint: "填到你的编程工具里",
     set_key: "API 密钥", set_key_hint: "填到你的编程工具里（点右侧复制）；留空则关闭客户端鉴权", save_pool: "保存池设置", copy: "复制",
@@ -171,7 +173,7 @@ const I18N = {
   en: {
     tagline: "Black Knight Gateway",
     nav_overview: "Overview", nav_accounts: "Accounts", nav_playground: "Playground", nav_logs: "Logs",
-    nav_invite: "Invite", nav_settings: "Settings", nav_system: "System",
+    nav_invite: "Invite", nav_changelog: "Changelog", nav_settings: "Settings", nav_system: "System",
     author: "Author", donate: "Donate", free_notice: "Fully open source & free — paid copies are scams", bal_none: "No balance data (re-login this account)",
     // See the zh block: one message for four distinct causes was misleading.
     bal_no_plan: "No plan on this account (never subscribed, or the plan expired) — dispatch skips it when other accounts have known quota, but an all-unknown pool still rotates",
@@ -244,6 +246,8 @@ const I18N = {
     md_carried: "× not re-measured",
     inv_title: "Invite Friends", inv_sub: "Coming soon",
     inv_placeholder: "This feature is not available yet. Invitations will be handled by this proxy once it goes live, so there is nothing to configure here for now.",
+    cl_title: "Version Changelog", cl_sub: "What each version fixed — newest first",
+    cl_known_issues: "Known issues and notes",
     set_title: "Settings", set_sub: "Some changes need a proxy restart",
     set_api: "Endpoint (OpenAI format)", set_api_hint: "Paste into your coding tools",
     set_key: "API Key", set_key_hint: "Paste into your coding tools (copy on the right); empty disables client auth", save_pool: "Save pool settings", copy: "Copy",
@@ -348,6 +352,64 @@ function applyI18n() {
   document.getElementById("langBtn").textContent = lang === "zh" ? "EN" : "中文";
   document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
 }
+
+// ── Version changelog (panel page, under Invite) ──────────────────────
+// Static data rendered client-side: zero requests, zero server cost, and the
+// engine binary carries its own release notes so the panel always matches the
+// code actually running. Newest first; entries are plain strings.
+const CHANGELOG = [
+  { ver: "v4.7.3", date: "2026-09-30", items: {
+    zh: [
+      "【断流】/v1/responses 流式修复：GLM 深度推理期间上游长时间无输出，空闲超时会掐断连接——现在每 15 秒自动发送 SSE 心跳注释帧保持连接，流异常时主动发送 response.failed 终止事件而不是静默断开，并禁用反向代理响应缓冲（x-accel-buffering: no）",
+      "【新号冷却】倒计时改为实时跳动（服务端下发绝对截止时间戳，面板每秒渲染）；提示文案「恢复」更正为「启用」",
+      "【新号冷却】到期自动回池修复：过期清理由 reload() 单点扩展到面板轮询与请求派发路径，冷却结束自动加入池，不再卡在「已暂停」",
+      "【账号池】卡片新增「添加于」时间显示，精确到秒（本地时区）",
+      "【并发】每模型并发上限默认值 3 → 2（glm-5.3 保持 1），配置模板同步",
+      "【性能】面板账号列表 keyed 复用渲染：轮询无变化不再整列表重建，按钮悬停/点击状态不丢，消除卡顿",
+      "【领取】nothing_to_claim 提示补充说明：领取网关按来源 IP/设备限制每日发放次数，次日自动轮再试",
+      "【修复】1005 \"exceed quota limit\" 误派发：已知正余额账号严格优先于无 bucket 数据的账号",
+      "【修复】captcha 沙箱 stallTimer 泄漏：长时间连续验证码铸造不再堆积内存（实测 ~500MB/h → ~75-85MB/h）",
+      "【修复】1005 回归测试夹具键名修正",
+    ],
+    en: [
+      "Stream fix: /v1/responses now emits a 15s SSE heartbeat comment while GLM reasons silently, sends a terminal response.failed event on stream errors instead of closing silently, and sets x-accel-buffering: no",
+      "New-account rest countdown now ticks live (server sends an absolute deadline; panel renders it every second); note text corrected to the actual Enable button",
+      "Rest-window auto-resume fixed: expiry healing now runs on panel polls and dispatch, not only on account edits — rested accounts rejoin the pool automatically",
+      "Account cards show the exact add time, to the second (local timezone)",
+      "Per-model concurrency default 3 -> 2 (glm-5.3 stays 1); config template synced",
+      "Keyed card reuse in the account list removes the full-list rebuild on every poll (hover/click state preserved)",
+      "Claim nothing_to_claim hint now explains the per-IP/per-device daily grant limit",
+      "1005 misdispatch fix: accounts with known positive balance take strict priority over accounts without bucket data",
+      "Captcha sandbox stallTimer leak fixed (measured ~500MB/h -> ~75-85MB/h)",
+      "Fixed the 1005 regression-test fixture keys",
+    ],
+  }},
+  { ver: "v4.7.2", date: "2026-09-30", items: {
+    zh: [
+      "【内存】captcha 沙箱 stallTimer 泄漏修复（泄漏主因）+ RSS 防护兜底：环境变量 CAPTCHA_RSS_GUARD_MB（默认 600）触及时丢弃复用窗口并强制 GC，日志出现 [captcha] RSS xxxMB > guard 即为生效",
+      "【领取】claim 每日配额本地时间 0 点重置，清除退避并强制重试，不再跳过账号",
+      "【静态资源】404 时增加 WARN 日志，便于排查面板资源加载失败",
+      "【监控】面板新增每模型统计列、轮询竞态守卫、全量日志导出",
+    ],
+    en: [
+      "Memory: captcha sandbox stallTimer leak fixed (root cause) plus an RSS guard (CAPTCHA_RSS_GUARD_MB, default 600) that drops the reused window and force-GCs; look for the [captcha] RSS log line",
+      "Claim: daily quota resets at local midnight, clearing backoff so accounts are no longer skipped",
+      "Static assets: WARN log on 404 for easier panel asset troubleshooting",
+      "Monitoring: per-model stat columns, poll race guards, full log export",
+    ],
+  }},
+];
+function renderChangelog() {
+  const box = document.getElementById("changelog-body");
+  if (!box) return;
+  box.innerHTML = CHANGELOG.map((rel) => {
+    const items = rel.items[lang] || rel.items.zh;
+    const lines = items.map((t) => '<div class="cl-item">' + esc(t) + "</div>").join("");
+    return '<div class="card cl-rel"><div class="cl-ver">' + esc(rel.ver) +
+      '</div><div class="cl-date">' + esc(rel.date) + "</div>" + lines + "</div>";
+  }).join("");
+}
+renderChangelog();
 document.getElementById("langBtn").onclick = () => {
   lang = lang === "zh" ? "en" : "zh";
   localStorage.setItem("zk-lang", lang);
@@ -356,6 +418,7 @@ document.getElementById("langBtn").onclick = () => {
   // rebuilt or they would keep the previous language's labels.
   if (typeof initStaticPickers === "function") initStaticPickers();
   renderAccounts(lastAccounts); loadPlaygroundAccounts();
+  renderChangelog();
 };
 
 // Panel auth. The key is exchanged ONCE for an HttpOnly session cookie, so it

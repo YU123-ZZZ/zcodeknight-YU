@@ -62,6 +62,7 @@
     <button data-page="logs"><span class="ico">≡</span><span data-i18n="nav_logs">Logs</span></button>
     <button data-page="models"><span class="ico">◐</span><span data-i18n="nav_models">Model Probe</span></button>
     <button data-page="invite"><span class="ico">＋</span><span data-i18n="nav_invite">Invite</span></button>
+    <button data-page="changelog"><span class="ico">✦</span><span data-i18n="nav_changelog">Changelog</span></button>
     <button data-page="settings"><span class="ico">⚙</span><span data-i18n="nav_settings">Settings</span></button>
   </nav>
   <div class="side-foot">
@@ -236,6 +237,12 @@
     <div class="card">
       <p class="sub" data-i18n="inv_placeholder">This feature is not available yet. Invitations will be handled by this proxy once it goes live, so there is nothing to configure here for now.</p>
     </div>
+  </div>
+
+  <div class="page" id="page-changelog">
+    <h2 data-i18n="cl_title">Version Changelog</h2>
+    <div class="sub" data-i18n="cl_sub">What each version fixed — newest first</div>
+    <div id="changelog-body"></div>
   </div>
 
   <div class="page" id="page-settings">

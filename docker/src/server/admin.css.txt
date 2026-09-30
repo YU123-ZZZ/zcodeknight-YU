@@ -520,3 +520,14 @@
     box-shadow: 0 8px 30px rgba(0,0,0,.5); display: none;
   }
   .toast.on { display: block; }
+
+  /* ── Version changelog page (under Invite) ── */
+  .cl-rel { margin-bottom: 14px; }
+  .cl-ver { font-size: 16px; font-weight: 700; color: var(--gold); }
+  .cl-date { font-size: 12px; color: var(--muted); margin: 2px 0 8px; }
+  .cl-item {
+    font-size: 13px; color: var(--steel); padding: 6px 0 6px 14px; position: relative;
+    border-bottom: 1px dashed var(--line); line-height: 1.55;
+  }
+  .cl-item:last-child { border-bottom: none; }
+  .cl-item::before { content: "›"; position: absolute; left: 0; color: var(--blue); font-weight: 700; }
