@@ -439,6 +439,24 @@ function streamResponse(upstreamResp: Response, context: StreamResponseContext):
     async start(controller) {
       const encoder = new TextEncoder();
       const send = (evt: ResponsesStreamEvent) => controller.enqueue(encoder.encode(responsesEventToSse(evt)));
+      // SSE comment-frame heartbeat (pattern from the codex-proxy project): a
+      // long GLM reasoning phase produces NO upstream bytes for tens of
+      // seconds, and idle-sensitive clients/tunnels/NAT gateways silently
+      // close an SSE connection that stays quiet that long — the reported
+      // "Responses 老断流". A comment line (`: ping`) is ignored by every
+      // spec-compliant parser but resets those idle timers. 15s sits well
+      // under the common 30-60s idle timeouts.
+      const HEARTBEAT_MS = 15_000;
+      let lastActivity = Date.now();
+      let streamDone = false;
+      const heartbeat = setInterval(() => {
+        if (streamDone) return;
+        if (Date.now() - lastActivity < HEARTBEAT_MS) return;
+        lastActivity = Date.now();
+        try { controller.enqueue(encoder.encode(": ping\n\n")); } catch { /* client gone */ }
+      }, HEARTBEAT_MS);
+      heartbeat.unref?.();
+      let failed = false;
       try {
         const reader = upstreamResp.body!.getReader();
         const decoder = new TextDecoder();
@@ -448,6 +466,7 @@ function streamResponse(upstreamResp: Response, context: StreamResponseContext):
           if (errored) break;
           const { done, value } = await reader.read();
           if (done) break;
+          lastActivity = Date.now();
           buffer += decoder.decode(value, { stream: true });
           // SSE chunks are separated by `\n\n`; process complete frames.
           let nl: number;
@@ -459,6 +478,7 @@ function streamResponse(upstreamResp: Response, context: StreamResponseContext):
             try {
               const chunk = JSON.parse(dataLine);
               for (const evt of chatChunkToResponsesEvents(chunk, state)) send(evt);
+              lastActivity = Date.now();
             } catch (err) {
               errored = true;
               // Release the upstream reader too — without the cancel the
@@ -467,6 +487,19 @@ function streamResponse(upstreamResp: Response, context: StreamResponseContext):
               // errored-flag + early-return semantics (anti-pattern #24) are
               // unchanged: no further reads, no finalize, no close().
               reader.cancel().catch(() => {});
+              failed = true;
+              // Tell the client WHY the stream ended instead of letting the
+              // connection close silently — a silent close reads as a complete
+              // response with missing content, and the client does not retry.
+              try {
+                controller.enqueue(encoder.encode(
+                  `event: response.failed\ndata: ${JSON.stringify({
+                    type: "response.failed",
+                    response: { id: state.responseId, status: "failed" },
+                    error: { code: "stream_error", message: String((err as Error)?.message ?? err) },
+                  })}\n\n`,
+                ));
+              } catch { /* client already gone */ }
               controller.error(err);
               return;
             }
@@ -480,12 +513,15 @@ function streamResponse(upstreamResp: Response, context: StreamResponseContext):
         }
         try { controller.close(); } catch {}
       } catch (err) {
+        failed = true;
         try { controller.error(err); } catch {}
       } finally {
+        streamDone = true;
+        clearInterval(heartbeat);
         // The lease is held for as long as the stream runs, mirroring the chat
         // path (see observeStream in handler.ts). Releasing it when this function
         // RETURNED — as it used to — meant a long SSE response occupied no
-        // concurrency slot at all, so the gate under-counted real in-flight
+        // slot at all, so the gate under-counted real in-flight
         // upstream work. That is the condition the gate exists to prevent, and
         // the trigger for the 3008/3009 storms.
         context.onDone?.();
@@ -506,6 +542,9 @@ function streamResponse(upstreamResp: Response, context: StreamResponseContext):
     headers: {
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
+      // Disable response buffering on nginx-class reverse proxies so heartbeats
+      // and deltas reach the client immediately (same pattern as codex-proxy).
+      "x-accel-buffering": "no",
       connection: "keep-alive",
     },
   });

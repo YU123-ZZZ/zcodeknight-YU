@@ -9,7 +9,7 @@ const I18N = {
     // the re-login line for all of them — telling the operator to re-login an
     // account whose credential was fine and which simply has no plan. Each
     // message now names its own cause; the engine reports which via balanceState.
-    bal_no_plan: "该账号暂无套餐（未订阅或套餐已到期）",
+    bal_no_plan: "该账号暂无套餐（未订阅或套餐已到期）——池子不会主动派发，但「无 bucket 数据=未知」兜底仍可能在其他账号全部不可用时轮到它",
     bal_unavailable: "余额读取失败，稍后重试（凭证未被拒绝）",
     bal_no_jwt: "该账号是编程套餐密钥，没有 JWT 无法查询余额",
     // Shown when the account store could not be decrypted. The file is intact
@@ -26,7 +26,7 @@ const I18N = {
     pg_ends: "免费额度剩余", pg_ends_hint: "到期后该套餐的每日额度将消失",
     claim_ok: "已领取 {n} 个账号",
     claim_fail: "领取失败：", claim_none: "没有可领取的账号",
-    claim_r_nothing_to_claim: "当前没有可领取的活动套餐",
+    claim_r_nothing_to_claim: "当前没有可领取的活动套餐（新号当天可能在同一出口 IP/设备上已被发放过额度：上游按来源限制每日发放次数，次日自动轮再试）",
     claim_r_plan_not_available: "指定套餐不在可领列表中",
     claim_r_already_claimed: "今天已经领过了",
     claim_r_quota_exhausted: "今日名额已领完",
@@ -48,7 +48,7 @@ const I18N = {
     ov_total_none: "暂无额度数据（账号需先登录并同步余额）",
     search_ph: "搜索账号…", f_all: "全部", f_paid: "付费套餐", f_free: "免费套餐",
     acc_unit: " 个", no_match: "没有匹配的账号",
-    acc_title: "账号池", acc_new_rest: "新号冷却中——自动恢复",
+    acc_title: "账号池", acc_new_rest: "新号冷却中——自动恢复", acc_added: "添加于",
     acc_emergency: "⏸ 紧急暂停全部", acc_emergency_resume: "▶ 恢复全部",
     acc_emergency_confirm_stop: "紧急暂停全部账号？暂停后引擎不再向任何账号派发请求（凭证保留，恢复即时生效）。",
     acc_emergency_confirm_resume: "恢复全部账号并重新加入轮询？",
@@ -174,7 +174,7 @@ const I18N = {
     nav_invite: "Invite", nav_settings: "Settings", nav_system: "System",
     author: "Author", donate: "Donate", free_notice: "Fully open source & free — paid copies are scams", bal_none: "No balance data (re-login this account)",
     // See the zh block: one message for four distinct causes was misleading.
-    bal_no_plan: "No plan on this account (never subscribed, or the plan expired)",
+    bal_no_plan: "No plan on this account (never subscribed, or the plan expired) — dispatch skips it when other accounts have known quota, but an all-unknown pool still rotates",
     bal_unavailable: "Balance read failed — retry later (credential was not rejected)",
     bal_no_jwt: "Coding-plan key account: no JWT, so balance cannot be queried",
     // See the zh block.
@@ -190,7 +190,7 @@ const I18N = {
     pg_ends: "daily quota ends in", pg_ends_hint: "once this passes the plan's daily allowance is gone",
     claim_ok: "Claimed for {n} account(s)",
     claim_fail: "Claim failed:", claim_none: "No account available to claim for",
-    claim_r_nothing_to_claim: "No activity plan is claimable right now",
+    claim_r_nothing_to_claim: "No activity plan is claimable right now (new accounts may already have hit the per-IP/per-device daily grant limit; retry the next daily cycle)",
     claim_r_plan_not_available: "That plan is not in the claimable list",
     claim_r_already_claimed: "Already claimed today",
     claim_r_quota_exhausted: "Today's allocation is gone",
@@ -212,7 +212,7 @@ const I18N = {
     ov_total_none: "No quota data yet (log in and sync an account first)",
     search_ph: "Search accounts…", f_all: "All", f_paid: "Paid plan", f_free: "Free plan",
     acc_unit: "", no_match: "No matching accounts",
-    acc_title: "Account Pool", acc_new_rest: "New account resting — auto-resumes",
+    acc_title: "Account Pool", acc_new_rest: "New account resting — auto-resumes", acc_added: "added",
     acc_emergency: "⏸ Emergency pause all", acc_emergency_resume: "▶ Resume all",
     acc_emergency_confirm_stop: "Emergency-pause ALL accounts? The engine will dispatch to none of them (credentials stay; resume is instant).",
     acc_emergency_confirm_resume: "Resume all accounts and rejoin the rotation?",
@@ -1099,8 +1099,7 @@ async function refreshAccounts() {
   const j = await r.json();
   lastAccounts = j.accounts || [];
   renderAccounts(lastAccounts);
-  renderStoreProblem(j.storeProblem);
-  // ONE quota read, shared by both views. Each used to fetch it on its own, so a
+  renderStoreProblem(j.storeProblem);  // ONE quota read, shared by both views. Each used to fetch it on its own, so a
   // single refresh sent two identical /accounts/quota requests — and for an
   // account the poller has no snapshot for, that endpoint performs a LIVE
   // billing read rather than answering from cache, so the duplicate was a real
@@ -1236,14 +1235,45 @@ async function fillAccountBalances(knownQuota) {
 }
 function renderAccounts(list) {
   const el = document.getElementById("acc-list");
+  // Keyed reuse: a pool refresh used to rebuild every card from scratch, so
+  // each poll threw away the whole subtree and repainted it — with hover
+  // states, mid-click buttons and the browser's scroll anchor all lost. Only
+  // rebuild a card when its identity LEFT the page (deleted account, changed
+  // filter); everything else is patched in place via keyCardDiff.
+  const existing = new Map();
+  for (const c of [...el.querySelectorAll(".acc-card")]) {
+    if (c.dataset.accId) existing.set(c.dataset.accId, c);
+    else c.remove();
+  }
   el.innerHTML = "";
   if (!list.length) {
     el.innerHTML = '<div class="card empty" style="grid-column:1/-1"><img class="big" src="/admin/api/logo.svg" width="46" height="46" alt=""><div>' +
       T("no_accounts") + '</div><div class="sub">' + T("no_accounts_sub") + "</div></div>";
     return;
   }
+  const reused = new Set();
   for (const a of list) {
-    const card = document.createElement("div");
+    // Rebuild the card only when its content actually changed: the diff key
+    // covers every rendered field, so a poll that changed nothing reuses the
+    // DOM node as-is (buttons, hover, and any in-flight interaction survive),
+    // while a real change still gets a fresh render. Status timestamps make
+    // the hold-line deadlines part of the key — their absolute targets move
+    // server-side even when the text does not.
+    const diffKey = JSON.stringify([
+      a.id, a.name, a.provider, a.plan, a.status, a.statusNote,
+      a.newAccountRestUntil, a.modelCooldowns, a.stats,
+      a.inFlight, a.maxConcurrent, a.cooldownRemainingMs,
+      a.isDefault, a.hasJwt, a.deviceMidTail, a.createdAt, lang,
+    ]);
+    let card = existing.get(a.id);
+    if (card && card.dataset.diffKey === diffKey) {
+      reused.add(a.id);
+      el.appendChild(card);
+      continue;
+    }
+    if (!card) card = document.createElement("div");
+    card.dataset.accId = a.id;
+    card.dataset.diffKey = diffKey;
     // Model-scoped holds. Upstream throttles PER MODEL, so this account is still
     // serving everything else — it gets its own badge rather than replacing the
     // status, which would claim the whole account is down. Without it a
@@ -1261,6 +1291,23 @@ function renderAccounts(list) {
     const holdLines = holds.map((h) =>
       '<div class="hold-line">' + esc(h.model) + " — " + T("hold_retry_in") + " " +
       '<span class="cd" data-until="' + (Date.now() + h.remainingMs) + '"></span></div>').join("");
+    // The rest deadline is absolute epoch-ms from the server, so the shared
+    // 1s ticker can count it down live. The note alone used to carry a
+    // frozen second count computed at reload time — it never moved, and the
+    // account then sat past its deadline with nothing happening on screen.
+    const restNote = a.newAccountRestUntil > 0
+      ? '<span class="cd" data-until="' + a.newAccountRestUntil + '"></span>'
+      : "";
+    const statusLine = a.statusNote
+      ? '<div class="sub" style="margin:6px 0 0">' + esc(a.statusNote) + (restNote ? " " + restNote : "") + "</div>"
+      : "";
+    // Added time, to the second: operators reconcile accounts against outside
+    // events (a risk-control email, a burst of logins) and a date without a
+    // time cannot answer "which of these six came in at 14:32?". Rendered in
+    // the LOCAL timezone from the ISO createdAt the server already reports;
+    // fmtLogTime already formats exactly this shape.
+    const addedAt = a.createdAt ? Date.parse(a.createdAt) : NaN;
+    const addedStr = Number.isFinite(addedAt) ? fmtLogTime(addedAt) : "";
     card.innerHTML =
       '<div class="acc-head"><span class="acc-name">' + esc(a.name) + "</span>" +
       '<span class="pill ' + a.provider + '">' + a.provider + "</span>" +
@@ -1268,12 +1315,13 @@ function renderAccounts(list) {
         (a.plan === "start-plan" ? T("plan_free") : T("plan_paid")) + "</span>" +
       '<span class="st ' + a.status + '">' + T("st_" + a.status) + "</span>" + throttleBadge +
       (a.isDefault ? '<span class="pill plan-paid">' + T("act_default") + "</span>" : "") + "</div>" +
-      (a.statusNote ? '<div class="sub" style="margin:6px 0 0">' + esc(a.statusNote) + "</div>" : "") +
+      statusLine +
       (holdLines ? '<div class="hold-box">' + holdLines + "</div>" : "") +
       '<div class="meta-row"><span>' + T("concurrency") + " " + a.inFlight + "/" + a.maxConcurrent + "</span>" +
       "<span>" + T("reqs") + " " + a.stats.requests + "</span>" +
       "<span>" + T("fail") + " " + a.stats.failures + "</span>" +
       "<span>" + T("th_cool") + " " + a.stats.cooldowns + "</span>" +
+      (addedStr ? "<span>" + T("acc_added") + " " + addedStr + "</span>" : "") +
       "<span>mid…" + esc(a.deviceMidTail) + "</span>" +
       (a.cooldownRemainingMs > 0 ? "<span style='color:var(--gold)'>" + Math.ceil(a.cooldownRemainingMs / 1000) + "s</span>" : "") + "</div>" +
       // Balance bars are filled asynchronously from /accounts/quota (cached
@@ -1343,6 +1391,10 @@ function renderAccounts(list) {
     });
     card.appendChild(actions);
     el.appendChild(card);
+  }
+  // Cards whose account left the filtered list go away; reused ones stay.
+  for (const [id, c] of existing) {
+    if (!reused.has(id)) c.remove();
   }
 }
 /**
