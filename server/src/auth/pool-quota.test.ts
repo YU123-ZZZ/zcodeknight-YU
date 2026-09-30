@@ -300,21 +300,21 @@ describe("quota-aware dispatch", () => {
 
   it("gives flash a higher ceiling than glm-5.3", async () => {
     // The two ceilings differ and a single global number cannot express both.
-    // Measured upstream: glm-5.3-flash succeeds 3-at-once (3008 above that),
-    // glm-5.3 succeeds only 1-at-once (3009 above that).
+    // Defaults: every model gates at 2 (operator-set), glm-5.3 stays at 1
+    // (measured: a second simultaneous request draws 3009).
     //
-    // The gates sit AT those measured ceilings, not below them: a per-model gate
+    // The gates sit AT those ceilings, not below them: a per-model gate
     // encodes a hard upstream rule, so sitting under it only throws away
     // capacity. Bursts are absorbed by the ACCOUNT gate's overflow allowance,
     // which never raises a model gate (see the next test).
     const { pool } = await setupPool(1);
-    expect(pool.getOptions().maxConcurrentPerModel.default).toBe(3);
+    expect(pool.getOptions().maxConcurrentPerModel.default).toBe(2);
     expect(pool.getOptions().maxConcurrentPerModel.byModel["glm-5.3"]).toBe(1);
 
-    // flash runs as wide as upstream allows (the account gate is 8 here, so the
+    // flash runs as wide as its gate allows (the account gate is 8 here, so the
     // model gate is the binding one, and overflow is off in this fixture).
     const held: Array<{ release(): void }> = [];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 2; i++) {
       const r = pool.acquire({ model: "glm-5.3-flash" });
       expect(r.ok).toBe(true);
       if (r.ok) held.push(r.lease);
@@ -472,5 +472,18 @@ describe("quota-aware dispatch", () => {
 describe("remainingQuota", () => {
   it("returns null with no snapshot at all", () => {
     expect(remainingQuota("nobody", "glm-5.3-flash")).toBeNull();
+  });
+  it("6 accounts where only one holds a bucket for the model: all requests go to the holder (field report v4.7.2, 1005 misdispatch)", async () => {
+    // setupPool names accounts acct-0..acct-5; the keys must match those names
+    // or the lookup reports every account as unknown and the strict-priority
+    // branch is never exercised.
+    const { pool } = await setupPool(6, {
+      "acct-0": null, "acct-1": null, "acct-2": null,
+      "acct-3": null, "acct-4": null, "acct-5": 800,
+    });
+    const order = pickOrder(pool, 6);
+    // Every request lands on the quota holder — no request reaches the
+    // grant-less accounts, so upstream never answers 1005.
+    expect(order.every((n) => n === "acct-5")).toBe(true);
   });
 });

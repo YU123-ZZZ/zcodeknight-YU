@@ -252,6 +252,17 @@ upstream (api.z.ai / open.bigmodel.cn)
 小内存主机（2G）建议：CAPTCHA_WINDOW_REUSE=0 关闭窗口复用是最快的第一步隔离手段；
 配合 systemd MemoryMax 观察是否触顶。日志 CSV 导出现在包含全量引擎历史，可用于回溯。
 
+v4.7.2 现场修复后的补充说明（2026-09-30）：
+
+1. captcha 沙箱 stallTimer 泄漏已修复：停顿/失败路径现在会清掉计时器，长时间连续
+   验证码铸造不再每小时堆积数百 MB（实测从 ~500MB/h 降到 ~75-85MB/h，剩余部分为
+   happy-dom 内部引用，属已知量级）。
+2. RSS 防护兜底：环境变量 `CAPTCHA_RSS_GUARD_MB`（默认 600）触及时丢弃复用窗口并
+   强制 GC，日志出现 `[captcha] RSS xxxMB > guard` 即为生效。2G 主机 RSS 预期稳定
+   在 300-500MB；若仍单调上升，请收集 `[assets]`/`[upstream]` 日志行反馈。
+3. 1005 "exceed quota limit" 误派发已修复：计费快照里已知有余量的账号现在严格优先
+   于无 bucket 数据的账号，混合账号池不再把请求派给上游必然拒绝（1005）的账号。
+
 官方开源仓库调研（2026-09-29）：ZCode 官方仓库（zai-org/ZCode）最新 v3.14.3（09-24），
 更新集中在 workflow 界面与 token 效率，未发现验证码（captcha）机制变更或关闭；
 无直接可借鉴的内存修复。引擎的 captcha 铸造为自研实现，与官方客户端路径无关。

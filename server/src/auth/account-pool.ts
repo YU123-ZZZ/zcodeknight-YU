@@ -261,25 +261,22 @@ export const DEFAULT_POOL_OPTIONS: AccountPoolOptions = {
   // Account-wide gate. Measured ceiling is 3 (3008), so 2 keeps a margin below
   // the limit while still allowing real concurrency.
   maxConcurrentPerAccount: 2,
-  // Per-model gates, set AT the measured ceiling rather than below it.
+  // Per-model gates. Default 2 for every model; glm-5.3 stays pinned at 1.
   //
   // These are a different kind of number from the account gate above. The
   // account gate is an estimate with deliberate margin; a per-model gate
-  // encodes a hard upstream rule that no amount of retrying changes. So it is
-  // set exactly where upstream draws the line: 3 for flash (3008 above that),
-  // 1 for glm-5.3 (3009 above that).
+  // encodes a hard upstream rule that no amount of retrying changes.
   //
-  // The previous defaults pinned everything to 1. That was described as
+  // The previous default pinned everything to 1. That was described as
   // "conservative", but it was not: the overflow pass multiplied the model gate
   // by overflowFactor, so a burst raised glm-5.3 from 1 to 2 — exactly the
   // level upstream refuses. The first thing a concurrency spike produced was
   // therefore a batch of 3009s, and every 3009 cooled that model down. Hence
-  // "as soon as concurrency goes up, everything is rate-limited". It also
-  // throttled flash to a third of what upstream actually allows.
+  // "as soon as concurrency goes up, everything is rate-limited".
   //
   // Set at the ceiling, both halves behave: the gate cannot be the thing that
   // provokes a refusal, and each model runs as wide as it really can.
-  maxConcurrentPerModel: { default: 3, byModel: { "glm-5.3": 1 } },
+  maxConcurrentPerModel: { default: 2, byModel: { "glm-5.3": 1 } },
   // Overflow: OFF by default (factor 1 = strict gating). Admitting requests
   // past the account gate won the bet only sometimes — under sustained load the
   // self-inflicted 3008/3009s cooled accounts and models over and over, and the
@@ -476,12 +473,14 @@ export class AccountPool {
          * to explain it, because the restart is invisible.
          */
         if (record.paused) {
-          // A new-account rest window reads as its own state, with the time
-          // left in the note so the panel can render a countdown from it.
-          const restLeft = (record.newAccountRestUntil ?? 0) - this.now();
-          if (restLeft > 0) {
+          // A new-account rest window reads as its own state. The deadline is
+          // reported separately (RuntimeSnapshot.newAccountRestUntil) and the
+          // panel renders a live countdown from it — baking seconds into this
+          // note froze them until the next reload, which read as a clock that
+          // did not move. The button name matches the panel's 启用 action.
+          if ((record.newAccountRestUntil ?? 0) > this.now()) {
             existing.status = "paused";
-            existing.statusNote = `新号冷却中 — ${Math.ceil(restLeft / 1000)}s 后自动恢复（或点 恢复 立即加入池）`;
+            existing.statusNote = "新号冷却中 — 倒计时结束后自动加入池（或点 启用 立即加入）";
           } else {
             existing.status = "paused";
             existing.statusNote = "paused by admin";
@@ -504,6 +503,9 @@ export class AccountPool {
           }
         }
       } else {
+        // Brand-new runtime: an active rest window reads as its own state.
+        // The expired-window case needs no branch here — records only reach
+        // the store through addAccount, which sets the window in the future.
         this.accounts.set(record.id, {
           record,
           credentialKey: credentialKey(record.credential),
@@ -516,7 +518,11 @@ export class AccountPool {
           modelInFlight: new Map(),
           lastDispatchAt: 0,
           status: record.paused ? "paused" : "ok",
-          statusNote: record.paused ? "paused by admin" : "",
+          statusNote: record.paused
+            ? ((record.newAccountRestUntil ?? 0) > Date.now()
+              ? "新号冷却中 — 倒计时结束后自动加入池（或点 启用 立即加入）"
+              : "paused by admin")
+            : "",
           stats: { requests: 0, successes: 0, failures: 0, cooldowns: 0, overflows: 0 },
         });
       }
@@ -532,25 +538,64 @@ export class AccountPool {
   snapshot(): Array<RuntimeSnapshot> {
     const now = this.now();
     return [...this.accounts.values()]
-      .map((rt) => ({
-        id: rt.record.id,
-        name: rt.record.name,
-        provider: rt.record.provider,
-        plan: rt.record.plan,
-        deviceMidTail: rt.record.deviceMid.slice(-6),
-        createdAt: rt.record.createdAt,
-        lastUsedAt: rt.record.lastUsedAt,
-        note: rt.record.note ?? "",
-        isDefault: rt.record.isDefault === true,
-        hasJwt: Boolean(rt.record.credential.jwt),
-        inFlight: rt.inFlight,
-        maxConcurrent: this.opts.maxConcurrentPerAccount,
-        cooldownRemainingMs: Math.max(0, rt.cooldownUntil - now),
-        status: this.effectiveStatus(rt, now),
-        statusNote: rt.statusNote,
-        modelCooldowns: this.activeModelCooldowns(rt, now),
-        stats: { ...rt.stats },
-      }));
+      .map((rt) => {
+        // Expire the new-account rest window HERE, not only in reload(): the
+        // window's cleanup used to run solely on reload, which fires only at
+        // startup and on account edits — so a rested account sat paused
+        // forever with the panel showing a countdown that had already passed.
+        // Every panel poll calls snapshot(), which makes it the one code path
+        // guaranteed to run while the operator watches the countdown end.
+        // mutateDoc is async (and reload is the one place allowed to await it
+        // per its callers' contracts), so the persisted record is healed by
+        // the sweep below from the runtime side instead.
+        this.expireNewAccountRest(rt, now);
+        return {
+          id: rt.record.id,
+          name: rt.record.name,
+          provider: rt.record.provider,
+          plan: rt.record.plan,
+          deviceMidTail: rt.record.deviceMid.slice(-6),
+          createdAt: rt.record.createdAt,
+          lastUsedAt: rt.record.lastUsedAt,
+          note: rt.record.note ?? "",
+          isDefault: rt.record.isDefault === true,
+          hasJwt: Boolean(rt.record.credential.jwt),
+          inFlight: rt.inFlight,
+          maxConcurrent: this.opts.maxConcurrentPerAccount,
+          cooldownRemainingMs: Math.max(0, rt.cooldownUntil - now),
+          status: this.effectiveStatus(rt, now),
+          statusNote: rt.statusNote,
+          newAccountRestUntil: Math.max(0, rt.record.newAccountRestUntil ?? 0),
+          modelCooldowns: this.activeModelCooldowns(rt, now),
+          stats: { ...rt.stats },
+        };
+      });
+  }
+
+  /**
+   * Lift an expired new-account rest window off the RUNTIME state.
+   *
+   * The persisted flag is cleared by the next reload() (or routes-admin's own
+   * updateAccount calls); what matters for dispatch is the runtime record and
+   * status, and those must flip the moment the deadline passes — waiting for
+   * an edit-triggered reload is what stranded rested accounts in 已暂停.
+   * Returns true when the window was lifted, so callers can schedule the
+   * store heal.
+   */
+  private expireNewAccountRest(rt: AccountRuntime, now: number): boolean {
+    const until = rt.record.newAccountRestUntil ?? 0;
+    if (until === 0 || until > now) return false;
+    rt.record.newAccountRestUntil = 0;
+    if (rt.record.paused) rt.record.paused = false;
+    if (rt.status === "paused") {
+      // Do not invent health: a credential upstream rejected still means
+      // re-login, exactly as reload()'s unpaused branch.
+      rt.status = rt.reloginRequired ? "relogin" : "ok";
+      rt.statusNote = rt.reloginRequired
+        ? "credential rejected upstream (401/403) — re-login required"
+        : "";
+    }
+    return true;
   }
 
   /**
@@ -613,6 +658,12 @@ export class AccountPool {
       const preferred = accounts.filter((rt) => rt.record.provider === opts.preferProvider);
       if (preferred.length > 0) candidates = preferred;
     }
+
+    // An expired rest window must not keep benching the account on the
+    // dispatch path either: cleanup in reload()/snapshot() only runs when
+    // someone edits an account or opens the panel, and a proxy burst between
+    // the two would still refuse to use an account whose rest had ended.
+    for (const rt of candidates) this.expireNewAccountRest(rt, now);
 
     // Pass 1: strictly eligible accounts, round-robin order.
     // Pass 1: eligible accounts that also respect the same-account spacing
@@ -1223,6 +1274,15 @@ export interface RuntimeSnapshot {
   cooldownRemainingMs: number;
   status: AccountRuntime["status"];
   statusNote: string;
+  /**
+   * New-account rest deadline (epoch ms), 0 when none is in force.
+   *
+   * Reported separately from `statusNote` so the panel can render a LIVE
+   * countdown: the note is computed once per reload and its "Ns 后自动恢复"
+   * went stale the moment it was rendered, reading as a broken clock. The
+   * deadline itself is absolute, so the client ticks against it correctly.
+   */
+  newAccountRestUntil: number;
   /**
    * Models this account is currently held for, with the time left. Empty when
    * nothing is throttled. The account stays usable for other models, so this is

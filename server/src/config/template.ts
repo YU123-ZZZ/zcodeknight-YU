@@ -208,7 +208,7 @@ proxy:
 pool:
   maxConcurrentPerAccount: 2      # one below the measured 3, so bursts have room
   maxConcurrentPerModel:
-    default: 3                    # flash tolerates 3
+    default: 2                    # per-model ceiling (operator-set)
     byModel:
       glm-5.3: 1                  # glm-5.3 tolerates 1; a 2nd call gets 3009
   cooldownMs: 60000               # backoff after an ACCOUNT-wide 429/3008
@@ -221,4 +221,19 @@ pool:
 
 logging:
   level: info
+
+# ── 环境变量速查（YAML 之外的行为开关）────────────────────────────────
+# ZCODE_NEW_ACCOUNT_REST_MS   新账号入池后的冷却窗口毫秒数（默认 180000 = 3 分钟，
+#                             0 关闭）。冷却期内账号不参与派发，到期自动回池；
+#                             面板卡片上有实时倒计时，点「启用」可立即加入。
+#                             注意：领取网关按来源 IP/设备统计每日发放次数，
+#                             同一天大批量添加新号时，排在前面的能领到新手包，
+#                             之后的会返回 nothing_to_claim（次日自动轮再试），
+#                             这是上游限制，不是本机故障。
+# CAPTCHA_RSS_GUARD_MB        captcha 沙箱 RSS 防护阈值（默认 600MB）。超过即
+#                             丢弃复用窗口并强制 GC，日志出现
+#                             "[captcha] RSS xxxMB > guard" 即为生效。
+# CAPTCHA_WINDOW_REUSE=0      关闭 captcha 窗口复用（CPU 换隔离，2G 小内存
+#                             主机排查内存问题时第一步）。
+# ZCODE_LEASE_RECLAIM_MS      租约强制回收阈值毫秒数（默认 1800000 = 30 分钟）。
 `;
