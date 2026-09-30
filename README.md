@@ -252,6 +252,19 @@ upstream (api.z.ai / open.bigmodel.cn)
 小内存主机（2G）建议：CAPTCHA_WINDOW_REUSE=0 关闭窗口复用是最快的第一步隔离手段；
 配合 systemd MemoryMax 观察是否触顶。日志 CSV 导出现在包含全量引擎历史，可用于回溯。
 
+v4.7.3（2026-09-30）：
+
+1. 新号冷却倒计时改为实时跳动（快照新增 `newAccountRestUntil` 绝对时间戳，面板
+   1 秒 ticker 渲染），提示文案「恢复」更正为「启用」；
+2. 新号冷却到期自动回池修复：过期清理由 `reload()` 单点扩展到 `snapshot()` 与
+   `acquire()`，到期即自动加入池，不再卡在「已暂停」；
+3. 账号卡片新增「添加于」时间显示，精确到秒（本地时区）；
+4. 每模型并发上限默认值 3 → **2**（glm-5.3 保持 1），config.yaml 模板同步；
+5. 面板账号列表 keyed 复用渲染：轮询无变化不再整列表重建，消除卡顿；
+6. claim `nothing_to_claim` 提示补充说明上游按来源 IP/设备限制每日发放次数；
+7. `pool-quota.test.ts` 1005 回归测试夹具键名修正（实现无 bug，测试键名错配）；
+8. 1005 "exceed quota limit" 误派发修复：已知正余额账号严格优先于无 bucket 数据账号。
+
 v4.7.2 现场修复后的补充说明（2026-09-30）：
 
 1. captcha 沙箱 stallTimer 泄漏已修复：停顿/失败路径现在会清掉计时器，长时间连续
