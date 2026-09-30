@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.2
+ * 版本 Version: v4.7.4
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -95,6 +95,9 @@ describe("proxyRequest — start-plan resilience (PR #34 review P1/P3)", () => {
   it("retries an in-body 3007 captcha challenge with a fresh token", async () => {
     // Mock the captcha module: config enabled, token take returns distinct
     // tokens per call so we can assert the retry used a FRESH token.
+    // Upstream v3.14.4 removed the captcha gate on model requests, so the
+    // chat path no longer pre-fetches a token — call 1 legitimately carries
+    // NO captcha header and the 3007 fallback mints tok-1 for call 2.
     let tokenSeq = 0;
     mock.module("./captcha.js", () => ({
       detectCaptchaChallenge: (resp: Response): string | null => {
@@ -111,7 +114,7 @@ describe("proxyRequest — start-plan resilience (PR #34 review P1/P3)", () => {
     // Upstream: first call = HTTP 400 with {"code":3007} in the body (no
     // captcha header), second call = success. The mock also records the
     // captcha header of each call so we can assert the retry used a FRESH
-    // token (tok-2, not the consumed tok-1).
+    // token (tok-1, minted by the fallback — not a stale pre-fetched one).
     const seenCaptchaHeaders: (string | null)[] = [];
     let calls = 0;
     const fetchMock = mock(async (req: Request): Promise<Response> => {
@@ -142,8 +145,8 @@ describe("proxyRequest — start-plan resilience (PR #34 review P1/P3)", () => {
 
     // The in-body 3007 challenge was detected and retried with a fresh token.
     expect(calls).toBe(2);
-    expect(seenCaptchaHeaders[0]).toBe("tok-1");
-    expect(seenCaptchaHeaders[1]).toBe("tok-2");
+    expect(seenCaptchaHeaders[0]).toBeNull();          // no pre-fetch: upstream removed the gate
+    expect(seenCaptchaHeaders[1]).toBe("tok-1");       // fallback minted fresh on the 3007
     expect(resp.status).toBe(200);
     const body = await resp.json();
     expect(body.choices[0].message.content).toBe("resilience reply");

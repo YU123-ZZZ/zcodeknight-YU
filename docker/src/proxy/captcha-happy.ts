@@ -5,7 +5,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.2
+ * 版本 Version: v4.7.4
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -2299,6 +2299,9 @@ const REUSE_MAX_IDLE_MS = Number(process.env.CAPTCHA_REUSE_MAX_IDLE_MS || 120_00
 // boot for staying under the hang line. 0 disables.
 const RSS_GUARD_MB = Number(process.env.CAPTCHA_RSS_GUARD_MB || 600);
 
+/** Debounces the "deferring new window" warning to one line per wait episode. */
+let _waitingLogged = false;
+
 function takeReusableWindow() {
   const p = _reusePool;
   if (!p.window) return null;
@@ -2372,6 +2375,33 @@ async function solveTraceless(opts) {
     if (dom) reused = true;
   }
   if (!dom) {
+    // Global RSS gate BEFORE creating a window (field report v4.7.3: the
+    // multi-account claim round fires 4 accounts × 3 lanes × up to 4 retries
+    // at once; each happy-dom window costs 150-300MB, so concurrent creates
+    // pushed RSS past 1GB and the Bun process died with exit 1 — the RSS
+    // guard below only ran on the REUSE path and never gated NEW windows).
+    // When over the guard, wait for the in-flight solves to finish and
+    // release their windows instead of stacking one more; after a short wait
+    // a pooled window is usually reusable again. Falls through after 30s so
+    // a stuck high-RSS state degrades to "solve anyway" rather than a
+    // permanent captcha outage.
+    if (RSS_GUARD_MB > 0) {
+      const gateStart = Date.now();
+      for (;;) {
+        const rssMb = process.memoryUsage.rss() / 1048576;
+        if (rssMb <= RSS_GUARD_MB) break;
+        if (Date.now() - gateStart > 30_000) {
+          console.warn(`[captcha] RSS ${Math.round(rssMb)}MB still > guard ${RSS_GUARD_MB}MB after 30s — solving anyway`);
+          break;
+        }
+        if (!_waitingLogged) {
+          _waitingLogged = true;
+          console.warn(`[captcha] RSS ${Math.round(rssMb)}MB > guard ${RSS_GUARD_MB}MB — deferring new window (waiting for in-flight solves to release)`);
+        }
+        await new Promise((r) => setTimeout(r, 1_000));
+      }
+      _waitingLogged = false;
+    }
     dom = await createDom(region, prefix);
   }
   const { window: w, browserFrame } = dom;
@@ -2397,18 +2427,26 @@ async function solveTraceless(opts) {
           .map((r) => `${(r.at - solveStart)}ms ${r.method} ${String(r.url).replace(/^https?:\/\//, "").slice(0, 60)}`)
           .slice(-12);
         reject(new Error(`captcha solve timeout pe=${peUrl.split("/").pop() || peUrl} reqs=${JSON.stringify(reqs)}`));
-      }, timeoutMs);      // Fail-fast stall detector: healthy solves keep firing XHRs until verify
-      // (~3s). If no XHR for stallMs and none pending, this pe-VM variant
-      // stalled (seen across rotated pe.0xx versions) — abort early so the
-      // caller can retry with a fresh InitCaptchaV3 (new pe version).
-      // Fail-fast stall detector: healthy solves keep firing XHRs until
-      // verify (~3s, gaps <2s). If no XHR for 6s, this pe-VM variant stalled
-      // (seen across rotated pe.0xx versions) — abort early so the caller
-      // can retry with a fresh InitCaptchaV3 (new pe version).
+      }, timeoutMs);      // Fail-fast stall detector with SECOND CONFIRMATION.
+      // Healthy solves keep firing XHRs until verify (~3s, gaps <2s); if no
+      // XHR appears for stallMs (6s) the pe-VM variant LOOKS stalled. But on
+      // the 2-core / 2G deploy the whole box can freeze mid-solve (GC, swap,
+      // log rotation) and produce a false stall — field report v4.7.3 logged
+      // 124 stalls, nearly all "1 attempts" then give-up. So: on the first
+      // stall window, DON'T reject — keep waiting one more stallMs grace and
+      // only fire if STILL no XHR by the end (total 12s quiet). True stalls
+      // cost one extra grace period; false stalls from a transient freeze
+      // recover instead of dying.
       const stallMs = opts.stallMs ?? Number(process.env.CAPTCHA_STALL_MS || 6_000);
+      let stallStruck = false;
       const stallTimer = setInterval(() => {
         const last = _requestLog[_requestLog.length - 1];
         if (last && Date.now() - last.at > stallMs) {
+          if (!stallStruck) {
+            // First quiet window: arm the confirmation instead of rejecting.
+            stallStruck = true;
+            return;
+          }
           const peUrl = (() => { try { return w.__lastPeUrl || "?"; } catch (_) { return "?"; } })();
           noteStallAndMaybeEvict(peUrl);
           const reqs = _requestLog
@@ -2418,6 +2456,9 @@ async function solveTraceless(opts) {
           clearTimeout(timer);
           clearInterval(stallTimer);
           reject(new Error(`captcha solve stall pe=${peUrl.split("/").pop() || peUrl} lastXhr=${(last.at - solveStart)}ms reqs=${JSON.stringify(reqs)}`));
+        } else if (last && Date.now() - last.at <= stallMs) {
+          // Traffic resumed — re-arm so a later stall gets its own grace.
+          stallStruck = false;
         }
       }, 500);
       const finish = (fn) => (value) => {

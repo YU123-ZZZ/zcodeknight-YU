@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.3
+ * 版本 Version: v4.7.4
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -626,6 +626,15 @@ export class CaptchaTokenPool {
       let lastErr: string | null = null;
       let sawIpBlock = false;
       for (let attempt = 1; attempt <= this.opts.solveRetries; attempt += 1) {
+        // Exponential inter-attempt backoff (field report v4.7.3: 124 of 188
+        // captcha failures were "solve stall" at attempt 1 of 1 — retrying
+        // immediately hammers the same overloaded 2-core box and the same
+        // CDN route that just stalled. 1s → 2s → 4s gives the box and the
+        // upstream a beat to recover before the next mint.)
+        if (attempt > 1) {
+          const backoffMs = Math.min(1_000 * 2 ** (attempt - 2), 8_000);
+          await new Promise((r) => setTimeout(r, backoffMs));
+        }
         try {
           const param = await runCaptchaSolve(cfg.sceneId, cfg.region, cfg.prefix);
           if (!param) {

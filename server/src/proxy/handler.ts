@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.3
+ * 版本 Version: v4.7.4
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -316,7 +316,14 @@ export async function proxyRequest(
   }
 
   let captchaHeaders: Record<string, string> | undefined;
-  if (startPlan) {
+  // Upstream v3.14.4 REMOVED the captcha gate on model requests ("关闭模型
+  // 请求验证码校验", official release notes 2026-09-29). No token is fetched
+  // for the chat path anymore — the pre-solve pool stays available for the
+  // claim flow (billing/claim still requires one) and the 403 fallback below
+  // re-solves on demand if upstream ever re-arms the gate. Flip this back on
+  // if upstream restores the gate; the fallback keeps both states working.
+  const START_PLAN_CHAT_CAPTCHA = false;
+  if (START_PLAN_CHAT_CAPTCHA && startPlan) {
     try {
       const captcha = await loadCaptcha();
       const token = await captcha.getCaptchaToken(effectiveIdentity.appVersion);
@@ -688,8 +695,7 @@ export async function proxyRequest(
     }
     if (isSSE && upstreamResp.body) {
       const translated = anthropicSseToOpenaiSse(upstreamResp.body, meta.model);
-      const [clientBody, statsBody] = translated.tee();
-      observeStream(reqId, format, meta, upstreamResp.status, started, statsBody, null, releaseLease ?? undefined, accountName);
+      const clientBody = tappedStream(translated, (tap) => finishStreamTap(reqId, format, meta, upstreamResp.status, started, tap, null, releaseLease ?? undefined, accountName));
       return translatedSseResponse(clientBody);
     }
     const resp = await translatedBatchResponse(clientReq, upstreamResp, meta.model, reqId, format, meta, started, headersAt);
@@ -706,8 +712,7 @@ export async function proxyRequest(
     }
     if (isSSE && upstreamResp.body) {
       const translated = openaiSseToAnthropicSse(upstreamResp.body, meta.model);
-      const [clientBody, statsBody] = translated.tee();
-      observeStream(reqId, format, meta, upstreamResp.status, started, statsBody, null, releaseLease ?? undefined, accountName);
+      const clientBody = tappedStream(translated, (tap) => finishStreamTap(reqId, format, meta, upstreamResp.status, started, tap, null, releaseLease ?? undefined, accountName));
       return translatedSseResponse(clientBody);
     }
     const resp = await translatedOpenAIToAnthropicBatchResponse(clientReq, upstreamResp, reqId, format, meta, started, headersAt);
@@ -716,8 +721,7 @@ export async function proxyRequest(
   }
 
   if (isSSE && upstreamResp.body) {
-    const [clientBody, statsBody] = upstreamResp.body.tee();
-    observeStream(reqId, format, meta, upstreamResp.status, started, statsBody, upstreamResp.headers.get("content-encoding"), releaseLease ?? undefined, accountName);
+    const clientBody = tappedStream(upstreamResp.body, (tap) => finishStreamTap(reqId, format, meta, upstreamResp.status, started, tap, upstreamResp.headers.get("content-encoding"), releaseLease ?? undefined, accountName));
     return passthroughResponse(upstreamResp, clientAcceptsGzip(clientReq), clientBody);
   }
 
@@ -748,6 +752,136 @@ export function releaseLeaseFor(_auth: unknown, cred: Credential): void {
   const lease = (cred as { [LEASE_SYM_EXPORT]?: { release(): void } })[LEASE_SYM_EXPORT];
   lease?.release();
 }
+
+// ── Inline stream tap (replaces body.tee() + observeStream) ────────────────
+//
+// The old design teed every SSE body: the client consumed one branch at its
+// own pace while `observeStream` drained the other as fast as chunks arrived.
+// A Web Stream `tee()` has NO backpressure between branches — the fast branch
+// drags the shared queue ahead by the full delta, so every chunk a slow client
+// has not yet read sat in a V8-heap queue STRONGLY REFERENCED until the client
+// caught up. On a 757-second stream against a slow reader that queue grew
+// hundreds of MB and never became garbage: this was the residual ~110MB/h leak
+// that the 4.7.3 RSS guard could not GC away (field report v4.7.3, D-state at
+// 5.7h). One stream, counted inline, keeps the upstream backpressure intact:
+// the pool queue holds ONE chunk, the client's own pace throttles the source.
+
+interface StreamTap {
+  tokens: number;
+  firstChunkAt: number;
+  totalBytes: number;
+  sseBuffer: string;
+}
+
+/**
+ * Wrap `source` so every chunk passes counters on the way to the client.
+ * `onDone` fires exactly once when the stream finishes, errors, or is
+ * cancelled — the same exit contract observeStream had. The cancel path is
+ * wired explicitly: `pipeThrough` alone skips `flush` on abort, so the
+ * returned stream's own `cancel` closes the tap and cancels the upstream.
+ */
+function tappedStream(
+  source: ReadableStream<Uint8Array>,
+  onDone: (tap: StreamTap) => void,
+): ReadableStream<Uint8Array> {
+  const tap: StreamTap = { tokens: 0, firstChunkAt: 0, totalBytes: 0, sseBuffer: "" };
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    try { onDone(tap); } catch {}
+  };
+  const counters = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      if (tap.firstChunkAt === 0) tap.firstChunkAt = Date.now();
+      tap.totalBytes += chunk.byteLength;
+      countSseTokens(tap, chunk);
+      controller.enqueue(chunk);
+    },
+    flush() { finish(); },
+  });
+  const piped = source.pipeThrough(counters);
+  // The client aborts a Response body by calling .cancel() on its reader. That
+  // cancels the transform's readable WITHOUT running flush — so observe it
+  // here, release the upstream (backpressure = cancel propagates through the
+  // pipe), and close the tap exactly once.
+  const wrapped = piped as ReadableStream<Uint8Array> & { __origCancel?: () => Promise<void> };
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      void (async () => {
+        const reader = wrapped.getReader();
+        try {
+          for (;;) {
+            const { done: d, value } = await reader.read();
+            if (d) break;
+            controller.enqueue(value);
+          }
+          finish();
+          try { controller.close(); } catch {}
+        } catch (err) {
+          finish();
+          try { controller.error(err); } catch {}
+        }
+      })();
+    },
+    cancel(reason) {
+      finish();
+      try { wrapped.cancel(reason); } catch {}
+    },
+  });
+}
+
+/** Parse one decoded chunk of (OpenAI | Anthropic) SSE for token counts. */
+function countSseTokens(tap: StreamTap, chunk: Uint8Array): void {
+  const decoder = new TextDecoder();
+  tap.sseBuffer += decoder.decode(chunk, { stream: true });
+  const idx = tap.sseBuffer.lastIndexOf("\n");
+  if (idx >= 0) {
+    parseSseTokens(tap, tap.sseBuffer.slice(0, idx));
+    tap.sseBuffer = tap.sseBuffer.slice(idx + 1);
+  }
+}
+
+function parseSseTokens(tap: StreamTap, text: string): void {
+  for (const line of text.split("\n")) {
+    if (!line.startsWith("data:") || line.includes("[DONE]")) continue;
+    try {
+      const j = JSON.parse(line.slice(5).trim());
+      if (j.usage?.completion_tokens) { tap.tokens = j.usage.completion_tokens; continue; }
+      if (j.usage?.output_tokens) { tap.tokens = j.usage.output_tokens; continue; }
+      const oai = j.choices?.[0]?.delta?.content;
+      if (typeof oai === "string" && oai.length > 0) { tap.tokens++; continue; }
+      if (j.type === "content_block_delta" && j.delta?.type === "text_delta") {
+        const t = j.delta?.text;
+        if (typeof t === "string" && t.length > 0) tap.tokens++;
+      }
+    } catch {}
+  }
+}
+
+/**
+ * End-of-stream bookkeeping — the printRow/dump half of the old observeStream.
+ * Runs on flush (natural end) and from the abort handler (client disconnect).
+ */
+function finishStreamTap(
+  reqId: string,
+  format: Format,
+  meta: RequestMeta,
+  status: number,
+  started: number,
+  tap: StreamTap,
+  contentEncoding: string | null,
+  onDone?: () => void,
+  accountName = "",
+): void {
+  const endAt = Date.now();
+  const ttfbMs = (tap.firstChunkAt > 0 ? tap.firstChunkAt : endAt) - started;
+  const totalMs = endAt - started;
+  const avgTps = tap.tokens > 0 && totalMs > 0 ? tap.tokens / (totalMs / 1000) : 0;
+  printRow(reqId, format, meta, status, started, started + ttfbMs, tap.tokens, avgTps, endAt, accountName);
+  onDone?.();
+}
+
 
 /** Feed a dispatch outcome into the pool when the credential came from it. */
 export function reportOutcomeToPool(auth: AuthManager, accountId: string, outcome: DispatchOutcome): void {
@@ -1434,86 +1568,8 @@ function fmtMs(ms: number): string {
   return `${Math.floor(ms / 60_000)}m${Math.floor((ms % 60_000) / 1000)}s`;
 }
 
-function observeStream(
-  reqId: string,
-  format: Format,
-  meta: RequestMeta,
-  status: number,
-  requestSentAt: number,
-  body: ReadableStream<Uint8Array>,
-  contentEncoding: string | null,
-  onDone?: () => void,
-  accountName = "",
-): void {
-  const compressed = contentEncoding !== null;
-  const dumpOn = dumpEnabled();
-  let tokens = 0;
-  let sseBuffer = "";
-  let firstChunkAt = 0;
-  let totalBytes = 0;
-  let firstBytesSample = "";
-
-  function parseSse(text: string): void {
-    for (const line of text.split("\n")) {
-      if (!line.startsWith("data:") || line.includes("[DONE]")) continue;
-      try {
-        const j = JSON.parse(line.slice(5).trim());
-        if (j.usage?.completion_tokens) { tokens = j.usage.completion_tokens; continue; }
-        if (j.usage?.output_tokens) { tokens = j.usage.output_tokens; continue; }
-        // OpenAI content delta: choices[0].delta.content
-        const oai = j.choices?.[0]?.delta?.content;
-        if (typeof oai === "string" && oai.length > 0) { tokens++; continue; }
-        // Anthropic content delta: type=content_block_delta, delta.type=text_delta
-        if (j.type === "content_block_delta" && j.delta?.type === "text_delta") {
-          const t = j.delta?.text;
-          if (typeof t === "string" && t.length > 0) tokens++;
-        }
-      } catch {}
-    }
-  }
-
-  (async () => {
-    const reader = body.getReader();
-    const decoder = new TextDecoder();
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (firstChunkAt === 0) firstChunkAt = Date.now();
-        if (dumpOn && value) {
-          totalBytes += value.byteLength;
-          if (firstBytesSample.length < 4096) {
-            firstBytesSample += decoder.decode(value.slice(0, 4096 - firstBytesSample.length), { stream: true });
-          }
-        }
-        if (!compressed) {
-          sseBuffer += decoder.decode(value, { stream: true });
-          const idx = sseBuffer.lastIndexOf("\n");
-          if (idx >= 0) {
-            parseSse(sseBuffer.slice(0, idx));
-            sseBuffer = sseBuffer.slice(idx + 1);
-          }
-        }
-      }
-      if (!compressed && sseBuffer) parseSse(sseBuffer);
-    } catch {}
-    const endAt = Date.now();
-    const ttfbMs = (firstChunkAt > 0 ? firstChunkAt : endAt) - requestSentAt;
-    const totalMs = endAt - requestSentAt;
-    const avgTps = tokens > 0 && totalMs > 0 ? tokens / (totalMs / 1000) : 0;
-    printRow(reqId, format, meta, status, requestSentAt, requestSentAt + ttfbMs, tokens, avgTps, endAt, accountName);
-    if (dumpOn) {
-      dumpPhase(reqId, "upstream_stream_summary", {
-        status,
-        contentEncoding,
-        compressed,
-        totalBytes,
-        tokensObserved: tokens,
-        ttfbMs,
-        totalMs,
-        firstBytesSample: firstBytesSample.length > 0 ? firstBytesSample.slice(0, 4096) : "(empty stream)",
-      });
-    }
-    onDone?.();
-  })().catch(() => {});
-}
+// observeStream was removed: its stats-side drain of a tee() branch had no
+// backpressure and queued the whole stream in the V8 heap whenever the client
+// read slower than upstream produced (the 4.7.3 residual leak, D-state at 5.7h).
+// Replaced by tappedStream + finishStreamTap above — same counters, same
+// printRow output, counted inline on the single client-facing stream.

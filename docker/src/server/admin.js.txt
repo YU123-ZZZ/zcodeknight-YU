@@ -370,6 +370,8 @@ const CHANGELOG = [
       "【修复】1005 \"exceed quota limit\" 误派发：已知正余额账号严格优先于无 bucket 数据的账号",
       "【修复】captcha 沙箱 stallTimer 泄漏：长时间连续验证码铸造不再堆积内存（实测 ~500MB/h → ~75-85MB/h）",
       "【修复】1005 回归测试夹具键名修正",
+      "【跟进】上游 v3.14.4 已关闭模型请求的验证码校验——默认 appVersion 跟进到 3.14.4；活动领取的验证码仍需通过（本引擎自动处理）",
+      "【验证码】stall 误杀修复：6 秒静默改为二次确认（12 秒才判死），重试加指数退避——2G 小机上 GC 卡顿不再被误判",
     ],
     en: [
       "Stream fix: /v1/responses now emits a 15s SSE heartbeat comment while GLM reasons silently, sends a terminal response.failed event on stream errors instead of closing silently, and sets x-accel-buffering: no",
