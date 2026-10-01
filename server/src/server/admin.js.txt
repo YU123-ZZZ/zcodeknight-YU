@@ -832,10 +832,24 @@ async function refreshOverview() {
   if (refreshOverview._inflight) return; // previous poll still in flight
   refreshOverview._inflight = true;
   try {
+    // Claim countdown data rides along with the overview poll (one tiny extra
+    // request only when the cached nextCheckAt is missing or stale by >5min):
+    // the countdown lives on the OVERVIEW now, and loadSettings — its only
+    // data source — runs at boot and on the settings page, never while the
+    // operator stares at the overview. That was the "主页没有倒计时" report.
+    if (!claimNextAt || Date.now() - (claimNextAtFetchedAt || 0) > 300_000) {
+      try {
+        const cfg = await (await api("/config")).json();
+        claimAuto = !!cfg.claim?.auto;
+        claimNextAt = Number(cfg.claim?.nextCheckAt) || 0;
+        claimNextAtFetchedAt = Date.now();
+      } catch { /* countdown keeps its last value */ }
+    }
     const r = await api("/overview");
     const ov = await r.json();
     document.getElementById("ov-total").textContent = ov.accounts.total;
     document.getElementById("ov-eligible").textContent = ov.accounts.eligible;
+    renderClaimCountdown();
     document.getElementById("ov-inflight").textContent = ov.accounts.inFlight;
     // Accounts with at least one model held by upstream throttling. Shown next
     // to "eligible" because the two disagree by design: a throttled account is
@@ -1372,6 +1386,12 @@ async function fillAccountBalances(knownQuota) {
   const byId = new Map((data.accounts || []).map(a => [a.id, a]));
   document.querySelectorAll(".acc-bal").forEach(el => {
     const rec = byId.get(el.dataset.acc);
+    // Skip when nothing changed: the 5s overview poll used to rebuild every
+    // balance bar even when the numbers were identical, which repainted the
+    // whole pool page and showed up as jank on low-end hardware.
+    const sig = JSON.stringify(rec ? [rec.balances, rec.activePlans] : null);
+    if (el.dataset.sig === sig) return;
+    el.dataset.sig = sig;
     el.innerHTML = "";
     if (!rec || !(rec.balances || []).length) {
       el.innerHTML = '<div class="bal-none">' + esc(balanceEmptyText(rec)) + "</div>";
@@ -2570,13 +2590,47 @@ function renderMergedLog(rows, entries, filter, active) {
 
   if (!shown.length) {
     box.innerHTML = '<div class="bal-empty">' + T("rq_none") + "</div>";
+    logKeyCache.clear();
     return;
   }
-  // innerHTML in one assignment: a node per line plus a node per poll leaks
-  // DOM, and the engine's ring buffer already bounds how much history exists.
-  box.innerHTML = shown.map((it) => '<div class="logline">' + it.html + "</div>").join("");
+  // Keyed incremental render (same pattern as the account cards): a full
+  // innerHTML rebuild every 3s poll re-created 200+ nodes and re-parsed their
+  // HTML — visible as jank on low-end boxes. Each line now carries a stable
+  // key (its html is deterministic per entry); identical lines are reused,
+  // only genuinely new lines are parsed, and stale ones removed from the tail.
+  const nextKeys = [];
+  const frag = document.createDocumentFragment();
+  const existing = [...box.querySelectorAll(".logline")];
+  const keyOf = (it, i) => i + "|" + it.html.length + "|" + (it.html.slice(0, 120));
+  let reuseIdx = 0;
+  let changed = false;
+  for (const it of shown) {
+    const key = keyOf(it, nextKeys.length);
+    nextKeys.push(key);
+    let node = logKeyCache.get(key);
+    if (!node) {
+      node = document.createElement("div");
+      node.className = "logline";
+      node.innerHTML = it.html;
+      logKeyCache.set(key, node);
+      changed = true;
+    }
+    frag.appendChild(node);
+  }
+  // Drop cache entries and DOM nodes no longer present.
+  for (const [k, node] of [...logKeyCache]) {
+    if (!nextKeys.includes(k)) { logKeyCache.delete(k); changed = true; }
+  }
+  if (changed || existing.length !== shown.length) {
+    box.innerHTML = "";
+    box.appendChild(frag);
+  } else {
+    // Same content: only ensure order/selection — cheap re-append is skipped
+    // entirely when nothing changed.
+  }
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
+const logKeyCache = new Map();
 
 /**
  * Fetch both sources and merge.
