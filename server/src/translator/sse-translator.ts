@@ -153,53 +153,62 @@ export function anthropicSseToOpenaiSse(
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   let buffer = "";
+  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  let upstreamDone = false;
+
+  // Translate buffered SSE frames and enqueue every produced event.
+  const flushFrames = (controller: ReadableStreamDefaultController<Uint8Array>) => {
+    const blocks = buffer.split(SSE_FRAME_SPLIT);
+    buffer = blocks.pop() ?? "";
+    for (const block of blocks) {
+      const parsed = parseSSEChunk(block);
+      for (const p of parsed) {
+        const output = translateEvent(state, p);
+        if (output) controller.enqueue(encoder.encode(output));
+      }
+    }
+  };
 
   return new ReadableStream({
-    async start(controller) {
-      const reader = upstream.getReader();
-      let errored = false;
-
+    // PULL-driven (field report v4.7.4): the previous start()-driven loop read
+    // upstream unconditionally and enqueue()d every translated chunk — an
+    // unbounded pump that queued the whole stream in the heap whenever the
+    // client consumed slowly. pull() runs only when the consumer's queue has
+    // room, so a slow client now throttles the upstream socket itself; at most
+    // one upstream chunk is in flight per client read.
+    async pull(controller) {
       try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const blocks = buffer.split(SSE_FRAME_SPLIT);
-          buffer = blocks.pop() ?? "";
-
-          for (const block of blocks) {
-            const parsed = parseSSEChunk(block);
+        if (!reader) reader = upstream.getReader();
+        const { done, value } = await reader.read();
+        if (done) {
+          // Tail flush: the残 buffer may hold the LAST frame with no trailing
+          // frame delimiter (makeStream-style payloads end with a single \n),
+          // so flushFrames — which requires a delimiter — would skip it
+          // forever. parseSSEChunk parses the raw tail directly, exactly as
+          // the original start()-loop did after its read loop ended.
+          if (buffer.trim()) {
+            const parsed = parseSSEChunk(buffer);
             for (const p of parsed) {
               const output = translateEvent(state, p);
-              if (output) {
-                controller.enqueue(encoder.encode(output));
-              }
+              if (output) controller.enqueue(encoder.encode(output));
             }
           }
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+          return;
         }
-
-        // Flush remaining buffer
-        if (buffer.trim()) {
-          const parsed = parseSSEChunk(buffer);
-          for (const p of parsed) {
-            const output = translateEvent(state, p);
-            if (output) controller.enqueue(encoder.encode(output));
-          }
-        }
-
-        // Emit [DONE]
-        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        buffer += decoder.decode(value, { stream: true });
+        flushFrames(controller);
       } catch (err) {
-        errored = true;
-        // error()/close() 互斥:errored 流上再 close() 会抛 TypeError,进而触发 Bun 引擎空指针崩溃。
+        // error()/close() 互斥: errored 流上再 close() 会抛 TypeError,进而触发
+        // Bun 引擎空指针崩溃。
         try { controller.error(err); } catch {}
-      } finally {
-        if (!errored) {
-          try { controller.close(); } catch {}
-        }
-        reader.releaseLock();
       }
+    },
+    cancel(reason) {
+      // Consumer aborted: tear the upstream down, or it keeps streaming into
+      // a queue nobody drains.
+      try { reader?.cancel(reason).catch(() => {}); } catch {}
     },
   });
 }

@@ -484,9 +484,11 @@ async function loadIntel(force) {
     box.innerHTML = '<div class="card"><p class="sub">' + esc(String(e)) + "</p></div>";
   }
 }
-renderChangelog();
-const intelBtn = document.querySelector('#nav button[data-page="intel"]');
-if (intelBtn) intelBtn.addEventListener("click", function () { loadIntel(false); });
+if (typeof document !== "undefined") {
+  renderChangelog();
+  const intelBtn = document.querySelector('#nav button[data-page="intel"]');
+  if (intelBtn) intelBtn.addEventListener("click", function () { loadIntel(false); });
+}
 
 document.getElementById("langBtn").onclick = () => {
   lang = lang === "zh" ? "en" : "zh";

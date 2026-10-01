@@ -464,6 +464,13 @@ function streamResponse(upstreamResp: Response, context: StreamResponseContext):
         let errored = false;
         for (;;) {
           if (errored) break;
+          // Backpressure: hold off reading upstream while the client-side
+          // queue is full (field report v4.7.4: a 951s slow-client stream
+          // ballooned RSS ~470MB/h when this loop read unconditionally).
+          if (((controller.desiredSize ?? 1) <= 0)) {
+            await new Promise((r) => setTimeout(r, 25));
+            continue;
+          }
           const { done, value } = await reader.read();
           if (done) break;
           lastActivity = Date.now();

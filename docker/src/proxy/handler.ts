@@ -780,6 +780,13 @@ interface StreamTap {
  * wired explicitly: `pipeThrough` alone skips `flush` on abort, so the
  * returned stream's own `cancel` closes the tap and cancels the upstream.
  */
+// Hard kill-switch for a single streamed response (field report v4.7.4: the
+// 951s slow-client stream was the RSS climb's carrier). 512MB of forwarded
+// bytes on ONE response is far beyond any legitimate GLM answer; past this the
+// stream is closed with an error instead of letting any queueing path take the
+// 2G host down. 0 disables. Env: ZCODE_STREAM_MAX_MB.
+const STREAM_MAX_BYTES = (Number(process.env.ZCODE_STREAM_MAX_MB) || 512) * 1048576;
+
 function tappedStream(
   source: ReadableStream<Uint8Array>,
   onDone: (tap: StreamTap) => void,
@@ -791,44 +798,54 @@ function tappedStream(
     done = true;
     try { onDone(tap); } catch {}
   };
-  const counters = new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      if (tap.firstChunkAt === 0) tap.firstChunkAt = Date.now();
-      tap.totalBytes += chunk.byteLength;
-      countSseTokens(tap, chunk);
-      controller.enqueue(chunk);
-    },
-    flush() { finish(); },
-  });
-  const piped = source.pipeThrough(counters);
-  // The client aborts a Response body by calling .cancel() on its reader. That
-  // cancels the transform's readable WITHOUT running flush — so observe it
-  // here, release the upstream (backpressure = cancel propagates through the
-  // pipe), and close the tap exactly once.
-  const wrapped = piped as ReadableStream<Uint8Array> & { __origCancel?: () => Promise<void> };
-  return new ReadableStream<Uint8Array>({
-    start(controller) {
-      void (async () => {
-        const reader = wrapped.getReader();
+  // PULL-driven: upstream is read ONLY when the client's queue has room.
+  // The previous rewrite used a start()-driven loop that read unconditionally
+  // and controller.enqueue()d every chunk — an unbounded pump again (field
+  // report v4.7.4: ~470MB/h over a 951s slow-client stream, 68min to D-state).
+  // With pull, one chunk is in flight per client read; a slow client now
+  // throttles the upstream socket itself.
+  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  return new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
         try {
-          for (;;) {
-            const { done: d, value } = await reader.read();
-            if (d) break;
-            controller.enqueue(value);
+          if (tap.firstChunkAt === 0) tap.firstChunkAt = Date.now();
+          if (!reader) reader = source.getReader();
+          const { done: d, value } = await reader.read();
+          if (d) {
+            finish();
+            try { controller.close(); } catch {}
+            return;
           }
-          finish();
-          try { controller.close(); } catch {}
+          tap.totalBytes += value.byteLength;
+          if (STREAM_MAX_BYTES > 0 && tap.totalBytes > STREAM_MAX_BYTES) {
+            finish();
+            try { reader.cancel().catch(() => {}); } catch {}
+            controller.error(new Error(`stream exceeded ${STREAM_MAX_BYTES >> 20}MB forwarded — aborted (ZCODE_STREAM_MAX_MB)`));
+            return;
+          }
+          countSseTokens(tap, value);
+          controller.enqueue(value);
+          // Queue full: pause until the client drains. pull() is not
+          // re-entered while pending, so this await IS the backpressure.
+          while (((controller.desiredSize ?? 1) <= 0)) {
+            await new Promise((r) => setTimeout(r, 25));
+          }
         } catch (err) {
           finish();
           try { controller.error(err); } catch {}
         }
-      })();
+      },
+      cancel(reason) {
+        finish();
+        // Client aborted: tear the upstream socket down too, or it keeps
+        // streaming into a queue nobody drains.
+        try { reader?.cancel(reason).catch(() => {}); } catch {}
+        try { source.cancel?.(reason).catch(() => {}); } catch {}
+      },
     },
-    cancel(reason) {
-      finish();
-      try { wrapped.cancel(reason); } catch {}
-    },
-  });
+    { highWaterMark: 16 },
+  );
 }
 
 /** Parse one decoded chunk of (OpenAI | Anthropic) SSE for token counts. */
