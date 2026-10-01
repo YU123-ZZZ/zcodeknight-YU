@@ -122,6 +122,7 @@
       <div class="bal-head">
         <b data-i18n="ov_balances">Balances</b>
         <div class="bal-tools">
+          <span id="ov-claim-next" style="margin-right:10px;color:var(--muted);font-size:12px"></span>
           <button class="btn sm gold" id="ov-claim-all" data-i18n="claim_all">Claim all</button>
           <input id="ov-bal-search" class="mini-search" data-i18n-ph="search_ph" placeholder="搜索账号…">
           <!-- Filters use the same searchable picker as the playground: a native
@@ -235,8 +236,10 @@
   <div class="page" id="page-invite">
     <h2 data-i18n="inv_title">Invite Friends</h2>
     <div class="sub" data-i18n="inv_sub">Coming soon</div>
-    <div class="card">
-      <p class="sub" data-i18n="inv_placeholder">This feature is not available yet. Invitations will be handled by this proxy once it goes live, so there is nothing to configure here for now.</p>
+    <div id="invite-body">
+      <div class="card">
+        <p class="sub" data-i18n="inv_placeholder">This feature is not available yet. Invitations will be handled by this proxy once it goes live, so there is nothing to configure here for now.</p>
+      </div>
     </div>
   </div>
 

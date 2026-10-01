@@ -52,6 +52,21 @@ export function updateConfigYaml(
 }
 
 /**
+ * Persist the claim auto toggle.
+ *
+ * The panel's auto toggle used to change RUNTIME STATE ONLY — a restart read
+ * `claim.auto` back from config.yaml and silently reverted the operator's
+ * choice (field report v4.7.4: "自动就给关闭了"). Same document-model approach
+ * as the pool saver so the surrounding comments survive.
+ */
+export function updateClaimAutoYaml(path: string, auto: boolean): void {
+  const doc = parseDocument(readFileSync(path, "utf-8"));
+  doc.setIn(["claim", "enabled"], doc.getIn(["claim", "enabled"]) ?? true);
+  doc.setIn(["claim", "auto"], auto);
+  writeFileSync(path, String(doc), "utf-8");
+}
+
+/**
  * Persist the outbound proxy block.
  *
  * Same document-model approach as `updateConfigYaml` so the surrounding comments

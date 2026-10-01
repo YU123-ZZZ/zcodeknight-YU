@@ -65,6 +65,9 @@ const I18N = {
     rq_search_ph: "搜索 IP / 模型 / 路径 / 客户端…", rq_ok: "成功", rq_fail: "失败",
     rq_auto: "自动刷新", rq_ip: "来源 IP", rq_path: "调用路径", rq_ua: "客户端",
     rq_count: "显示 {n} / 共 {m} 条", rq_none: "没有匹配的请求记录",
+    rq_running: "进行中", rq_running_for: "已运行",
+    claim_auto_off: "自动领取已关闭", claim_none_grey: "当前没有可领取的活动套餐",
+    inv_community: "交流与反馈：",
     log_err: "日志渲染出错：",
     nav_models: "模型探测",
     md_title: "模型探测", md_sub: "对每个账号逐个测试套餐实际可用的模型", md_probe: "探测该账号",
@@ -236,6 +239,9 @@ const I18N = {
     rq_search_ph: "Search IP / model / path / client…", rq_ok: "OK", rq_fail: "Failed",
     rq_auto: "Auto-refresh", rq_ip: "Caller IP", rq_path: "Path", rq_ua: "Client",
     rq_count: "Showing {n} of {m}", rq_none: "No matching requests",
+    rq_running: "RUN", rq_running_for: "running for",
+    claim_auto_off: "Auto-claim is OFF", claim_none_grey: "No claimable activity plan right now",
+    inv_community: "Community & feedback:",
     log_err: "Log rendering failed: ",
     nav_models: "Model Probe",
     md_title: "Model Probe", md_sub: "Test which models each account can actually use", md_probe: "Probe this account",
@@ -486,7 +492,30 @@ async function loadIntel(force) {
 }
 if (typeof document !== "undefined") {
   renderChangelog();
-  const intelBtn = document.querySelector('#nav button[data-page="intel"]');
+  // ── Invite page: render the engine's honest answer ────────────────────
+// The upstream has NO invite API (verified: every candidate endpoint 404s and
+// the official client has no invite UI). The page calls GET /invite and shows
+// the reason plus what the operator CAN do, instead of a dead "coming soon".
+if (typeof document !== "undefined") {
+  const invBtn = document.querySelector('#nav button[data-page="invite"]');
+  if (invBtn) invBtn.addEventListener("click", async () => {
+    const box = document.getElementById("invite-body");
+    if (!box) return;
+    try {
+      const d = await (await api("/invite")).json();
+      box.innerHTML =
+        '<div class="card"><p class="sub">' + esc(d.message || T("inv_placeholder")) + "</p>" +
+        '<p class="sub" style="margin-top:8px">' + T("inv_community") + '</p>' +
+        '<p style="margin-top:6px">' +
+        '<a href="https://qm.qq.com/q/sUAFJgC3Fm" target="_blank" class="sub">QQ 群 1091692024</a> · ' +
+        '<a href="https://www.52pojie.cn/home.php?mod=space&uid=2394304" target="_blank" class="sub">吾爱破解</a> · ' +
+        '<a href="https://github.com/YU123-ZZZ/zcodeknight-YU" target="_blank" class="sub">GitHub</a></p></div>';
+    } catch (e) {
+      box.innerHTML = '<div class="card"><p class="sub">' + esc(String(e)) + "</p></div>";
+    }
+  });
+}
+const intelBtn = document.querySelector('#nav button[data-page="intel"]');
   if (intelBtn) intelBtn.addEventListener("click", function () { loadIntel(false); });
 }
 
@@ -977,6 +1006,7 @@ async function loadBalances(knownAccounts, knownQuota) {
     // change has something to update (see refreshOverviewBalances).
     el.dataset.loaded = "1";
     renderTotals(lastQuota);
+    refreshClaimAllDisabled();
     renderBalanceList();
   } catch {
     el.innerHTML = '<span class="sub">—</span>';
@@ -1216,6 +1246,15 @@ async function doClaim(payload, btn) {
     loadBalances();
   } catch (e) { toast(String(e)); }
   finally { if (btn) btn.disabled = false; }
+}
+function refreshClaimAllDisabled() {
+  // Grey the one-click button when NO account holds a claimable plan (field
+  // request): a click would only answer "nothing to claim" for every account.
+  const btn = document.getElementById("ov-claim-all");
+  if (!btn) return;
+  const anyClaimable = (lastQuota || []).some((a) => (a.claimablePlans || []).length > 0);
+  btn.disabled = !anyClaimable;
+  btn.title = anyClaimable ? "" : T("claim_none_grey");
 }
 document.getElementById("ov-claim-all").onclick = (e) => doClaim({ all: true }, e.target);
 // Per-account buttons are re-rendered constantly, so delegate from the container.
@@ -2460,13 +2499,32 @@ function fmtLogTime(ms) {
          p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
 }
 
-function renderMergedLog(rows, entries, filter) {
+function renderMergedLog(rows, entries, filter, active) {
   const box = document.getElementById("log-box");
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
 
   // One array of {at, html} then a single sort: merging two already-sorted
   // sources is easy to get subtly wrong, and the cost here is negligible.
   const items = [];
+  // In-flight requests first, rendered like finished rows but with a RUN badge
+  // and a live "running for" timer (field request: a 10-minute stream used to
+  // be invisible until it died). Rebuilt each render so the elapsed timer
+  // ticks; the count is small, so the cost is nothing.
+  for (const a of (active || [])) {
+    items.push({
+      at: a.started,
+      kind: "req",
+      search: [a.ip, a.model, a.accountName, "run"].filter(Boolean).join(" ").toLowerCase(),
+      html:
+        '<span class="lg-t">' + fmtLogTime(a.started) + "</span>" +
+        '<span class="lg-k lg-k-run">RUN</span>' +
+        '<span class="lg-s ok">' + esc(T("rq_running")) + ' <span data-run-since="' + a.started + '"></span></span>' +
+        '<span class="lg-m">' + esc(a.model) + "</span>" +
+        '<span class="lg-d">' + esc(a.ip || "—") + " · " + esc(a.stream ? "stream" : "batch") + "</span>" +
+        '<span class="lg-a">' + esc(a.accountName || "—") + "</span>" +
+        '<span class="lg-x"></span>',
+    });
+  }
   for (const x of rows) {
     const ok = x.status >= 200 && x.status < 400;
     items.push({
@@ -2551,7 +2609,7 @@ async function pollLogs() {
     renderMergedLog(rd.rows || [], logEntries, {
       kind: document.getElementById("rq-kind").value || "all",
       q: document.getElementById("rq-search").value,
-    });
+    }, rd.active || []);
   } catch (e) {
     // Report rather than swallow. A bare `catch {}` here hid a ReferenceError
     // for a whole debugging round: the page simply showed an empty log, with
@@ -2650,6 +2708,23 @@ function tickCountdowns() {
   }
 }
 setInterval(tickCountdowns, 1000);
+
+// Live \"running for\" timer for in-flight request rows on the logs page.
+// One interval for all rows; rows vanish when the request finishes because the
+// next render no longer includes them.
+function tickRunSince() {
+  const els = document.querySelectorAll('[data-run-since]');
+  if (!els.length) return;
+  const now = Date.now();
+  for (const el of els) {
+    const since = Number(el.dataset.runSince);
+    if (!Number.isFinite(since)) continue;
+    const s = Math.max(0, Math.floor((now - since) / 1000));
+    const mm = Math.floor(s / 60), ss = s % 60;
+    el.textContent = (mm > 0 ? mm + 'm ' : '') + String(ss).padStart(2, '0') + 's';
+  }
+}
+setInterval(tickRunSince, 1000);
 
 // ---------------- model probe ----------------
 async function loadProbeAccounts() {
@@ -3231,8 +3306,24 @@ document.getElementById("set-claim-auto").onclick = async (e) => {
 // can see when the next automatic round fires without opening the log.
 let claimNextAt = 0;
 let claimCountdownTimer = null;
+let claimHasTargets = false;
 function renderClaimCountdown() {
   const el = document.getElementById("claim-next");
+  const ovEl = document.getElementById("ov-claim-next");
+  // Auto toggle text (主页看不到设置页的状态,这里同步到倒计时行)
+  if (ovEl) {
+    if (!claimAuto) { ovEl.textContent = T("claim_auto_off"); }
+    else if (!claimNextAt) { ovEl.textContent = ""; }
+    else {
+      const left = Math.max(0, Math.ceil((claimNextAt - Date.now()) / 1000));
+      const d = Math.floor(left / 86400), h = Math.floor((left % 86400) / 3600),
+            m = Math.floor((left % 3600) / 60), s = left % 60;
+      const p = (n) => String(n).padStart(2, "0");
+      ovEl.textContent = (left <= 0)
+        ? T("claim_due_now")
+        : T("claim_countdown") + " " + (d > 0 ? d + "d " : "") + (h > 0 ? h + "h " : "") + p(m) + ":" + p(s);
+    }
+  }
   if (!el) return;
   if (!claimNextAt) { el.textContent = ""; return; }
   const left = Math.max(0, Math.ceil((claimNextAt - Date.now()) / 1000));

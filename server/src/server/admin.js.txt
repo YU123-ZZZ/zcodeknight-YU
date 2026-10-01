@@ -67,6 +67,7 @@ const I18N = {
     rq_count: "显示 {n} / 共 {m} 条", rq_none: "没有匹配的请求记录",
     rq_running: "进行中", rq_running_for: "已运行",
     claim_auto_off: "自动领取已关闭", claim_none_grey: "当前没有可领取的活动套餐",
+    inv_community: "交流与反馈：",
     log_err: "日志渲染出错：",
     nav_models: "模型探测",
     md_title: "模型探测", md_sub: "对每个账号逐个测试套餐实际可用的模型", md_probe: "探测该账号",
@@ -240,6 +241,7 @@ const I18N = {
     rq_count: "Showing {n} of {m}", rq_none: "No matching requests",
     rq_running: "RUN", rq_running_for: "running for",
     claim_auto_off: "Auto-claim is OFF", claim_none_grey: "No claimable activity plan right now",
+    inv_community: "Community & feedback:",
     log_err: "Log rendering failed: ",
     nav_models: "Model Probe",
     md_title: "Model Probe", md_sub: "Test which models each account can actually use", md_probe: "Probe this account",
@@ -490,7 +492,30 @@ async function loadIntel(force) {
 }
 if (typeof document !== "undefined") {
   renderChangelog();
-  const intelBtn = document.querySelector('#nav button[data-page="intel"]');
+  // ── Invite page: render the engine's honest answer ────────────────────
+// The upstream has NO invite API (verified: every candidate endpoint 404s and
+// the official client has no invite UI). The page calls GET /invite and shows
+// the reason plus what the operator CAN do, instead of a dead "coming soon".
+if (typeof document !== "undefined") {
+  const invBtn = document.querySelector('#nav button[data-page="invite"]');
+  if (invBtn) invBtn.addEventListener("click", async () => {
+    const box = document.getElementById("invite-body");
+    if (!box) return;
+    try {
+      const d = await (await api("/invite")).json();
+      box.innerHTML =
+        '<div class="card"><p class="sub">' + esc(d.message || T("inv_placeholder")) + "</p>" +
+        '<p class="sub" style="margin-top:8px">' + T("inv_community") + '</p>' +
+        '<p style="margin-top:6px">' +
+        '<a href="https://qm.qq.com/q/sUAFJgC3Fm" target="_blank" class="sub">QQ 群 1091692024</a> · ' +
+        '<a href="https://www.52pojie.cn/home.php?mod=space&uid=2394304" target="_blank" class="sub">吾爱破解</a> · ' +
+        '<a href="https://github.com/YU123-ZZZ/zcodeknight-YU" target="_blank" class="sub">GitHub</a></p></div>';
+    } catch (e) {
+      box.innerHTML = '<div class="card"><p class="sub">' + esc(String(e)) + "</p></div>";
+    }
+  });
+}
+const intelBtn = document.querySelector('#nav button[data-page="intel"]');
   if (intelBtn) intelBtn.addEventListener("click", function () { loadIntel(false); });
 }
 
