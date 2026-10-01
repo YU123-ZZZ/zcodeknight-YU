@@ -51,4 +51,4 @@ Write-Host "created : $lnk"
 Write-Host "target  : $($check.TargetPath)"
 Write-Host "icon    : $($check.IconLocation)"
 
-# ZcodeKnight v4.7.1
+# ZcodeKnight v4.7.4

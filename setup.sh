@@ -220,4 +220,4 @@ else
 $(tail -n 20 "$LOGFILE" 2>/dev/null)"
 fi
 
-# ZcodeKnight v4.7.1
+# ZcodeKnight v4.7.4

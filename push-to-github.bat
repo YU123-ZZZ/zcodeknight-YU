@@ -89,4 +89,4 @@ echo         so the panel's "Check for updates" can find it.
 echo.
 pause
 
-rem ZcodeKnight v4.7.1
+rem ZcodeKnight v4.7.4
