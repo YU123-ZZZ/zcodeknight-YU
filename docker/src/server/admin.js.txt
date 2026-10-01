@@ -429,7 +429,46 @@ function renderChangelog() {
       '</div><div class="cl-date">' + esc(rel.date) + "</div>" + lines + "</div>";
   }).join("");
 }
-renderChangelog();
+
+// ── Upstream Intel page (official release feed, newest 15 only) ──────
+// Lazy: fetched only when the page is OPENED, browser reuses the response
+// for 60s. The server caps the feed at 15 entries and refreshes its cache
+// at most once per 30 minutes — this page never hammers the upstream API
+// and engine memory stays flat (fixed-size ring, nothing accumulates).
+let intelFetchedAt = 0;
+async function loadIntel(force) {
+  const box = document.getElementById("intel-body");
+  if (!box) return;
+  const now = Date.now();
+  if (!force && intelFetchedAt && now - intelFetchedAt < 60000) return;
+  intelFetchedAt = now;
+  try {
+    const d = await (await api("/intel")).json();
+    const items = d.entries || [];
+    let html = "";
+    if (d.fetchedAt) {
+      html += '<div class="sub" style="margin-bottom:8px">' + T("intel_fetched") + " " +
+        fmtLogTime(d.fetchedAt) + (d.fresh === false ? " " + T("intel_stale") : "") + "</div>";
+    }
+    if (!items.length) {
+      html += '<div class="card"><p class="sub">' + esc(d.error || T("intel_none")) + "</p></div>";
+    } else {
+      html += items.map(function (it) {
+        return '<div class="card cl-rel"><div class="cl-ver">' + esc(it.version) +
+          '</div><div class="cl-date">' + esc(it.date || "") + "</div>" +
+          (it.notes ? '<div class="cl-item" style="white-space:pre-wrap">' + esc(it.notes) + "</div>" : "") +
+          (it.url ? '<div style="margin-top:6px"><a href="' + esc(it.url) + '" target="_blank" class="sub">↗</a></div>' : "") +
+          "</div>";
+      }).join("");
+    }
+    box.innerHTML = html;
+  } catch (e) {
+    box.innerHTML = '<div class="card"><p class="sub">' + esc(String(e)) + "</p></div>";
+  }
+}
+const intelBtn = document.querySelector('#nav button[data-page="intel"]');
+if (intelBtn) intelBtn.addEventListener("click", function () { loadIntel(false); });
+
 document.getElementById("langBtn").onclick = () => {
   lang = lang === "zh" ? "en" : "zh";
   localStorage.setItem("zk-lang", lang);
