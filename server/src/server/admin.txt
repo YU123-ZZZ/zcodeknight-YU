@@ -377,6 +377,10 @@
         <input id="set-proxy-url" placeholder="http://127.0.0.1:7890" style="width:320px;font-family:var(--mono);font-size:12px">
       </div>
       <div class="set-row">
+        <div><div class="lbl" data-i18n="set_proxy_rotate">Spare egress (3012 rotation)</div><div class="hint" data-i18n="set_proxy_rotate_hint">One proxy URL per line. When upstream answers 3012 (IP flagged), the engine switches to the next one automatically — the flagged URL goes to the back of the list. Empty = never rotate</div></div>
+        <textarea id="set-proxy-rotate" rows="3" placeholder="http://127.0.0.1:7891&#10;socks5://user:pass@host:1080" style="width:320px;font-family:var(--mono);font-size:12px"></textarea>
+      </div>
+      <div class="set-row">
         <div><div class="lbl" data-i18n="set_proxy_noproxy">Direct hosts</div><div class="hint" data-i18n="set_proxy_noproxy_hint">Comma-separated hosts that bypass the proxy</div></div>
         <input id="set-proxy-noproxy" placeholder="localhost,127.0.0.1,::1" style="width:320px;font-family:var(--mono);font-size:12px">
       </div>

@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.4
+ * 版本 Version: v4.7.5
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -40,6 +40,7 @@ import { randomUUID } from "node:crypto";
 import type { ProxyConfig } from "../config/types.js";
 import type { AuthManager } from "../auth/manager.js";
 import { errorResponse } from "../proxy/handler.js";
+import { proxyUrl, proxyRotationSize } from "../proxy/network-proxy.js";
 import {
   loadAccounts, addAccount, deleteAccount, updateAccount,
   type AccountPlan,
@@ -415,6 +416,14 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
       provider: config.provider,
       plan: config.plan,
       accounts: summary,
+      // Claim auto state + next check — the overview's countdown reads this.
+      // Previously the panel polled /config for it every 5s (a second
+      // authenticated request whose failures surfaced as session-lapse
+      // warnings); riding on the overview response removes that surface.
+      claim: {
+        auto: (await import("../claim/multi-runtime.js")).isMultiClaimRunning(),
+        nextCheckAt: (await import("../claim/multi-runtime.js")).multiClaimNextCheckAt(),
+      },
       // Live request metrics: the counters describe this run, and `recent` is
       // the last 100 finished requests, newest first.
       requests: {
@@ -690,7 +699,7 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
       adminLog.push("[claim] auto claim enabled from panel");
     }
     // Persist the choice — runtime state alone meant every restart silently
-    // reverted the toggle to config.yaml's stale value (field report v4.7.4:
+    // reverted the toggle to config.yaml's stale value (field report v4.7.5:
     // "自动就给关闭了"). Kept non-fatal, matching the pool-settings saver.
     try {
       const { updateClaimAutoYaml } = await import("../config/edit.js");
@@ -995,10 +1004,16 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
       proxyApiKey: config.auth.proxyApiKey ?? "",
       // Outbound proxy, editable from Settings. The URL may carry credentials,
       // so it is only ever returned to an already-authenticated caller.
+      // rotateUrls is the spare-egress list 3012 rotation switches through;
+      // current/rotationSize report the LIVE egress (it moves when a 3012
+      // triggers a rotation), which is what the operator needs to see.
       proxy: {
         enabled: config.proxy.enabled,
         url: config.proxy.url,
+        rotateUrls: config.proxy.rotateUrls ?? "",
         noProxy: config.proxy.noProxy,
+        current: proxyUrl(),
+        rotationSize: proxyRotationSize(),
       },
     });
   }
@@ -1014,18 +1029,23 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
    * keeps going out from the real IP.
    */
   if (method === "POST" && path === "/config/proxy") {
-    const body = await readJson<{ enabled?: boolean; url?: string; noProxy?: string }>(req);
+    const body = await readJson<{ enabled?: boolean; url?: string; rotateUrls?: string; noProxy?: string }>(req);
     const enabled = typeof body?.enabled === "boolean" ? body.enabled : config.proxy.enabled;
     const url = typeof body?.url === "string" ? body.url.trim() : config.proxy.url;
+    // Newlines/commas/semicolons are accepted separators (the panel field is
+    // one-per-line); normalised to newline-separated for storage.
+    const rotateUrls = typeof body?.rotateUrls === "string"
+      ? body.rotateUrls.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean).join("\n")
+      : (config.proxy.rotateUrls ?? "");
     const noProxy = typeof body?.noProxy === "string" ? body.noProxy.trim() : config.proxy.noProxy;
     try {
       const { applyNetworkProxy } = await import("../proxy/network-proxy.js");
-      await applyNetworkProxy({ enabled, url, noProxy });
+      await applyNetworkProxy({ enabled, url, rotateUrls, noProxy });
     } catch (e) {
       return errorResponse(400, "bad_request", `proxy not applied: ${(e as Error).message}`);
     }
     // Keep the running config in sync so a later read reflects what is in force.
-    config.proxy = { enabled, url, noProxy };
+    config.proxy = { enabled, url, rotateUrls, noProxy };
     const { updateProxyConfigYaml } = await import("../config/edit.js");
     if (!opts.configPath) {
       // Live but not persisted: the panel has to say so, otherwise the operator
@@ -1037,7 +1057,7 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
       });
     }
     try {
-      updateProxyConfigYaml(opts.configPath, { enabled, url, noProxy });
+      updateProxyConfigYaml(opts.configPath, { enabled, url, rotateUrls, noProxy });
     } catch (e) {
       // The proxy IS live; only persistence failed. Say so rather than
       // pretending the save worked.

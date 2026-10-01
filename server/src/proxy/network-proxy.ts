@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.4
+ * 版本 Version: v4.7.5
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -59,6 +59,17 @@ const NO_PROXY_ENV_KEYS = ["NO_PROXY", "no_proxy"] as const;
 
 let installed = "";
 
+/**
+ * The rotation queue: the URL currently in force first, then the spares in
+ * the order they should be tried. Empty when rotation is off (no spares
+ * configured) or the proxy is disabled.
+ *
+ * Invariant: `installed` is always `queue[0]` (or "" when direct). Rotation is
+ * `queue.push(queue.shift())` + re-apply, so the flagged URL goes to the BACK
+ * and is retried only after every spare has been flagged too.
+ */
+let queue: string[] = [];
+
 /** True when a proxy is currently in force. */
 export function proxyActive(): boolean {
   return installed !== "";
@@ -67,6 +78,19 @@ export function proxyActive(): boolean {
 /** The proxy URL currently in force, or "" when traffic goes out directly. */
 export function proxyUrl(): string {
   return installed;
+}
+
+/**
+ * True when at least one spare egress is configured — the panel shows a
+ * "rotate now" affordance only when a switch would actually do something.
+ */
+export function proxyRotationAvailable(): boolean {
+  return queue.length > 1;
+}
+
+/** How many egress URLs are in the rotation (1 = single proxy, 0 = direct). */
+export function proxyRotationSize(): number {
+  return queue.length;
 }
 
 /**
@@ -100,13 +124,49 @@ export async function applyNetworkProxy(cfg: NetworkProxyConfig): Promise<void> 
     // Explicitly empty, never deleted — deleting leaves Bun on a cached proxy.
     for (const k of PROXY_ENV_KEYS) process.env[k] = "";
     installed = "";
+    queue = [];
     await installDispatcher(null);
     return;
   }
-  for (const k of PROXY_ENV_KEYS) process.env[k] = want;
+  // Rebuild the rotation queue. The configured primary leads; the spares
+  // follow in listed order. When the config changes while a ROTATED URL is in
+  // force, that URL stays in front — rotation state must survive an unrelated
+  // settings save, or traffic would be sent straight back into the egress
+  // upstream just flagged — but a URL that was removed from the config is
+  // dropped from the queue and the configured primary takes over again.
+  const spares = (cfg.rotateUrls || "")
+    .split(/[\n,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((u) => u !== want);
+  const live = installed && installed !== want && spares.includes(installed) ? installed : want;
+  queue = [live, ...spares.filter((u) => u !== live)];
+  for (const k of PROXY_ENV_KEYS) process.env[k] = live;
   for (const k of NO_PROXY_ENV_KEYS) process.env[k] = bypassList(cfg.noProxy);
-  installed = want;
-  await installDispatcher(want, bypassList(cfg.noProxy));
+  installed = live;
+  await installDispatcher(live, bypassList(cfg.noProxy));
+}
+
+/**
+ * Advance to the next egress in the rotation and apply it.
+ *
+ * Called when upstream risk control (3012) flags the current egress: the
+ * flagged URL moves to the back of the queue, so it is retried only after
+ * every spare has been flagged too — by then its block has usually expired.
+ *
+ * Returns the URL now in force, or "" when there is nothing to rotate to
+ * (no spares configured, proxy disabled, or a single-URL setup). The caller
+ * logs the outcome; it must not fail the request — the 3012 hold logic has
+ * already answered the client by the time rotation runs.
+ */
+export async function rotateProxyEgress(): Promise<string> {
+  if (queue.length < 2) return installed;
+  queue.push(queue.shift()!);
+  const next = queue[0] ?? "";
+  for (const k of PROXY_ENV_KEYS) process.env[k] = next;
+  installed = next;
+  await installDispatcher(next);
+  return next;
 }
 
 /**
@@ -147,13 +207,7 @@ export async function applyDirectDispatcher(): Promise<void> {
 }
 
 /** For tests: forget the installed state without touching the environment. */
-async function stopClashRotateIfAny(): Promise<void> {
-  try {
-    const m = await import("./clash-rotate.js");
-    m.stopClashRotate();
-  } catch {}
-}
-
 export function resetProxyStateForTest(): void {
   installed = "";
+  queue = [];
 }

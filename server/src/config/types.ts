@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.4
+ * 版本 Version: v4.7.5
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -196,6 +196,23 @@ export interface NetworkProxyConfig {
    * Empty means "use the HTTPS_PROXY / HTTP_PROXY environment variable".
    */
   url: string;
+  /**
+   * Spare egress URLs tried in order when upstream risk control (3012) flags
+   * the current one. Empty/absent disables rotation: the engine keeps the
+   * flagged egress and relies on the 30-minute risk-hold silence alone.
+   * Separators: newline, comma or semicolon (the panel field accepts one per
+   * line).
+   *
+   * Rotation exists because 3012 is counted per EGRESS IP over time — the
+   * evidence feed stops (risk-hold) but the block itself clears on upstream's
+   * clock, measured in hours. Switching to a clean egress restores service
+   * immediately instead of waiting it out. The flagged URL goes to the BACK of
+   * the rotation so it is retried only after every other spare has also been
+   * flagged — by then its block has usually expired.
+   *
+   * Optional so hand-built configs (tests, embedded callers) stay valid.
+   */
+  rotateUrls?: string;
   /**
    * Hosts that bypass the proxy, comma-separated (e.g. `localhost,127.0.0.1`).
    * Loopback is always excluded regardless, so the panel and the local API

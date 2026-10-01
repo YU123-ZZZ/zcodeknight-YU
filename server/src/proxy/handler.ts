@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.4
+ * 版本 Version: v4.7.5
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -592,6 +592,7 @@ export async function proxyRequest(
         const holds = listRiskHolds();
         const held = holds.find((h) => h.model === meta.model);
         const unlockClock = held ? new Date(held.unlockAt).toLocaleTimeString() : "";
+        await maybeRotateEgress(meta.model || "");
         reportOutcomeToPool(auth, accountId, {
           kind: "concurrency_rejected",
           note: `上游风控 3012 unusual activity — 出口 IP 被标记；${meta.model || "该模型"} 进入 30 分钟静默期${unlockClock ? `（至 ${unlockClock}）` : ""}，期间不再请求上游，自动恢复`,
@@ -659,6 +660,7 @@ export async function proxyRequest(
       // risk-hold still applies — that is the mechanism that actually stops
       // the retry storm (risk-hold.ts).
       markRiskHold(failedModel);
+      await maybeRotateEgress(failedModel || "");
       outcome = { kind: "concurrency_rejected" };
     }
   }
@@ -786,7 +788,7 @@ interface StreamTap {
  * wired explicitly: `pipeThrough` alone skips `flush` on abort, so the
  * returned stream's own `cancel` closes the tap and cancels the upstream.
  */
-// Hard kill-switch for a single streamed response (field report v4.7.4: the
+// Hard kill-switch for a single streamed response (field report v4.7.5: the
 // 951s slow-client stream was the RSS climb's carrier). 512MB of forwarded
 // bytes on ONE response is far beyond any legitimate GLM answer; past this the
 // stream is closed with an error instead of letting any queueing path take the
@@ -807,7 +809,7 @@ function tappedStream(
   // PULL-driven: upstream is read ONLY when the client's queue has room.
   // The previous rewrite used a start()-driven loop that read unconditionally
   // and controller.enqueue()d every chunk — an unbounded pump again (field
-  // report v4.7.4: ~470MB/h over a 951s slow-client stream, 68min to D-state).
+  // report v4.7.5: ~470MB/h over a 951s slow-client stream, 68min to D-state).
   // With pull, one chunk is in flight per client read; a slow client now
   // throttles the upstream socket itself.
   let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
@@ -1419,6 +1421,46 @@ function peekBody(body: string | undefined): RequestMeta {
     };
   } catch {
     return { model: "-", stream: false, caller: { ...NO_CALLER } };
+  }
+}
+
+/**
+ * Rotate the egress proxy after a 3012, when spare egresses are configured.
+ *
+ * 3012 is counted per EGRESS IP; risk-hold stops the evidence feed but the
+ * block itself clears on upstream's clock (hours). With a spare list the
+ * engine can move to a clean egress immediately instead of serving 429s until
+ * then. The flagged URL goes to the BACK of the rotation, so it is retried
+ * only after every spare has been flagged too.
+ *
+ * Two deliberate properties:
+ *  - One mark per model per hold window: `markRiskHold` refreshes an existing
+ *    hold, but rotation must happen only on the FIRST 3012 of a window, or
+ *    every forwarded request during a hold would cycle the whole list while
+ *    the block is actually on upstream's side, not ours. The guard below
+ *    rotates only when the hold is NEW.
+ *  - Best-effort: `rotateProxyEgress` resolves to the same URL when there is
+ *    nothing to rotate to (no spares / proxy off). It must never throw into
+ *    the 3012 handling path — the client has already been answered.
+ */
+async function maybeRotateEgress(model: string): Promise<void> {
+  try {
+    const { riskHoldRemaining, RISK_HOLD_MS } = await import("./risk-hold.js");
+    const { rotateProxyEgress, proxyRotationAvailable } = await import("./network-proxy.js");
+    // Only the first 3012 of a hold window rotates: a remaining time close to
+    // the full window means the hold was just placed by THIS request.
+    if (riskHoldRemaining(model) < RISK_HOLD_MS - 5_000) return;
+    if (!proxyRotationAvailable()) return;
+    const next = await rotateProxyEgress();
+    if (next) {
+      let host = next;
+      try { host = new URL(next).host; } catch { /* keep the raw string */ }
+      console.warn(`[proxy] 3012 risk control — egress rotated to ${host}`);
+      adminLog.push(`[proxy] 3012 风控触发 — 出口已轮换到 ${host}`, "warn");
+    }
+  } catch {
+    // Rotation is an optimisation on top of the hold; never let it break
+    // request handling.
   }
 }
 

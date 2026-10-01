@@ -25,12 +25,32 @@ import { adminPanelCss, adminPanelSource } from "./panel-html.js";
 
 const html = adminPanelSource();
 
-/** Evaluate one function declaration from the panel and hand it back. */
+/**
+ * Evaluate one function declaration from the panel and hand it back.
+ *
+ * Extraction is BRACE-BALANCED, not a lazy `[\s\S]*?\n}` regex: the panel now
+ * contains functions whose bodies nest braces in ways the old regex could
+ * mis-close (an intel feed with an inner `if (...) {` left open across lines),
+ * and a mis-closed capture executed foreign code (`api is not defined`). Count
+ * braces from the function head to its matching close — order- and
+ * nesting-proof.
+ */
 function liftFunction<T>(name: string): T {
-  const src = new RegExp(`(?:async )?function ${name}\\([\\s\\S]*?\\n\\}`).exec(html);
-  if (!src) throw new Error(`${name} not found in the panel`);
+  const head = new RegExp(`(?:async )?function ${name}\\(`).exec(html);
+  if (!head) throw new Error(`${name} not found in the panel`);
+  let i = head.index;
+  let depth = 0;
+  let started = false;
+  for (; i < html.length; i++) {
+    if (html[i] === "{") { depth++; started = true; }
+    else if (html[i] === "}") {
+      depth--;
+      if (started && depth === 0) { i++; break; }
+    }
+  }
+  const captured = html.slice(head.index, i);
   // eslint-disable-next-line no-new-func
-  return new Function(`${src[0]}\nreturn ${name};`)() as T;
+  return new Function(`${captured}\nreturn ${name};`)() as T;
 }
 
 describe("a 403 from the proxy is not a lapsed panel session", () => {

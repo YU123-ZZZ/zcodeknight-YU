@@ -1,6 +1,6 @@
 <div align="center">
 
-Two-stage shutdown: first SIGTERM/SIGINT triggers a graceful stop; a second signal within 10s — or a stop that has not finished in 10s — exits immediately, so a wedged event loop no longer requires SIGKILL (field report v4.7.2).
+
 
 <img src="logo.svg" width="96" alt="ZcodeKnight" />
 
@@ -24,7 +24,7 @@ ZcodeKnight 把所有账号汇总到一个本地接口后面：自动轮询、�
   <a href="https://img.shields.io/github/issues/YU123-ZZZ/zcodeknight-YU"><img src="https://img.shields.io/github/issues/YU123-ZZZ/zcodeknight-YU?style=for-the-badge&logo=github&label=Issues" alt="Issues"></a>
   <a href="https://github.com/YU123-ZZZ/zcodeknight-YU/blob/master/LICENSE"><img src="https://img.shields.io/badge/License-MIT-c8cdd6?style=for-the-badge" alt="License"></a>
   <a href="https://img.shields.io/github/v/release/YU123-ZZZ/zcodeknight-YU"><img src="https://img.shields.io/github/v/release/YU123-ZZZ/zcodeknight-YU?style=for-the-badge&label=Release&color=4fae7c" alt="Release"></a>
-  <a href="https://github.com/YU123-ZZZ/zcodeknight-YU"><img src="https://komarev.com/ghpvc/?username=YU123-ZZZ-zcodeknight-YU&label=Views&color=4f7cff&style=for-the-badge" alt="Views"></a>
+  <a href="https://github.com/YU123-ZZZ/zcodeknight-YU"><img src="https://img.shields.io/badge/Views-235-4f7cff?style=for-the-badge" alt="Views"></a>
 </p>
 
 
@@ -251,6 +251,34 @@ upstream (api.z.ai / open.bigmodel.cn)
 
 小内存主机（2G）建议：CAPTCHA_WINDOW_REUSE=0 关闭窗口复用是最快的第一步隔离手段；
 配合 systemd MemoryMax 观察是否触顶。日志 CSV 导出现在包含全量引擎历史，可用于回溯。
+
+v4.7.5（2026-10-02）：
+
+1. **3012 出口自动轮换**：设置页新增「备用出口（3012 轮换）」——每行一个代理
+   地址。上游返回 3012（出口 IP 被风控标记）时，引擎自动切换到下一个出口，
+   被标记的地址排到队尾最后再用（此时它的封锁通常已过期）；不填则维持原有的
+   30 分钟静默等恢复机制。状态行实时显示当前出口与轮换池大小；
+2. **面板会话失效误报修复**：概览页 5 秒轮询不再额外拉 `/config`（瞬时 4xx 被
+   误判为「登录会话已失效」弹出重登框），领取倒计时数据改由 `/overview` 同帧
+   返回（`claim` 字段）；
+3. **概览页余额列表增量渲染**：与账号页同样的 keyed 复用——数据没变的卡片
+   不再整棵重建，30 秒池同步不再引发页面抖动；
+4. **探测无损说明**：探测请求 `max_tokens=16` 且不带 captcha token，最坏情况
+   只消耗个位数 token，上游拒绝类响应（3012/3006/3008/3009/3007）均不计费。
+
+v4.7.4（2026-10-02）：
+
+1. **内存泄漏根治**：删除流式响应的 `body.tee()` 双读——统计分支全速消费时
+   tee 无背压，整条流在 V8 堆内排队且被强引用（慢客户端 × 757 秒长流 = 数百 MB
+   不可回收），这正是 4.7.3 仍剩 ~110MB/h 泄漏与 5.7 小时 D 状态卡死的根因。
+   改为单流内联统计（TransformStream 计数），上游背压直达客户端；
+2. **聊天验证码门禁跟进上游**：官方 v3.14.4 关闭模型请求验证码校验，聊天路径
+   不再预取 captcha token（403/3007 fallback 保留，上游若恢复门禁自动兼容）；
+   默认 appVersion 跟进 3.14.4，防风控版本信号；
+3. **验证码 stall 误杀修复**：6 秒静默改为二次确认（连续 12 秒无请求才判死），
+   重试间加指数退避（1s→2s→4s）——2G 小机 GC 卡顿不再被误判，领取通过率回升；
+4. **新建窗口 RSS 闸门**：超过 `CAPTCHA_RSS_GUARD_MB` 时先等在途求解释放，
+   不再并发堆窗口（修复多账号首轮领取把 RSS 顶过 1GB 导致进程 exit 1）。
 
 v4.7.3（2026-09-30）：
 

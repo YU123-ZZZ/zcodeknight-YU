@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.4
+ * 版本 Version: v4.7.5
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -37,7 +37,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "./loader.js";
 import { updateProxyConfigYaml } from "./edit.js";
-import { applyNetworkProxy, proxyActive, proxyUrl, resetProxyStateForTest } from "../proxy/network-proxy.js";
+import { applyNetworkProxy, proxyActive, proxyUrl, proxyRotationAvailable, rotateProxyEgress, resetProxyStateForTest } from "../proxy/network-proxy.js";
 
 const ENV_KEYS = [
   "ZCODE_PROXY_ENABLED", "ZCODE_PROXY_URL",
@@ -182,6 +182,56 @@ describe("proxy installation", () => {
     for (const host of ["127.0.0.1", "localhost", "::1", "example.com"]) {
       expect(no).toContain(host);
     }
+  });
+
+  it("rotation: no spares means rotate is a no-op", async () => {
+    await applyNetworkProxy({ enabled: true, url: "http://a:1", rotateUrls: "", noProxy: "" });
+    expect(proxyRotationAvailable()).toBe(false);
+    const next = await rotateProxyEgress();
+    expect(next).toBe("http://a:1");
+    expect(proxyUrl()).toBe("http://a:1");
+  });
+
+  it("rotation: cycles through spares and moves the flagged URL to the back", async () => {
+    await applyNetworkProxy({
+      enabled: true, url: "http://a:1",
+      rotateUrls: "http://b:2\nhttp://c:3", noProxy: "",
+    });
+    expect(proxyRotationAvailable()).toBe(true);
+    // First 3012 on a → b, second → c, third wraps back to a (its block has
+    // had time to expire by then, which is the whole design).
+    expect(await rotateProxyEgress()).toBe("http://b:2");
+    expect(proxyUrl()).toBe("http://b:2");
+    expect(process.env.HTTPS_PROXY).toBe("http://b:2");
+    expect(await rotateProxyEgress()).toBe("http://c:3");
+    expect(await rotateProxyEgress()).toBe("http://a:1");
+  });
+
+  it("rotation: rebuilding the queue keeps the live egress in front", async () => {
+    await applyNetworkProxy({
+      enabled: true, url: "http://a:1",
+      rotateUrls: "http://b:2\nhttp://c:3", noProxy: "",
+    });
+    await rotateProxyEgress(); // now on b
+    // An unrelated settings save must not silently reset rotation to a: the
+    // operator is mid-incident; a reset would send traffic back into the
+    // flagged egress.
+    await applyNetworkProxy({
+      enabled: true, url: "http://a:1",
+      rotateUrls: "http://b:2\nhttp://c:3", noProxy: "",
+    });
+    expect(proxyUrl()).toBe("http://b:2");
+    expect(await rotateProxyEgress()).toBe("http://c:3");
+  });
+
+  it("rotation: a URL removed from the config drops out of the queue", async () => {
+    await applyNetworkProxy({ enabled: true, url: "http://a:1", rotateUrls: "http://b:2", noProxy: "" });
+    await rotateProxyEgress(); // now on b
+    await applyNetworkProxy({ enabled: true, url: "http://a:1", rotateUrls: "", noProxy: "" });
+    // b was removed from the config, so the queue collapses to [a] — and the
+    // live egress follows the config, not the stale rotation state.
+    expect(proxyUrl()).toBe("http://a:1");
+    expect(proxyRotationAvailable()).toBe(false);
   });
 
   it("sends real traffic through the configured proxy", async () => {

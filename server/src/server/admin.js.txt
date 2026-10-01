@@ -109,10 +109,12 @@ const I18N = {
     set_spacing: "同账号最小间隔（毫秒）", set_spacing_hint: "同一账号两次请求的最短间隔，降低风控命中；0 关闭",
     set_proxy: "出口代理", set_proxy_hint: "上游请求走代理。撞 3012 时可以试，但不是官方解法——拦截看的是请求形状，不只是地址。保存后立即生效，本机回环始终直连",
     set_proxy_url: "代理地址", set_proxy_url_hint: "如 http://127.0.0.1:7890 或 socks5://用户:密码@主机:1080；留空则读 HTTPS_PROXY 环境变量",
+    set_proxy_rotate: "备用出口（3012 轮换）", set_proxy_rotate_hint: "每行一个代理地址。上游返回 3012（出口 IP 被标记）时自动切换到下一个，被标记的地址排到队尾最后再用。留空 = 不轮换",
     set_proxy_node_now: "当前节点：",
     set_proxy_noproxy: "直连白名单", set_proxy_noproxy_hint: "逗号分隔，这些主机不走代理",
     set_proxy_save: "保存代理设置",
     set_proxy_on: "当前出口：{h}", set_proxy_off: "当前直连（未走代理）",
+    set_proxy_rotate_n: "轮换池 {n} 个出口",
     set_idle: "面板空闲登出", set_idle_hint: "多少分钟不操作后重新要求输入密钥。任何操作都会重置计时；0 表示永不登出",
     set_idle_save: "保存超时", set_idle_stat: "当前空闲超时", min_unit: "分钟",
     set_idle_never: "已设为永不登出", set_idle_bad: "请输入不小于 0 的分钟数",
@@ -283,10 +285,12 @@ const I18N = {
     set_spacing: "Min spacing per account (ms)", set_spacing_hint: "Shortest gap between two requests on one account — lowers risk-control hits; 0 disables",
     set_proxy: "Outbound proxy", set_proxy_hint: "Route upstream traffic through a proxy. Worth trying against risk control (3012) but not a documented fix — the block follows request shape, not just the address. Applies immediately; loopback always stays direct",
     set_proxy_url: "Proxy URL", set_proxy_url_hint: "e.g. http://127.0.0.1:7890 or socks5://user:pass@host:1080; empty falls back to the HTTPS_PROXY env var",
+    set_proxy_rotate: "Spare egress (3012 rotation)", set_proxy_rotate_hint: "One proxy URL per line. When upstream answers 3012 (IP flagged), the engine switches to the next one automatically — the flagged URL goes to the back of the list. Empty = never rotate",
     set_proxy_node_now: "Current node:",
     set_proxy_noproxy: "Direct hosts", set_proxy_noproxy_hint: "Comma-separated hosts that bypass the proxy",
     set_proxy_save: "Save proxy settings",
     set_proxy_on: "Egress: {h}", set_proxy_off: "Direct connection (no proxy)",
+    set_proxy_rotate_n: "rotation pool of {n} egresses",
     set_idle: "Panel idle logout", set_idle_hint: "Minutes of inactivity before the panel asks for the key again. Any activity resets the clock; 0 never logs out",
     set_idle_save: "Save timeout", set_idle_stat: "Current idle timeout", min_unit: "min",
     set_idle_never: "Set to never log out", set_idle_bad: "Enter a number of minutes >= 0",
@@ -370,7 +374,7 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
-  { ver: "v4.7.4", date: "2026-10-02", items: {
+  { ver: "v4.7.5", date: "2026-10-02", items: {
     zh: [
       "【内存】流式响应泄漏根治：删除 body.tee() 双读（统计分支无背压，整条流在堆内排队且不可回收——慢客户端×长流 = 数百 MB），改为单流内联统计，上游背压直达客户端。这是 4.7.3 仍剩 ~110MB/h 泄漏与 5.7 小时卡死的根因",
       "【验证码】聊天门禁跟进上游：官方 v3.14.4 已关闭模型请求的验证码校验，聊天路径不再预取 token（403/3007 fallback 保留，上游恢复门禁自动兼容）；默认 appVersion 跟进 3.14.4",
@@ -832,21 +836,17 @@ async function refreshOverview() {
   if (refreshOverview._inflight) return; // previous poll still in flight
   refreshOverview._inflight = true;
   try {
-    // Claim countdown data rides along with the overview poll (one tiny extra
-    // request only when the cached nextCheckAt is missing or stale by >5min):
-    // the countdown lives on the OVERVIEW now, and loadSettings — its only
-    // data source — runs at boot and on the settings page, never while the
-    // operator stares at the overview. That was the "主页没有倒计时" report.
-    if (!claimNextAt || Date.now() - (claimNextAtFetchedAt || 0) > 300_000) {
-      try {
-        const cfg = await (await api("/config")).json();
-        claimAuto = !!cfg.claim?.auto;
-        claimNextAt = Number(cfg.claim?.nextCheckAt) || 0;
-        claimNextAtFetchedAt = Date.now();
-      } catch { /* countdown keeps its last value */ }
-    }
     const r = await api("/overview");
     const ov = await r.json();
+    // Claim countdown data rides on the SAME /overview response (field report
+    // v4.7.5: the extra /config poll here surfaced every transient 4xx/403 as
+    // "登录会话已失效" because isSessionLapse treats unknown error shapes as a
+    // lapse and re-gated the UI). One request, no extra auth surface.
+    if (ov.claim) {
+      claimAuto = !!ov.claim.auto;
+      claimNextAt = Number(ov.claim.nextCheckAt) || 0;
+      claimNextAtFetchedAt = Date.now();
+    }
     document.getElementById("ov-total").textContent = ov.accounts.total;
     document.getElementById("ov-eligible").textContent = ov.accounts.eligible;
     renderClaimCountdown();
@@ -1087,7 +1087,16 @@ function renderBalanceList() {
   const el = document.getElementById("ov-balances");
   const q = (document.getElementById("ov-bal-search").value || "").trim().toLowerCase();
   const f = document.getElementById("ov-bal-filter").value;
-  el.innerHTML = "";
+  // Keyed reuse, same scheme as the accounts page's card diff: a poll that
+  // changed nothing must not throw away every balance card and repaint it —
+  // the repaint was visible as jank each 30s pool sync (buttons lost their
+  // pressed state, the browser re-anchored scroll). Cards are rebuilt only
+  // when their content signature changes.
+  const existing = new Map();
+  for (const c of [...el.querySelectorAll(".bal-acc")]) {
+    if (c.dataset.balId) existing.set(c.dataset.balId, c);
+    else c.remove();
+  }
   const rows = lastQuota.filter(a => {
     const meta = lastAccountMeta.get(a.id);
     if (q && !(a.name || "").toLowerCase().includes(q)) return false;
@@ -1101,7 +1110,6 @@ function renderBalanceList() {
   }
   for (const a of rows) {
     const meta = lastAccountMeta.get(a.id);
-    const box = document.createElement("div");
     // Model-scoped holds, same rule as the accounts page: a held model means the
     // account is degraded, not down. The overview showed only the main status,
     // so a throttled account looked fully healthy here even while requests to
@@ -1110,6 +1118,21 @@ function renderBalanceList() {
     const throttleBadge = holds.length
       ? '<span class="st throttled">' + T("st_throttled") + " · " + holds.length + "</span>"
       : "";
+    // Everything the card renders, in one signature. The countdown targets
+    // (expiresAt/endsAt) are absolute, so they belong in the key: their
+    // deadlines move server-side even when the visible text does not.
+    const sig = JSON.stringify([
+      a.id, a.name, a.provider, a.plan, a.balances, a.activePlans, a.claimablePlans,
+      meta && meta.status, holds, lang,
+    ]);
+    let box = existing.get(a.id);
+    if (box && box.dataset.balSig === sig) {
+      el.appendChild(box);
+      continue;
+    }
+    box = box || document.createElement("div");
+    box.dataset.balId = a.id;
+    box.dataset.balSig = sig;
     // The status class drives the card's accent bar, so an unhealthy account is
     // distinguishable at a glance rather than only by reading its badge.
     const accent = meta && meta.status === "ok" && holds.length ? "throttled" : (meta ? meta.status : "");
@@ -3032,6 +3055,7 @@ async function loadSettings() {
       b.textContent = proxyOn ? T("on") : T("off");
       b.className = "btn " + (proxyOn ? "" : "ghost");
       document.getElementById("set-proxy-url").value = cfg.proxy.url || "";
+      document.getElementById("set-proxy-rotate").value = cfg.proxy.rotateUrls || "";
       document.getElementById("set-proxy-noproxy").value = cfg.proxy.noProxy || "";
       renderProxyStat(cfg.proxy);
     }
@@ -3434,12 +3458,17 @@ let proxyOn = false;
 function renderProxyStat(p) {
   const el = document.getElementById("set-proxy-stat");
   if (!el) return;
-  if (p && p.enabled && p.url) {
+  if (p && p.enabled && (p.current || p.url)) {
     // Show the host only: the URL may carry credentials, and the panel is
-    // frequently screenshotted when asking for help.
-    let host = p.url;
-    try { const u = new URL(p.url); host = u.protocol + "//" + u.host; } catch {}
-    el.textContent = T("set_proxy_on").replace("{h}", host);
+    // frequently screenshotted when asking for help. `current` is the LIVE
+    // egress — it moves when a 3012 rotation switches exits — while `url` is
+    // the configured primary; showing current is the point.
+    let host = p.current || p.url;
+    try { const u = new URL(host); host = u.protocol + "//" + u.host; } catch {}
+    const rot = p.rotationSize > 1
+      ? " · " + T("set_proxy_rotate_n").replace("{n}", String(p.rotationSize))
+      : "";
+    el.textContent = T("set_proxy_on").replace("{h}", host) + rot;
     el.style.color = "var(--blue)";
   } else {
     el.textContent = T("set_proxy_off");
@@ -3462,6 +3491,7 @@ document.getElementById("set-proxy-save").onclick = async (e) => {
       body: JSON.stringify({
         enabled: proxyOn,
         url: document.getElementById("set-proxy-url").value.trim(),
+        rotateUrls: document.getElementById("set-proxy-rotate").value.trim(),
         noProxy: document.getElementById("set-proxy-noproxy").value.trim(),
       }),
     });
