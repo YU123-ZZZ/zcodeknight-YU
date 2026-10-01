@@ -1,6 +1,6 @@
 <div align="center">
 
-Two-stage shutdown: first SIGTERM/SIGINT triggers a graceful stop; a second signal within 10s — or a stop that has not finished in 10s — exits immediately, so a wedged event loop no longer requires SIGKILL (field report v4.7.2).
+
 
 <img src="logo.svg" width="96" alt="ZcodeKnight" />
 
