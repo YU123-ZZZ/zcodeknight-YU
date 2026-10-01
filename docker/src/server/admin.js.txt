@@ -474,6 +474,7 @@ async function loadIntel(force) {
     box.innerHTML = '<div class="card"><p class="sub">' + esc(String(e)) + "</p></div>";
   }
 }
+renderChangelog();
 const intelBtn = document.querySelector('#nav button[data-page="intel"]');
 if (intelBtn) intelBtn.addEventListener("click", function () { loadIntel(false); });
 
@@ -731,6 +732,8 @@ function showPage(name) {
   btn.classList.add("on");
   page.classList.add("on");
   if (name === "playground") { pgRestore(); loadPlaygroundAccounts(); }
+  if (name === "changelog") renderChangelog();
+  if (name === "intel") loadIntel(false);
   if (name === "accounts") refreshAccounts();
   if (name === "models") loadProbeAccounts();
   if (name === "logs") pollLogs();
