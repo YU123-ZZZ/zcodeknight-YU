@@ -24,7 +24,7 @@ ZcodeKnight 把所有账号汇总到一个本地接口后面：自动轮询、�
   <a href="https://img.shields.io/github/issues/YU123-ZZZ/zcodeknight-YU"><img src="https://img.shields.io/github/issues/YU123-ZZZ/zcodeknight-YU?style=for-the-badge&logo=github&label=Issues" alt="Issues"></a>
   <a href="https://github.com/YU123-ZZZ/zcodeknight-YU/blob/master/LICENSE"><img src="https://img.shields.io/badge/License-MIT-c8cdd6?style=for-the-badge" alt="License"></a>
   <a href="https://img.shields.io/github/v/release/YU123-ZZZ/zcodeknight-YU"><img src="https://img.shields.io/github/v/release/YU123-ZZZ/zcodeknight-YU?style=for-the-badge&label=Release&color=4fae7c" alt="Release"></a>
-  <a href="https://github.com/YU123-ZZZ/zcodeknight-YU"><img src="https://komarev.com/ghpvc/?username=YU123-ZZZ-zcodeknight-YU&label=Views&color=4f7cff&style=for-the-badge" alt="Views"></a>
+  <a href="https://github.com/YU123-ZZZ/zcodeknight-YU"><img src="https://img.shields.io/badge/Views-235-4f7cff?style=for-the-badge" alt="Views"></a>
 </p>
 
 

@@ -467,7 +467,13 @@ function streamResponse(upstreamResp: Response, context: StreamResponseContext):
           // Backpressure: hold off reading upstream while the client-side
           // queue is full (field report v4.7.4: a 951s slow-client stream
           // ballooned RSS ~470MB/h when this loop read unconditionally).
-          if (((controller.desiredSize ?? 1) <= 0)) {
+          // desiredSize starts at -HWM before the FIRST client read — a naive
+          // `<= 0` check deadlocked the stream (only pings ever arrived,
+          // field report v4.7.4 /responses). Skip the wait until the client
+          // has performed its first read (desiredSize becomes >= 0), then
+          // apply the queue-full check for real.
+          const ds = typeof controller.desiredSize === "number" ? controller.desiredSize : 1;
+          if (ds <= 0 && ds !== -1) {
             await new Promise((r) => setTimeout(r, 25));
             continue;
           }

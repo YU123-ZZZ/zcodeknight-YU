@@ -828,8 +828,13 @@ function tappedStream(
           controller.enqueue(value);
           // Queue full: pause until the client drains. pull() is not
           // re-entered while pending, so this await IS the backpressure.
-          while (((controller.desiredSize ?? 1) <= 0)) {
+          // (desiredSize is -HWM before the first client read; pull-driven
+          // sources only reach here after a read, so a plain bounded wait is
+          // safe — unbounded would deadlock if the client never reads.)
+          let drainWait = 0;
+          while ((controller.desiredSize ?? 1) <= 0 && drainWait < 400) {
             await new Promise((r) => setTimeout(r, 25));
+            drainWait += 1;
           }
         } catch (err) {
           finish();
