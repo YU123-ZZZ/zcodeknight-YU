@@ -29,7 +29,7 @@
  */
 import { proxyRequest, type ProxyHandlerOptions } from "../proxy/handler.js";
 import { MODELS } from "../provider/models.js";
-import { probedModelUnion } from "../provider/probe-store.js";
+
 import type { OpenAIModelList } from "../translator/types.js";
 
 /** Handle POST /v1/chat/completions — forward OpenAI-compatible chat requests upstream. */
@@ -43,21 +43,17 @@ export async function handleChatCompletions(
 /**
  * Handle GET /v1/models — return the model list in OpenAI format.
  *
- * Served from the PROBE RESULTS once a probe has run: the catalog below is the
- * full upstream family, but an account can only call the subset its plan allows,
- * so advertising everything put entries in a client's model picker that would
- * then fail on use. The probed union across accounts is the honest answer — a
- * model is listed when some account can serve it.
- *
- * With no probe yet, the static catalog is returned unchanged, so a fresh
- * install behaves exactly as before until the user probes.
+ * ALWAYS the full catalog (field report v4.7.4: "探测如果不出来对应模型，那对应
+ * 模型也不能用了" — the probe filtered this list, so one transient probe
+ * failure — captcha burst, 3012 sweep, a blocked round past MAX_CARRY_RUNS —
+ * removed the model from every client's picker, and the only way back was a
+ * lucky re-probe. Filtering punished users for probe noise). Clients still call
+ * /v1/chat/completions with whatever they pick; a model that truly cannot serve
+ * answers upstream with its own error. The per-account truth lives on the
+ * panel's probe page.
  */
 export function handleListModels(req: Request): Response {
-  const probed = probedModelUnion();
-  // Filter rather than map: this preserves the catalog's own ORDER and drops
-  // only what no account could reach. Re-sorting would reshuffle a user's model
-  // picker for no reason.
-  const models = probed === null ? MODELS : MODELS.filter((m) => probed.includes(m.id));
+  const models = MODELS;
   // CLIProxyAPI-style rich catalog: DSH's better-basicfun synchronizer probes
   // with ?client_version=pi and parses a top-level `models[]` array with
   // slug/context_window/max_tokens/supported_reasoning_levels fields. A plain
