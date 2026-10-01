@@ -159,13 +159,16 @@ async function probeOneAccount(
   const catalog = MODELS.map((m) => m.id);
   const results: ProbeModelResult[] = [];
 
-  // start-plan requests are gated by an Aliyun captcha. The normal proxy path
-  // takes a FRESH token per request, and the probe must do the same: a token is
-  // single-use, so reusing one across the catalog gets every model after the
-  // first rejected with `3007 captcha verify failed`. Taking from the pool is
-  // sub-millisecond when warm, so per-model is cheap.
+  // start-plan model requests NO LONGER need a captcha token: upstream client
+  // v3.14.4 removed the model-request captcha gate ("关闭模型请求验证码校验",
+  // official release notes 2026-09-29), and the proxy chat path already skips
+  // it. The probe used to mint one token PER MODEL — an 18-account start-plan
+  // sweep burned ~198 happy-dom solves per 6h cycle, which was the dominant
+  // CPU cost of the auto-prober. Tokens stay available for the claim flow
+  // (billing/claim still requires one), and the 3007 note below still catches
+  // a rejection should upstream re-arm the gate for probes.
   const startPlan = record.plan === "start-plan";
-  const captchaModule = startPlan ? await import("../proxy/captcha.js") : null;
+  void startPlan;
 
   // Models inside their post-3012 silent window are skipped, not probed: a
   // probe is a real upstream request from the same egress IP that just got
@@ -177,19 +180,9 @@ async function probeOneAccount(
   const skippedByRiskHold = catalog.length - probed.length;
 
   for (const model of probed) {
-    let captchaHeaders: Record<string, string> | undefined;
-    if (captchaModule) {
-      try {
-        const token = await captchaModule.getCaptchaToken(config.identity.appVersion);
-        captchaHeaders = {
-          [captchaModule.RETRY_HEADERS.PARAM]: token.verifyParam,
-          [captchaModule.RETRY_HEADERS.REGION]: token.region,
-        };
-      } catch {
-        // No token: the request will be rejected as a captcha failure, which is
-        // recorded as such rather than mistaken for "model not in plan".
-      }
-    }
+    // No captcha headers: upstream removed the model-request gate (see the
+    // comment above). captchaHeaders stays undefined.
+    const captchaHeaders: Record<string, string> | undefined = undefined;
     // The start-plan gateway inspects the body: without the ZCode identity
     // system blocks it answers 3012 "request has been blocked due to unusual
     // activity", which looks like a risk-control block but is really a shape
