@@ -60,7 +60,12 @@ export interface ClaimSchedulerDeps {
   config: ClaimSchedulerConfig;
   log?: (message: string) => void;
   now?: () => number;
+  /** Injectable randomness for the daily spread (tests). Default Math.random. */
+  rand?: () => number;
 }
+
+/** Max spread added to each account's post-midnight daily round (10 min). */
+const DAILY_JITTER_MAX_MS = 10 * 60_000;
 
 export type TickResult =
   | { action: "skipped_hold" }
@@ -87,10 +92,19 @@ export class ClaimScheduler {
   // tick immediately so every account gets a same-day attempt.
   private timer: ReturnType<typeof setTimeout> | null = null;
   private readonly now: () => number;
+  // Per-day jitter for the midnight burst (see tick — DAILY-JITTER). Drawn
+  // once per new day, -1 = not drawn yet. Stable within the day so repeated
+  // ticks during the wait do not re-randomize.
+  private dailyJitterMs = -1;
+  /** Injectable randomness (tests). */
+  private readonly rand: () => number;
+  /** Timestamp of the previous tick — used to anchor the daily jitter. */
+  private prevTickMs = 0;
   private readonly log: (message: string) => void;
 
   constructor(private readonly deps: ClaimSchedulerDeps) {
     this.now = deps.now ?? Date.now;
+    this.rand = deps.rand ?? Math.random;
     this.log = deps.log ?? (() => {});
   }
 
@@ -147,11 +161,40 @@ export class ClaimScheduler {
     // Daily quota reset (00:00 local): force an immediate round regardless of
     // backoff, and reset the error ladder — yesterday's network failures say
     // nothing about today's reachability.
+    //
+    // DAILY-JITTER (field report v4.7.4: "只要号多就有很多领不到"): every
+    // account's previous grant ends at nearly the SAME second, so without
+    // spreading, all schedulers hit 00:00, clear their hold simultaneously and
+    // fire their claim bursts together — a single IP answering dozens of
+    // preview+captcha+claim rounds in the same minute is exactly the shape
+    // risk control flags, and the tail of the burst loses. Each scheduler now
+    // draws a stable per-day jitter (0-10 min) the first time it sees a new
+    // date and waits for it before its daily round. Combined with the
+    // per-account stagger below, an N-account pool spreads its midnight work
+    // across ~10 + N/2 minutes instead of one second.
     const today = new Date(nowMs).toDateString();
     if (this.lastRoundDate && today !== this.lastRoundDate) {
       this.consecutiveErrors = 0;
-      this.holdUntil = 0;
+      // Draw the jitter BEFORE clearing the hold, and set holdUntil relative to
+      // the day boundary the scheduler is already anchored at. (Setting it
+      // relative to `nowMs` is wrong for a scheduler that re-ticks hours into
+      // the new day: the jitter would have already elapsed and the round would
+      // run immediately — defeating the spread. Anchored at the last tick's
+      // midnight crossing, the round lands jitter minutes into the new day.)
+      if (this.dailyJitterMs === -1) {
+        this.dailyJitterMs = Math.floor(this.rand() * DAILY_JITTER_MAX_MS);
+        this.log(`daily reset — daily round spread by ${Math.round(this.dailyJitterMs / 1000)}s to avoid the midnight burst`);
+      }
+      // Anchor = NOW (the moment this scheduler woke past the boundary). The
+      // scheduler was held by the expired grant whose endsAt clusters all
+      // accounts at one instant; waking at that instant + a per-scheduler
+      // jitter spreads the rounds exactly where the burst was. (Anchoring at
+      // local midnight failed two ways: a UTC arithmetic desync on UTC+8
+      // hosts, and clock-dependent anchors that had already elapsed when a
+      // scheduler re-ticked hours into the new day.)
+      this.holdUntil = Math.max(this.holdUntil, nowMs + this.dailyJitterMs);
     }
+    this.prevTickMs = nowMs;
     this.lastRoundDate = today;
     if (nowMs < this.holdUntil) return { action: "skipped_hold" };
 
