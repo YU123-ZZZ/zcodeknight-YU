@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.2
+ * 版本 Version: v4.7.4
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -391,6 +391,19 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
     }
   }
   const pool = getDefaultAccountPool();
+
+  // ---- upstream intel (official release feed) ----
+  // GET /intel — the upstream client's public release notes, cached server-side
+  // for 30 minutes so opening this page never costs an outbound call (the
+  // feed is unauthenticated GitHub API, 60 req/h per IP; a page poll that
+  // hammered it would be both wasteful and a shared-IP hazard). The engine
+  // keeps the LATEST 15 entries and nothing more — the page is a feed, not an
+  // archive, so memory stays flat no matter how long the panel stays open.
+  if (method === "GET" && path === "/intel") {
+    const { upstreamIntel } = await import("./upstream-intel.js");
+    const feed = await upstreamIntel();
+    return json(feed);
+  }
 
   // ---- overview ----
   if (method === "GET" && path === "/overview") {

@@ -63,6 +63,7 @@
     <button data-page="models"><span class="ico">◐</span><span data-i18n="nav_models">Model Probe</span></button>
     <button data-page="invite"><span class="ico">＋</span><span data-i18n="nav_invite">Invite</span></button>
     <button data-page="changelog"><span class="ico">✦</span><span data-i18n="nav_changelog">Changelog</span></button>
+    <button data-page="intel"><span class="ico">◉</span><span data-i18n="nav_intel">Upstream Intel</span></button>
     <button data-page="settings"><span class="ico">⚙</span><span data-i18n="nav_settings">Settings</span></button>
   </nav>
   <div class="side-foot">
@@ -243,6 +244,12 @@
     <h2 data-i18n="cl_title">Version Changelog</h2>
     <div class="sub" data-i18n="cl_sub">What each version fixed — newest first</div>
     <div id="changelog-body"></div>
+  </div>
+
+  <div class="page" id="page-intel">
+    <h2 data-i18n="intel_title">Upstream Intel</h2>
+    <div class="sub" data-i18n="intel_sub">Official release notes and gate changes — live feed, newest 15 only</div>
+    <div id="intel-body"><span class="sub" data-i18n="loading">Loading…</span></div>
   </div>
 
   <div class="page" id="page-settings">
