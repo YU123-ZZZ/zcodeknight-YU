@@ -360,6 +360,22 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
+  { ver: "v4.7.4", date: "2026-10-02", items: {
+    zh: [
+      "【内存】流式响应泄漏根治：删除 body.tee() 双读（统计分支无背压，整条流在堆内排队且不可回收——慢客户端×长流 = 数百 MB），改为单流内联统计，上游背压直达客户端。这是 4.7.3 仍剩 ~110MB/h 泄漏与 5.7 小时卡死的根因",
+      "【验证码】聊天门禁跟进上游：官方 v3.14.4 已关闭模型请求的验证码校验，聊天路径不再预取 token（403/3007 fallback 保留，上游恢复门禁自动兼容）；默认 appVersion 跟进 3.14.4",
+      "【验证码】stall 误杀修复：6 秒静默改二次确认（连续 12 秒才判死），重试加指数退避 1s→2s→4s——2G 小机 GC 卡顿不再被误判，活动领取通过率回升",
+      "【内存】新建窗口 RSS 闸门：超 CAPTCHA_RSS_GUARD_MB 先等在途求解释放，多账号首轮领取不再把 RSS 顶过 1GB 导致进程退出",
+      "【面板】新增「官方实时情报」页：官方更新与门禁变化实时拉取，固定保留最新 15 条（环形覆盖，不占资源）",
+    ],
+    en: [
+      "Memory leak fixed at the root: removed body.tee() dual-read (no backpressure between branches - the whole stream queued in the V8 heap, uncollectable on slow clients x long streams). Inline single-stream counting; upstream backpressure reaches the client. Root cause of the residual ~110MB/h leak and the 5.7h D-state hang",
+      "Chat captcha gate follows upstream: official v3.14.4 removed the model-request captcha check, so the chat path no longer pre-fetches a token (403/3007 fallback retained); default appVersion bumped to 3.14.4",
+      "Captcha stall false-kill fix: 6s silence now requires a second confirmation window (12s total); retries back off exponentially 1s/2s/4s - GC hiccups on 2G boxes no longer kill mints",
+      "RSS gate before creating new captcha windows: waits for in-flight solves past the guard instead of stacking windows - claim rounds no longer push RSS past 1GB and exit",
+      "Panel: new Upstream Intel page - official release feed fetched live, fixed ring of the newest 15 entries (overwritten in place, zero memory growth)",
+    ],
+  }},
   { ver: "v4.7.3", date: "2026-09-30", items: {
     zh: [
       "【断流】/v1/responses 流式修复：GLM 深度推理期间上游长时间无输出，空闲超时会掐断连接——现在每 15 秒自动发送 SSE 心跳注释帧保持连接，流异常时主动发送 response.failed 终止事件而不是静默断开，并禁用反向代理响应缓冲（x-accel-buffering: no）",
