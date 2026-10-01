@@ -441,6 +441,15 @@ function renderChangelog() {
 // and engine memory stays flat (fixed-size ring, nothing accumulates).
 let intelFetchedAt = 0;
 let lastIntelHtml = "";
+// Restore the last rendered feed across page reloads: the panel JS re-runs on
+// F5 and would otherwise sit on the static "Loading…" placeholder until the
+// fetch lands, even though the server cache already has the content. The
+// session copy makes the first paint instant; the live fetch replaces it.
+try { lastIntelHtml = sessionStorage.getItem("zk-intel-html") || ""; } catch (e) {}
+if (lastIntelHtml) {
+  const box0 = document.getElementById("intel-body");
+  if (box0) box0.innerHTML = lastIntelHtml;
+}
 async function loadIntel(force) {
   const box = document.getElementById("intel-body");
   if (!box) return;
@@ -469,6 +478,7 @@ async function loadIntel(force) {
       }).join("");
     }
     lastIntelHtml = html;
+    try { sessionStorage.setItem("zk-intel-html", html); } catch (e) { /* quota/private mode */ }
     box.innerHTML = html;
   } catch (e) {
     box.innerHTML = '<div class="card"><p class="sub">' + esc(String(e)) + "</p></div>";
