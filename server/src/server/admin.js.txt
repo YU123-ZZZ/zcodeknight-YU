@@ -65,6 +65,7 @@ const I18N = {
     rq_search_ph: "搜索 IP / 模型 / 路径 / 客户端…", rq_ok: "成功", rq_fail: "失败",
     rq_auto: "自动刷新", rq_ip: "来源 IP", rq_path: "调用路径", rq_ua: "客户端",
     rq_count: "显示 {n} / 共 {m} 条", rq_none: "没有匹配的请求记录",
+    rq_running: "进行中", rq_running_for: "已运行",
     log_err: "日志渲染出错：",
     nav_models: "模型探测",
     md_title: "模型探测", md_sub: "对每个账号逐个测试套餐实际可用的模型", md_probe: "探测该账号",
@@ -236,6 +237,7 @@ const I18N = {
     rq_search_ph: "Search IP / model / path / client…", rq_ok: "OK", rq_fail: "Failed",
     rq_auto: "Auto-refresh", rq_ip: "Caller IP", rq_path: "Path", rq_ua: "Client",
     rq_count: "Showing {n} of {m}", rq_none: "No matching requests",
+    rq_running: "RUN", rq_running_for: "running for",
     log_err: "Log rendering failed: ",
     nav_models: "Model Probe",
     md_title: "Model Probe", md_sub: "Test which models each account can actually use", md_probe: "Probe this account",
@@ -2460,13 +2462,32 @@ function fmtLogTime(ms) {
          p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
 }
 
-function renderMergedLog(rows, entries, filter) {
+function renderMergedLog(rows, entries, filter, active) {
   const box = document.getElementById("log-box");
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
 
   // One array of {at, html} then a single sort: merging two already-sorted
   // sources is easy to get subtly wrong, and the cost here is negligible.
   const items = [];
+  // In-flight requests first, rendered like finished rows but with a RUN badge
+  // and a live "running for" timer (field request: a 10-minute stream used to
+  // be invisible until it died). Rebuilt each render so the elapsed timer
+  // ticks; the count is small, so the cost is nothing.
+  for (const a of (active || [])) {
+    items.push({
+      at: a.started,
+      kind: "req",
+      search: [a.ip, a.model, a.accountName, "run"].filter(Boolean).join(" ").toLowerCase(),
+      html:
+        '<span class="lg-t">' + fmtLogTime(a.started) + "</span>" +
+        '<span class="lg-k lg-k-run">RUN</span>' +
+        '<span class="lg-s ok">' + esc(T("rq_running")) + ' <span data-run-since="' + a.started + '"></span></span>' +
+        '<span class="lg-m">' + esc(a.model) + "</span>" +
+        '<span class="lg-d">' + esc(a.ip || "—") + " · " + esc(a.stream ? "stream" : "batch") + "</span>" +
+        '<span class="lg-a">' + esc(a.accountName || "—") + "</span>" +
+        '<span class="lg-x"></span>',
+    });
+  }
   for (const x of rows) {
     const ok = x.status >= 200 && x.status < 400;
     items.push({
@@ -2551,7 +2572,7 @@ async function pollLogs() {
     renderMergedLog(rd.rows || [], logEntries, {
       kind: document.getElementById("rq-kind").value || "all",
       q: document.getElementById("rq-search").value,
-    });
+    }, rd.active || []);
   } catch (e) {
     // Report rather than swallow. A bare `catch {}` here hid a ReferenceError
     // for a whole debugging round: the page simply showed an empty log, with
@@ -2650,6 +2671,23 @@ function tickCountdowns() {
   }
 }
 setInterval(tickCountdowns, 1000);
+
+// Live \"running for\" timer for in-flight request rows on the logs page.
+// One interval for all rows; rows vanish when the request finishes because the
+// next render no longer includes them.
+function tickRunSince() {
+  const els = document.querySelectorAll('[data-run-since]');
+  if (!els.length) return;
+  const now = Date.now();
+  for (const el of els) {
+    const since = Number(el.dataset.runSince);
+    if (!Number.isFinite(since)) continue;
+    const s = Math.max(0, Math.floor((now - since) / 1000));
+    const mm = Math.floor(s / 60), ss = s % 60;
+    el.textContent = (mm > 0 ? mm + 'm ' : '') + String(ss).padStart(2, '0') + 's';
+  }
+}
+setInterval(tickRunSince, 1000);
 
 // ---------------- model probe ----------------
 async function loadProbeAccounts() {

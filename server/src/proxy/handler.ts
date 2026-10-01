@@ -51,7 +51,7 @@ import { leasedAccount, leaseIsOverflow, LEASE_SYM as LEASE_SYM_EXPORT } from ".
 import { adminLog } from "../server/routes-admin.js";
 import { engineError } from "../monitor/engine-log.js";
 import type { LogLevel } from "../android/control.js";
-import { recordRequest } from "./request-stats.js";
+import { recordRequest, beginRequest, updateActiveAccount } from "./request-stats.js";
 import type { ProxyIdentity } from "../config/types.js";
 import { sendOrderedUpstreamRequest, orderedAdvertisedCodings } from "./ordered-transport.js";
 import { transformRequestBody } from "./body-transformer.js";
@@ -155,6 +155,10 @@ export async function proxyRequest(
     authorized: true,
   };
   meta.accountName = "";
+  // Mark the request as in-flight the moment the body is understood — the
+  // overview's "正在请求" line is fed from this, and recordRequest (which runs
+  // in printRow at response end) removes the marker by reqId.
+  beginRequest(reqId, { model: meta.model, stream: meta.stream });
 
   if (dumpEnabled()) {
     dumpPhase(reqId, "client_in", {
@@ -201,8 +205,10 @@ export async function proxyRequest(
     cred = await auth.getCredential({ accountId: opts.testAccountId, model: meta.model });
     ({ id: accountId, name: accountName } = leasedAccount(cred));
     // Record it on meta so the translated-batch helpers — which receive only
-    // `meta` — can attribute the request to an account too.
+    // `meta` — can attribute the request to an account too. The in-flight
+    // marker gains the account name at the same moment.
     meta.accountName = accountName;
+    updateActiveAccount(reqId, accountName);
   } catch (err) {
     const waitMs = (err as { waitMs?: number }).waitMs ?? 0;
     const reason = (err as { reason?: string }).reason ?? "";

@@ -408,7 +408,7 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
   // ---- overview ----
   if (method === "GET" && path === "/overview") {
     const summary = pool.summary();
-    const { requestStats } = await import("../proxy/request-stats.js");
+    const { requestStats, activeRequests } = await import("../proxy/request-stats.js");
     const stats = requestStats();
     return json({
       version: VERSION,
@@ -429,6 +429,9 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
         // Balance-cache hit rate (field request: make the cache visible).
         quotaCache: (await import("../quota/poller.js")).quotaCacheStats(),
       },
+      // Requests dispatched but not yet finished (a 10-minute stream shows up
+      // here in real time instead of appearing only when it dies).
+      active: activeRequests(),
       recent: stats.recent,
       serverTime: Date.now(),
     });
@@ -1199,7 +1202,10 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
     // The distinct account names present in the history, so the panel's filter
     // offers real options instead of a hardcoded list.
     const accounts = [...new Set(all.map((r) => r.accountName).filter(Boolean))].sort();
-    return json({ rows, total: all.length, matched: rows.length, accounts });
+    // Dispatched but not yet finished — the panel renders these at the top of
+    // the request list with a live "running for" timer.
+    const { activeRequests } = await import("../proxy/request-stats.js");
+    return json({ rows, total: all.length, matched: rows.length, accounts, active: activeRequests() });
   }
 
   // ---- export / import ----
