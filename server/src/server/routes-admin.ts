@@ -689,6 +689,15 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
       startMultiClaim(config);
       adminLog.push("[claim] auto claim enabled from panel");
     }
+    // Persist the choice — runtime state alone meant every restart silently
+    // reverted the toggle to config.yaml's stale value (field report v4.7.4:
+    // "自动就给关闭了"). Kept non-fatal, matching the pool-settings saver.
+    try {
+      const { updateClaimAutoYaml } = await import("../config/edit.js");
+      if (opts.configPath) updateClaimAutoYaml(opts.configPath, body?.on !== false);
+    } catch (e) {
+      adminLog.push(`[claim] auto toggle saved in memory but not persisted: ${(e as Error).message}`, "warn");
+    }
     return json({ ok: true, auto: isMultiClaimRunning() });
   }
 

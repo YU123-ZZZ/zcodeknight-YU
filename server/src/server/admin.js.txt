@@ -66,6 +66,7 @@ const I18N = {
     rq_auto: "自动刷新", rq_ip: "来源 IP", rq_path: "调用路径", rq_ua: "客户端",
     rq_count: "显示 {n} / 共 {m} 条", rq_none: "没有匹配的请求记录",
     rq_running: "进行中", rq_running_for: "已运行",
+    claim_auto_off: "自动领取已关闭", claim_none_grey: "当前没有可领取的活动套餐",
     log_err: "日志渲染出错：",
     nav_models: "模型探测",
     md_title: "模型探测", md_sub: "对每个账号逐个测试套餐实际可用的模型", md_probe: "探测该账号",
@@ -238,6 +239,7 @@ const I18N = {
     rq_auto: "Auto-refresh", rq_ip: "Caller IP", rq_path: "Path", rq_ua: "Client",
     rq_count: "Showing {n} of {m}", rq_none: "No matching requests",
     rq_running: "RUN", rq_running_for: "running for",
+    claim_auto_off: "Auto-claim is OFF", claim_none_grey: "No claimable activity plan right now",
     log_err: "Log rendering failed: ",
     nav_models: "Model Probe",
     md_title: "Model Probe", md_sub: "Test which models each account can actually use", md_probe: "Probe this account",
@@ -979,6 +981,7 @@ async function loadBalances(knownAccounts, knownQuota) {
     // change has something to update (see refreshOverviewBalances).
     el.dataset.loaded = "1";
     renderTotals(lastQuota);
+    refreshClaimAllDisabled();
     renderBalanceList();
   } catch {
     el.innerHTML = '<span class="sub">—</span>';
@@ -1218,6 +1221,15 @@ async function doClaim(payload, btn) {
     loadBalances();
   } catch (e) { toast(String(e)); }
   finally { if (btn) btn.disabled = false; }
+}
+function refreshClaimAllDisabled() {
+  // Grey the one-click button when NO account holds a claimable plan (field
+  // request): a click would only answer "nothing to claim" for every account.
+  const btn = document.getElementById("ov-claim-all");
+  if (!btn) return;
+  const anyClaimable = (lastQuota || []).some((a) => (a.claimablePlans || []).length > 0);
+  btn.disabled = !anyClaimable;
+  btn.title = anyClaimable ? "" : T("claim_none_grey");
 }
 document.getElementById("ov-claim-all").onclick = (e) => doClaim({ all: true }, e.target);
 // Per-account buttons are re-rendered constantly, so delegate from the container.
@@ -3269,8 +3281,24 @@ document.getElementById("set-claim-auto").onclick = async (e) => {
 // can see when the next automatic round fires without opening the log.
 let claimNextAt = 0;
 let claimCountdownTimer = null;
+let claimHasTargets = false;
 function renderClaimCountdown() {
   const el = document.getElementById("claim-next");
+  const ovEl = document.getElementById("ov-claim-next");
+  // Auto toggle text (主页看不到设置页的状态,这里同步到倒计时行)
+  if (ovEl) {
+    if (!claimAuto) { ovEl.textContent = T("claim_auto_off"); }
+    else if (!claimNextAt) { ovEl.textContent = ""; }
+    else {
+      const left = Math.max(0, Math.ceil((claimNextAt - Date.now()) / 1000));
+      const d = Math.floor(left / 86400), h = Math.floor((left % 86400) / 3600),
+            m = Math.floor((left % 3600) / 60), s = left % 60;
+      const p = (n) => String(n).padStart(2, "0");
+      ovEl.textContent = (left <= 0)
+        ? T("claim_due_now")
+        : T("claim_countdown") + " " + (d > 0 ? d + "d " : "") + (h > 0 ? h + "h " : "") + p(m) + ":" + p(s);
+    }
+  }
   if (!el) return;
   if (!claimNextAt) { el.textContent = ""; return; }
   const left = Math.max(0, Math.ceil((claimNextAt - Date.now()) / 1000));
