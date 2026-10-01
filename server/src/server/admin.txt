@@ -255,6 +255,7 @@
   <div class="page" id="page-settings">
     <h2 data-i18n="set_title">Settings</h2>
     <div class="sub" data-i18n="set_sub">Some changes need a proxy restart</div>
+    <div class="sub" style="margin-bottom:8px" data-i18n="set_zcode_compat">适配 ZCode 客户端版本：3.14.4+（身份指纹按此版本伪装；低于此版本可能触发上游 1004 ineligible）</div>
     <div class="card">
       <div class="set-row">
         <div><div class="lbl" data-i18n="set_api">Endpoint (OpenAI format)</div><div class="hint" data-i18n="set_api_hint">Paste into your coding tools</div></div>

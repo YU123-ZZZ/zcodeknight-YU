@@ -63,7 +63,17 @@ export interface IntelFeed {
 
 const INTEL_TTL_MS = 30 * 60_000;
 const INTEL_MAX_ENTRIES = 15;
-const INTEL_SOURCE = "https://api.github.com/repos/zai-org/ZCode/releases?per_page=15";
+// Endpoint ladder, first success wins (mirrors update/updater.ts): the primary
+// API is unreachable on many mainland networks, so read-only mirrors follow.
+// ZCODE_INTEL_MIRRORS overrides with comma-separated base URLs that proxy the
+// GitHub API path shape (gh-proxy style: https://mirror.example/https://api.github.com).
+const INTEL_PRIMARY = "https://api.github.com/repos/zai-org/ZCode/releases?per_page=15";
+const INTEL_MIRRORS = (process.env.ZCODE_INTEL_MIRRORS ?? "")
+  .split(",").map((m) => m.trim().replace(/\/+$/, "")).filter(Boolean);
+
+function intelEndpoints(): string[] {
+  return [INTEL_PRIMARY, ...INTEL_MIRRORS.map((m) => `${m}${INTEL_PRIMARY.replace("https://api.github.com", "")}`)];
+}
 
 let cache: { at: number; feed: IntelFeed } | null = null;
 let inflight: Promise<IntelFeed> | null = null;
@@ -83,46 +93,51 @@ function plainNotes(body: string): string {
 }
 
 async function fetchIntel(): Promise<IntelFeed> {
-  try {
-    const resp = await fetch(INTEL_SOURCE, {
-      headers: {
-        "user-agent": "ZcodeKnight-intel-feed",
-        accept: "application/vnd.github+json",
-      },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const releases = (await resp.json()) as Array<{
-      tag_name?: string;
-      name?: string;
-      published_at?: string;
-      body?: string;
-      html_url?: string;
-    }>;
-    const entries: IntelEntry[] = (Array.isArray(releases) ? releases : [])
-      .slice(0, INTEL_MAX_ENTRIES)
-      .map((r) => ({
-        version: String(r.tag_name ?? r.name ?? "?").trim(),
-        date: String(r.published_at ?? "").slice(0, 10),
-        notes: plainNotes(r.body ?? ""),
-        url: String(r.html_url ?? "https://github.com/zai-org/ZCode/releases"),
-      }));
-    const feed: IntelFeed = { fresh: true, fetchedAt: Date.now(), entries };
-    cache = { at: Date.now(), feed };
-    return feed;
-  } catch (err) {
-    // Serve the stale cache when we have one; otherwise surface a single
-    // explicit error entry so the page renders something actionable.
-    if (cache) {
-      return { ...cache.feed, fresh: false, error: (err as Error).message };
+  let lastError = "";
+  for (const url of intelEndpoints()) {
+    try {
+      const resp = await fetch(url, {
+        headers: {
+          "user-agent": "ZcodeKnight-intel-feed",
+          accept: "application/vnd.github+json",
+        },
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const releases = (await resp.json()) as Array<{
+        tag_name?: string;
+        name?: string;
+        published_at?: string;
+        body?: string;
+        html_url?: string;
+      }>;
+      const entries: IntelEntry[] = (Array.isArray(releases) ? releases : [])
+        .slice(0, INTEL_MAX_ENTRIES)
+        .map((r) => ({
+          version: String(r.tag_name ?? r.name ?? "?").trim(),
+          date: String(r.published_at ?? "").slice(0, 10),
+          notes: plainNotes(r.body ?? ""),
+          url: String(r.html_url ?? "https://github.com/zai-org/ZCode/releases"),
+        }));
+      const feed: IntelFeed = { fresh: true, fetchedAt: Date.now(), entries };
+      cache = { at: Date.now(), feed };
+      return feed;
+    } catch (err) {
+      lastError = (err as Error).message;
     }
-    return {
-      fresh: false,
-      fetchedAt: 0,
-      entries: [],
-      error: `upstream intel fetch failed: ${(err as Error).message} (network may be blocked — will retry next page open)`,
-    };
   }
+  // Every endpoint failed — serve the stale cache when we have one; otherwise
+  // surface a single explicit error entry so the page renders something
+  // actionable.
+  if (cache) {
+    return { ...cache.feed, fresh: false, error: lastError };
+  }
+  return {
+    fresh: false,
+    fetchedAt: 0,
+    entries: [],
+    error: `上游情报拉取失败（${lastError}）——网络可能被墙。可设环境变量 ZCODE_INTEL_MIRRORS 指向 gh-proxy 风格镜像加速`,
+  };
 }
 
 export async function upstreamIntel(): Promise<IntelFeed> {

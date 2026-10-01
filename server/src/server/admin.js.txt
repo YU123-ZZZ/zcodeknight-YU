@@ -82,6 +82,8 @@ const I18N = {
     cl_known_issues: "已知遗留问题与说明",
     nav_intel: "官方实时情报", intel_title: "官方实时情报", intel_sub: "官方客户端更新与门禁变化 —— 实时拉取，仅保留最新 15 条", intel_stale: "（缓存，拉取失败 — 显示的是上次内容）", intel_none: "暂无情报条目", intel_fetched: "更新于",
     set_title: "设置", set_sub: "修改后部分项需重启代理生效",
+    set_zcode_compat: "适配 ZCode 客户端版本：3.14.4+（身份指纹按此版本伪装；低于此版本可能触发上游 1004 ineligible）",
+    intel_link_text: "在 GitHub 查看",
     set_api: "接口地址（OpenAI 格式）", set_api_hint: "填到你的编程工具里",
     set_key: "API 密钥", set_key_hint: "填到你的编程工具里（点右侧复制）；留空则关闭客户端鉴权", save_pool: "保存池设置", copy: "复制",
     set_key_regen: "随机生成", set_key_save: "保存密钥",
@@ -250,6 +252,8 @@ const I18N = {
     cl_title: "Version Changelog", cl_sub: "What each version fixed — newest first",
     cl_known_issues: "Known issues and notes",
     nav_intel: "Upstream Intel", intel_title: "Upstream Intel", intel_sub: "Official client releases and gate changes — live feed, newest 15 only", intel_stale: "(cached — fetch failed, showing last known)", intel_none: "No intel entries", intel_fetched: "fetched",
+    set_zcode_compat: "Compatible ZCode client version: 3.14.4+ (identity fingerprint mimics this release; older versions may trigger upstream 1004 ineligible)",
+    intel_link_text: "View on GitHub",
     set_title: "Settings", set_sub: "Some changes need a proxy restart",
     set_api: "Endpoint (OpenAI format)", set_api_hint: "Paste into your coding tools",
     set_key: "API Key", set_key_hint: "Paste into your coding tools (copy on the right); empty disables client auth", save_pool: "Save pool settings", copy: "Copy",
@@ -436,11 +440,14 @@ function renderChangelog() {
 // at most once per 30 minutes — this page never hammers the upstream API
 // and engine memory stays flat (fixed-size ring, nothing accumulates).
 let intelFetchedAt = 0;
+let lastIntelHtml = "";
 async function loadIntel(force) {
   const box = document.getElementById("intel-body");
   if (!box) return;
   const now = Date.now();
+  // Show cached content instantly while a refresh runs in the background.
   if (!force && intelFetchedAt && now - intelFetchedAt < 60000) return;
+  if (lastIntelHtml) { box.innerHTML = lastIntelHtml; }
   intelFetchedAt = now;
   try {
     const d = await (await api("/intel")).json();
@@ -457,10 +464,11 @@ async function loadIntel(force) {
         return '<div class="card cl-rel"><div class="cl-ver">' + esc(it.version) +
           '</div><div class="cl-date">' + esc(it.date || "") + "</div>" +
           (it.notes ? '<div class="cl-item" style="white-space:pre-wrap">' + esc(it.notes) + "</div>" : "") +
-          (it.url ? '<div style="margin-top:6px"><a href="' + esc(it.url) + '" target="_blank" class="sub">↗</a></div>' : "") +
+          (it.url ? '<div style="margin-top:8px"><a href="' + esc(it.url) + '" target="_blank" style="color:var(--blue);font-weight:700;text-decoration:underline">在 GitHub 查看 ' + esc(it.version) + " 完整更新日志 ↗</a></div>" : "") +
           "</div>";
       }).join("");
     }
+    lastIntelHtml = html;
     box.innerHTML = html;
   } catch (e) {
     box.innerHTML = '<div class="card"><p class="sub">' + esc(String(e)) + "</p></div>";
