@@ -311,6 +311,14 @@ async function serve(configPath: string | undefined, debug: boolean): Promise<vo
   // user having to think to ask. Every 2 days by default; the answer is cached
   // in memory and the panel reads it on load instead of re-checking (the GitHub
   // API is unauthenticated here, 60 requests/hour per IP).
+  // Warm the upstream-intel cache shortly after boot (delayed to keep the
+  // startup window quiet): the panel's intel page then opens instantly from
+  // the 30-minute server cache instead of waiting a live fetch on first view.
+  setTimeout(() => {
+    void import("./server/upstream-intel.js")
+      .then((m) => m.upstreamIntel())
+      .catch(() => {});
+  }, 90_000);
   void import("./update/updater.js")
     .then((m) => m.startUpdateCheckScheduler(VERSION))
     .catch((err) => engineError("update", `scheduler failed to start: ${(err as Error).message}`));
