@@ -115,6 +115,7 @@ const I18N = {
     set_proxy_save: "保存代理设置",
     set_proxy_on: "当前出口：{h}", set_proxy_off: "当前直连（未走代理）",
     set_proxy_rotate_n: "轮换池 {n} 个出口",
+    panel_stale: "引擎已更新，本页脚本已过期，请强制刷新（Ctrl+F5）",
     set_idle: "面板空闲登出", set_idle_hint: "多少分钟不操作后重新要求输入密钥。任何操作都会重置计时；0 表示永不登出",
     set_idle_save: "保存超时", set_idle_stat: "当前空闲超时", min_unit: "分钟",
     set_idle_never: "已设为永不登出", set_idle_bad: "请输入不小于 0 的分钟数",
@@ -291,6 +292,7 @@ const I18N = {
     set_proxy_save: "Save proxy settings",
     set_proxy_on: "Egress: {h}", set_proxy_off: "Direct connection (no proxy)",
     set_proxy_rotate_n: "rotation pool of {n} egresses",
+    panel_stale: "The engine was updated — this page runs stale script, please hard-refresh (Ctrl+F5)",
     set_idle: "Panel idle logout", set_idle_hint: "Minutes of inactivity before the panel asks for the key again. Any activity resets the clock; 0 never logs out",
     set_idle_save: "Save timeout", set_idle_stat: "Current idle timeout", min_unit: "min",
     set_idle_never: "Set to never log out", set_idle_bad: "Enter a number of minutes >= 0",
@@ -866,6 +868,16 @@ async function refreshOverview() {
       claimAuto = !!ov.claim.auto;
       claimNextAt = Number(ov.claim.nextCheckAt) || 0;
       claimNextAtFetchedAt = Date.now();
+      // Keep the Settings toggle in sync with the RUNNING state: this 5s poll
+      // is the freshest source of claim state (fresher than loadSettings,
+      // which runs once), so the button must reflect it or the Settings page
+      // shows a stale On/Off while the engine does the opposite (reported:
+      // "设置里自动领取还是不开着").
+      const sb = document.getElementById("set-claim-auto");
+      if (sb) {
+        sb.textContent = claimAuto ? T("on") : T("off");
+        sb.className = "btn " + (claimAuto ? "" : "ghost");
+      }
     }
     document.getElementById("ov-total").textContent = ov.accounts.total;
     document.getElementById("ov-eligible").textContent = ov.accounts.eligible;
@@ -3829,6 +3841,67 @@ async function resumeSession() {
   }
 }
 
+// ── Self-healing guards (before boot) ──────────────────────────────────────
+// Two field-reported failure shapes share one property: the page LOOKS alive
+// but its JS is wedged, and nothing on screen says so.
+//
+//  1. A thrown error inside a poll's try/catch can leave module state half-
+//     updated (log cursor, claim flag). The poll keeps "running" every 3-5s
+//     but the page never recovers, because the catch hides the break.
+//  2. A tab restored from bfcache (or a stale tab kept open across an engine
+//     upgrade) runs the OLD script against the NEW engine: old handlers
+//     reference DOM/fields that changed, every poll 401s or throws, and the
+//     operator sees "渲染出错 / 会话失效 / 发送无回答" until a hard refresh.
+//
+// The guards: surface the FIRST uncaught error once (so the page says what
+// broke instead of silently misbehaving), and on tab-reveal revalidate the
+// session plus the script version — a bfcache restore re-runs these, and a
+// version mismatch means the tab is stale, which is told explicitly.
+let zkSelfHealArmed = false;
+function armSelfHeal() {
+  if (zkSelfHealArmed) return;
+  zkSelfHealArmed = true;
+  // Engine build marker: /overview carries it; compare on every tab reveal.
+  let engineVersionAtLoad = "";
+  addEventListener("unhandledrejection", (ev) => {
+    console.warn("[panel] unhandled rejection:", ev.reason);
+  });
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState !== "visible" || !zkAuthed) return;
+    // bfcache restore: timers resume but nothing revalidated the session.
+    // Probe cheaply; a 401 re-gates through the normal api() path on the
+    // next poll anyway, but doing it here removes the dead window.
+    try {
+      const ov = await (await api("/overview")).json();
+      if (ov.version) {
+        if (!engineVersionAtLoad) engineVersionAtLoad = ov.version;
+        else if (engineVersionAtLoad !== ov.version) {
+          // The engine was upgraded under this tab: the running script no
+          // longer matches. Say so once, and offer the (only) fix.
+          if (!document.body.querySelector("#zk-stale-script")) {
+            const b = document.createElement("div");
+            b.id = "zk-stale-script";
+            b.style.cssText = "position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:96;padding:10px 16px;border-radius:10px;background:rgba(110,168,254,.16);border:1px solid rgba(110,168,254,.45);color:#cfe2ff;font-size:13px";
+            b.textContent = T("panel_stale") + " (" + engineVersionAtLoad + " → " + ov.version + ") — Ctrl+F5";
+            document.body.appendChild(b);
+          }
+        }
+        // The claim toggle rides this response too: refresh the Settings
+        // button so a stale tab converges instead of showing a dead value.
+        if (ov.claim) {
+          claimAuto = !!ov.claim.auto;
+          const sb = document.getElementById("set-claim-auto");
+          if (sb) {
+            sb.textContent = claimAuto ? T("on") : T("off");
+            sb.className = "btn " + (claimAuto ? "" : "ghost");
+          }
+        }
+      }
+    } catch { /* offline/401: the next poll's own path handles re-gating */ }
+  });
+  // i18n: panel_stale is a static dictionary entry (see set_proxy_rotate_n).
+}
+
 async function boot() {
   // The markup already carries `gated`, so the panel is hidden before this runs.
   // Kept here as well because boot() re-enters after a failed login attempt, and
@@ -3871,4 +3944,5 @@ async function boot() {
     if (document.getElementById("page-overview").classList.contains("on")) refreshOverview();
   }, 5000);
 }
+armSelfHeal();
 boot();
