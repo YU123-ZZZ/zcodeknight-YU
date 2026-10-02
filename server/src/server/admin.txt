@@ -76,7 +76,7 @@
       <a href="https://www.52pojie.cn/home.php?mod=space&uid=2394304" target="_blank">吾爱破解</a>
       <a href="#" id="donateLink" data-i18n="donate">Donate</a>
     </div>
-    <div class="foot-row" style="color:#5a6270">© 2026 YU123-ZZZ · <span id="foot-ver">v—</span> · MIT</div>
+    <div class="foot-row" style="color:#5a6270">© 2026 YU123-ZZZ · <span data-i18n="footer_since">Since 2026-09-19</span> · <span id="foot-ver">v—</span> · MIT</div>
     <div class="foot-row" style="color:#4a5260;font-size:11px" data-i18n="free_notice">Fully open source & free — paid copies are scams</div>
   </div>
 </div>

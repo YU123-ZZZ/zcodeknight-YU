@@ -599,6 +599,43 @@ export async function proxyRequest(
         });
       }
       releaseLeaseFor(auth, cred);
+      // Retry-After absorb (2026-10-03): a 429 is an UPSTREAM capacity signal,
+      // not the account's fault — the pool already cools only the model for
+      // `modelCooldownMs`, never the account. When upstream says how long to
+      // wait (the known 3009 cadence), absorb the wait here and re-dispatch on
+      // the SAME account once: the request survives instead of bouncing to the
+      // client, and no healthy account is wasted. The wait happens AFTER the
+      // lease release, so the freed slot serves other traffic while this
+      // request sleeps. Capped and retried once — beyond that the condition is
+      // not a blip and the client must hear about it.
+      if (isConcurrency && !clientReq.signal.aborted && absorb429Ms() > 0) {
+        await new Promise((r) => setTimeout(r, absorb429Ms()));
+        if (!clientReq.signal.aborted) {
+          try {
+            cred = await auth.getCredential({ accountId: opts.testAccountId || accountId, model: meta.model });
+            ({ id: accountId, name: accountName } = leasedAccount(cred));
+            meta.accountName = accountName;
+            updateActiveAccount(reqId, accountName);
+            if (debug) debugLine(reqId, `3009 absorbed — re-dispatching on ${accountName}`);
+            // Re-dispatch through the SAME dispatch path as the original
+            // attempt (endpoint routing, client signing, ordered transport all
+            // apply). The new credential is mounted on `cred`, and
+            // buildUpstreamRequest refreshes the upstream headers from it.
+            const retried = await dispatch(
+              buildUpstreamRequest(clientReq, upstreamFormat, provider2, cred, transformedBody, effectiveIdentity, effectivePlan, captchaHeaders, clientSession),
+              buildUpstreamHeaderPairs(clientReq, upstreamFormat, cred, effectiveIdentity, effectivePlan, captchaHeaders, clientSession),
+            );
+            if (retried.ok) {
+              releaseLeaseFor(auth, cred);
+              printRow(reqId, format, meta, 200, started, Date.now(), 0, 0, 0, "", true);
+              reportOutcomeToPool(auth, accountId, { kind: "success" });
+              return retried;
+            }
+          } catch (retryErr) {
+            if (debug) debugError(reqId, "retry_absorb", String(retryErr));
+          }
+        }
+      }
       // HTTP 429, NOT 403. Clients treat a 403 as fatal (retryable=false) and
       // tear the whole turn down mid-stream — the reported "glm-5.3 断一下就
       // 直接切断" came from exactly this. 429 is the semantically correct
@@ -996,6 +1033,17 @@ export const MAX_CONNECT_ATTEMPTS = 3;
 const QUEUE_BUDGET_MS = Number(process.env.ZCODE_QUEUE_BUDGET_MS ?? 0);
 /** Poll interval while queued. Small enough to feel immediate, large enough not to spin. */
 const QUEUE_POLL_MS = 250;
+/**
+ * How long a 3009 concurrency 429 is absorbed in-process before the client
+ * sees it: the freed slot serves other traffic while this request sleeps, then
+ * the SAME account is retried once (a 429 is upstream capacity, not the
+ * account's fault — cooling the account would only bench a healthy worker).
+ * 0 disables absorption. Read at CALL time (not module load) so tests can set
+ * the env before their first request regardless of import hoisting.
+ */
+function absorb429Ms(): number {
+  return Number(process.env.ZCODE_429_ABSORB_MS ?? 5_000);
+}
 
 /**
  * Connect-level retry ladder shared by the chat hot path and /v1/responses.
