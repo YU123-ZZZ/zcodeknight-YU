@@ -4028,6 +4028,14 @@ async function boot() {
     // Poll only while the Overview is actually visible: a hidden page's fetch
     // + full re-render every 5s was the reported "某个模块加载很久" stall.
     if (document.getElementById("page-overview").classList.contains("on")) refreshOverview();
+    // Same for the Accounts page: concurrent requests change inFlight /
+    // cooldown badges mid-flight, and the page had NO timer — those changes
+    // only appeared after a manual refresh (field report: "并发请求时账号池
+    // 不出现对应请求的账户"). refreshAccounts is single-flight with a pending
+    // rerun, so a 5s tick cannot stack rounds; and renderAccounts reuses cards
+    // whose diffKey is unchanged, so a no-change poll costs one fetch and no
+    // repaint.
+    if (document.getElementById("page-accounts").classList.contains("on")) refreshAccounts();
   }, 5000);
 }
 armSelfHeal();
