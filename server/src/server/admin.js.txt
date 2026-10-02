@@ -1057,6 +1057,11 @@ async function loadBalances(knownAccounts, knownQuota) {
   } catch {
     el.innerHTML = '<span class="sub">—</span>';
     document.getElementById("ov-total-quota").textContent = "—";
+    // Self-heal: a failed load used to leave "—" until an unrelated action
+    // happened to re-run this. Invalidate the rendered flag so the next
+    // periodic load (page switch, pool action) shows the loading state and
+    // retries the fetch instead of trusting a list that never arrived.
+    delete el.dataset.loaded;
   }
 }
 
@@ -1075,11 +1080,18 @@ function renderTotals(list) {
     }
   }
   const chips = document.getElementById("ov-total-chips");
-  chips.innerHTML = "";
   const entries = [...byModel.entries()].sort((x, y) => y[1].remaining - x[1].remaining);
   let grand = 0;
+  for (const [model, v] of entries) grand += v.remaining;
+  // Skip the rebuild when nothing VISIBLE changed: the totals chips used to be
+  // torn down and re-created on every pool sync, which the operator read as
+  // "the whole overview reloads" (and it also killed the chips' own hover).
+  const totalsSig = entries.map(([m, v]) => m + ":" + v.remaining + ":" + v.accounts.size).join("|") +
+    "#" + accountCount + "#" + lang;
+  if (chips.dataset.totalsSig === totalsSig) return;
+  chips.dataset.totalsSig = totalsSig;
+  chips.innerHTML = "";
   for (const [model, v] of entries) {
-    grand += v.remaining;
     const c = document.createElement("div");
     c.className = "tot-chip";
     c.innerHTML = '<div class="c1">' + esc(model) + " · " + v.accounts.size + T("acc_unit") + "</div>" +
@@ -1150,11 +1162,20 @@ function renderBalanceList() {
     const throttleBadge = holds.length
       ? '<span class="st throttled">' + T("st_throttled") + " · " + holds.length + "</span>"
       : "";
-    // Everything the card renders, in one signature. The countdown targets
-    // (expiresAt/endsAt) are absolute, so they belong in the key: their
-    // deadlines move server-side even when the visible text does not.
+    // Everything the card renders, in one signature. Only fields that change
+    // the VISIBLE content belong here: the raw balances array also carries
+    // usedUnits/expiresAt, which shift on every billing poll without changing
+    // a single rendered digit — keying on the raw array rebuilt every card on
+    // every 30s pool sync (the reported "数据每次都重新加载" 卡顿). remaining/
+    // total stay because they render; expiresAt/endsAt stay because they move
+    // countdown targets server-side even when the text does not.
+    const balSig = (a.balances || []).map((b) =>
+      [b.showName, b.remainingUnits, b.totalUnits, b.expiresAt].join(":")).join("|");
+    const planSig = (a.activePlans || []).map((p) =>
+      [p.planId, p.pending, p.effectiveAt, p.endsAt].join(":")).join("|");
+    const claimSig = (a.claimablePlans || []).length;
     const sig = JSON.stringify([
-      a.id, a.name, a.provider, a.plan, a.balances, a.activePlans, a.claimablePlans,
+      a.id, a.name, a.provider, a.plan, balSig, planSig, claimSig,
       meta && meta.status, holds, lang,
     ]);
     let box = existing.get(a.id);
@@ -1344,25 +1365,44 @@ let lastAccounts = [];
  * what "the pool changed" should always mean.
  */
 async function refreshAccounts() {
+  // Single-flight: page switches and account actions can fire this faster than
+  // one round completes (three sequential requests). Without the guard two
+  // instances interleave — renderAccounts runs twice against the same cards
+  // while fillAccountBalances from the SLOWER instance lands after the faster
+  // one's render, wiping freshly filled bars — with a large pool that showed
+  // up as "经常不出其他号" (cards visibly missing their balance section, or an
+  // account list that lagged the pool). A call arriving mid-flight records a
+  // pending rerun instead of racing; the loser of the current round re-runs
+  // once with fresh data.
+  if (refreshAccounts._inflight) { refreshAccounts._pending = true; return; }
+  refreshAccounts._inflight = true;
   try {
-    const ov = await (await api("/overview")).json();
-    if (ov.accounts && ov.accounts.total > 0) setEmergencyButtons(ov.accounts.eligible === 0);
-  } catch (e) {}
-  const r = await api("/accounts");
-  const j = await r.json();
-  lastAccounts = j.accounts || [];
-  renderAccounts(lastAccounts);
-  renderStoreProblem(j.storeProblem);  // ONE quota read, shared by both views. Each used to fetch it on its own, so a
-  // single refresh sent two identical /accounts/quota requests — and for an
-  // account the poller has no snapshot for, that endpoint performs a LIVE
-  // billing read rather than answering from cache, so the duplicate was a real
-  // upstream burst doubled, not just a local round trip.
-  let quota = null;
-  try { quota = await api("/accounts/quota").then((x) => x.json()); }
-  catch (e) { /* both consumers fall back to their own handling of "no data" */ }
-  fillAccountBalances(quota);
-  // The overview's own list, kept in sync so a deletion shows up immediately.
-  await refreshOverviewBalances(quota);
+    try {
+      const ov = await (await api("/overview")).json();
+      if (ov.accounts && ov.accounts.total > 0) setEmergencyButtons(ov.accounts.eligible === 0);
+    } catch (e) {}
+    const r = await api("/accounts");
+    const j = await r.json();
+    lastAccounts = j.accounts || [];
+    renderAccounts(lastAccounts);
+    renderStoreProblem(j.storeProblem);  // ONE quota read, shared by both views. Each used to fetch it on its own, so a
+    // single refresh sent two identical /accounts/quota requests — and for an
+    // account the poller has no snapshot for, that endpoint performs a LIVE
+    // billing read rather than answering from cache, so the duplicate was a real
+    // upstream burst doubled, not just a local round trip.
+    let quota = null;
+    try { quota = await api("/accounts/quota").then((x) => x.json()); }
+    catch (e) { /* both consumers fall back to their own handling of "no data" */ }
+    fillAccountBalances(quota);
+    // The overview's own list, kept in sync so a deletion shows up immediately.
+    await refreshOverviewBalances(quota);
+  } finally {
+    refreshAccounts._inflight = false;
+    if (refreshAccounts._pending) {
+      refreshAccounts._pending = false;
+      void refreshAccounts();
+    }
+  }
 }
 
 /**
