@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.5
+ * 版本 Version: v4.7.6
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -162,7 +162,7 @@ export class ClaimScheduler {
     // backoff, and reset the error ladder — yesterday's network failures say
     // nothing about today's reachability.
     //
-    // DAILY-JITTER (field report v4.7.5: "只要号多就有很多领不到"): every
+    // DAILY-JITTER (field report v4.7.6: "只要号多就有很多领不到"): every
     // account's previous grant ends at nearly the SAME second, so without
     // spreading, all schedulers hit 00:00, clear their hold simultaneously and
     // fire their claim bursts together — a single IP answering dozens of

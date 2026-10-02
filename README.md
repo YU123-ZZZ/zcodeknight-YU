@@ -252,6 +252,21 @@ upstream (api.z.ai / open.bigmodel.cn)
 小内存主机（2G）建议：CAPTCHA_WINDOW_REUSE=0 关闭窗口复用是最快的第一步隔离手段；
 配合 systemd MemoryMax 观察是否触顶。日志 CSV 导出现在包含全量引擎历史，可用于回溯。
 
+v4.7.6（2026-10-02）：
+
+1. **面板「会话失效」横幅误报根治**：概览轮询给未声明的 `claimNextAtFetchedAt`
+   赋值，严格模式下抛 ReferenceError 被 catch 误报为「登录会话已失效，页面已
+   停止刷新」并连带「日志渲染出错」——变量现已声明，横幅不再误弹；
+2. **更新检查自相矛盾修复**：v4.7.5 只推了 git tag 未建 GitHub Release，导致
+   「当前版本 4.7.5 · 已是最新版本 (4.7.4)」且其他机器检测不到新版。已补发
+   Release v4.7.5（含双包资产），此后更新检测恢复正常；
+3. **面板更新日志页对齐**：补上 4.7.5/4.7.6 条目，面板内 changelog 与运行
+   版本一致；
+4. **导出包日志实测确认**：「下载全部数据」zip 含 admin-log.jsonl（全量引擎
+   日志）、request-stats.json、config.yaml、accounts.json、manifest。若包内
+   日志为空，是引擎工作目录探测 miss 导致 data/ 落点偏移——用
+   `ZCODE_KNIGHT_HOME=<部署根>` 启动即可归位（数据文件保持原样）。
+
 v4.7.5（2026-10-02）：
 
 1. **3012 出口自动轮换**：设置页新增「备用出口（3012 轮换）」——每行一个代理

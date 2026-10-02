@@ -374,6 +374,22 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
+  { ver: "v4.7.6", date: "2026-10-02", items: {
+    zh: [
+      "【面板】修复「登录会话已失效」横幅一直弹 + 概览「日志渲染出错」：概览轮询给未声明的 claimNextAtFetchedAt 赋值，严格模式下抛 ReferenceError 被 catch 误报为会话失效。现已声明变量，误报消失",
+      "【面板】修复更新页自相矛盾：「当前版本 4.7.5 · 已是最新版本 (4.7.4)」——原因是没有建 4.7.5 的 GitHub Release，其他机器也因此检测不到新版。已补发 Release",
+      "【面板】更新日志页补上 4.7.5 条目（3012 出口自动轮换等），面板内 changelog 与实际版本对齐",
+      "【3012】出口自动轮换：设置页新增「备用出口」，上游 3012 时自动切下一个出口，被标记的排到队尾最后再用；不填维持 30 分钟静默",
+      "【面板】概览余额列表 keyed 增量渲染，池同步不再抖动；领取倒计时改由 /overview 同帧返回（少一次认证请求）",
+    ],
+    en: [
+      "Panel: fixed the constant session-expired banner + overview render error - refreshOverview assigned the UNDECLARED claimNextAtFetchedAt, which throws under strict mode and surfaced as a fake session lapse. Variable now declared",
+      "Panel: fixed the contradictory update row (current 4.7.5 vs latest 4.7.4) - the v4.7.5 GitHub Release was never published, which also hid the update from other machines. Release now published",
+      "Panel: changelog page now carries the 4.7.5 entry (3012 egress rotation etc.), aligned with the running version",
+      "3012: egress auto-rotation - new Spare egress field in Settings; on a 3012 the engine switches to the next proxy, the flagged one goes to the back of the queue. Empty keeps the 30-min silence behaviour",
+      "Panel: overview balance list keyed incremental render; claim countdown rides on /overview (one less authed request)",
+    ],
+  }},
   { ver: "v4.7.5", date: "2026-10-02", items: {
     zh: [
       "【内存】流式响应泄漏根治：删除 body.tee() 双读（统计分支无背压，整条流在堆内排队且不可回收——慢客户端×长流 = 数百 MB），改为单流内联统计，上游背压直达客户端。这是 4.7.3 仍剩 ~110MB/h 泄漏与 5.7 小时卡死的根因",
@@ -839,9 +855,13 @@ async function refreshOverview() {
     const r = await api("/overview");
     const ov = await r.json();
     // Claim countdown data rides on the SAME /overview response (field report
-    // v4.7.5: the extra /config poll here surfaced every transient 4xx/403 as
+    // v4.7.6: the extra /config poll here surfaced every transient 4xx/403 as
     // "登录会话已失效" because isSessionLapse treats unknown error shapes as a
     // lapse and re-gated the UI). One request, no extra auth surface.
+    // claimNextAtFetchedAt/claimAuto/claimNextAt are declared with the other
+    // claim state further down; assigning an UNDECLARED name here would throw
+    // under "use strict" and land in this catch as a fake session lapse
+    // (the reported "日志渲染出错 / 会话失效一直弹").
     if (ov.claim) {
       claimAuto = !!ov.claim.auto;
       claimNextAt = Number(ov.claim.nextCheckAt) || 0;
@@ -3383,6 +3403,12 @@ document.getElementById("set-claim-auto").onclick = async (e) => {
 // and the countdown text rides next to the claim-all button so the operator
 // can see when the next automatic round fires without opening the log.
 let claimNextAt = 0;
+// When claimNextAt was last refreshed from /overview (ms epoch). The countdown
+// label interpolates against fetch time, so a stale fetch does not count down
+// as if it were live. Written by refreshOverview — declared here with the rest
+// of the claim state; an undeclared assignment there throws under "use strict"
+// and surfaces as a fake session-expired banner.
+let claimNextAtFetchedAt = 0;
 let claimCountdownTimer = null;
 let claimHasTargets = false;
 function renderClaimCountdown() {

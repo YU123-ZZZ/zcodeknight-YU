@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.5
+ * 版本 Version: v4.7.6
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -170,7 +170,7 @@ export function anthropicSseToOpenaiSse(
   };
 
   return new ReadableStream({
-    // PULL-driven (field report v4.7.5): the previous start()-driven loop read
+    // PULL-driven (field report v4.7.6): the previous start()-driven loop read
     // upstream unconditionally and enqueue()d every translated chunk — an
     // unbounded pump that queued the whole stream in the heap whenever the
     // client consumed slowly. pull() runs only when the consumer's queue has
