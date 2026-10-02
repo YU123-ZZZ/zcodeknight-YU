@@ -1487,49 +1487,7 @@ async function fillAccountBalances(knownQuota) {
     const sig = JSON.stringify(rec ? [rec.balances, rec.activePlans] : null);
     if (el.dataset.sig === sig) return;
     el.dataset.sig = sig;
-    el.innerHTML = "";
-    if (!rec || !(rec.balances || []).length) {
-      el.innerHTML = '<div class="bal-none">' + esc(balanceEmptyText(rec)) + "</div>";
-      return;
-    }
-    for (const b of rec.balances) {
-      const pct = b.totalUnits > 0 ? Math.max(0, Math.min(100, b.remainingUnits / b.totalUnits * 100)) : 0;
-      const row = document.createElement("div");
-      row.className = "bal-row";
-      // Same seconds→ms guard as the overview list: upstream reports `expiresAt`
-      // in seconds, so it must be multiplied before use.
-      const exp = Number(b.expiresAt);
-      const expiry = Number.isFinite(exp) && exp > 0
-        ? '<div class="bal-exp">' + T("bal_expires") + " " +
-          '<span class="cd" data-until="' + (exp * 1000) + '"></span></div>'
-        : "";
-      row.innerHTML = '<div class="bal-top"><span>' + esc(b.showName) + "</span><span>" +
-        fmtNum(b.remainingUnits) + " / " + fmtNum(b.totalUnits) + "</span></div>" +
-        '<div class="bar' + (pct < 20 ? " low" : "") + '"><i style="width:' + pct + '%"></i></div>' +
-        expiry;
-      el.appendChild(row);
-    }
-    // Plan expiry, so the pool page answers "how long does this account's free
-    // allowance last" without switching to the overview. Same rule as there:
-    // only a live (non-pending) plan with an `endsAt` gets a countdown.
-    for (const p of (rec.activePlans || [])) {
-      if (p.pending || !p.endsAt) continue;
-      const line = document.createElement("div");
-      line.className = "plan-exp";
-      line.innerHTML = '<span class="pe-name">' + esc(p.name) + "</span>" +
-        '<span class="pe-tag">' + T("pg_ends") + "</span>" +
-        '<span class="cd" data-until="' + (p.endsAt * 1000) + '" data-fmt="days"></span>';
-      el.appendChild(line);
-    }
-    // The claim state belongs here too: this is the page where an operator
-    // decides which account to use, and "already claimed today" is part of that.
-    const claimed = (rec.claimablePlans || []).length === 0 && (rec.activePlans || []).length > 0;
-    if (claimed) {
-      const done = document.createElement("div");
-      done.className = "bal-none claim-done-line";
-      done.textContent = T("claim_done");
-      el.appendChild(done);
-    }
+    fillOneAccountBalance(el, rec);
   });
 }
 function renderAccounts(list) {
@@ -1690,10 +1648,76 @@ function renderAccounts(list) {
     });
     card.appendChild(actions);
     el.appendChild(card);
+    // A REBUILT card starts with an empty balance section: fillAccountBalances
+    // only runs at the tail of refreshAccounts, so under concurrent traffic —
+    // where inFlight/modelCooldowns change every few seconds and force a
+    // rebuild — the fresh card sat blank ("丢失/不显示") until the next poll's
+    // fill. Fill it immediately from the cached quota snapshot (lastQuota is
+    // the same payload fillAccountBalances uses), so a rebuilt card looks
+    // complete in the same frame it appears.
+    const cachedRec = lastQuota.find((q) => q.id === a.id);
+    if (cachedRec) {
+      const balEl = card.querySelector('.acc-bal[data-acc="' + CSS.escape(a.id) + '"]');
+      if (balEl) {
+        const sig = JSON.stringify(cachedRec ? [cachedRec.balances, cachedRec.activePlans] : null);
+        if (balEl.dataset.sig !== sig) {
+          balEl.dataset.sig = sig;
+          fillOneAccountBalance(balEl, cachedRec);
+        }
+      }
+    }
   }
   // Cards whose account left the filtered list go away; reused ones stay.
   for (const [id, c] of existing) {
     if (!reused.has(id)) c.remove();
+  }
+}
+
+/**
+ * Render one account's balance section into a given container.
+ *
+ * Extracted from fillAccountBalances so renderAccounts can synchronously fill
+ * a freshly rebuilt card from the cached quota snapshot. Same rendering rules
+ * (empty-state reasons, seconds→ms expiry, pending grants, claim-done line).
+ */
+function fillOneAccountBalance(el, rec) {
+  el.innerHTML = "";
+  if (!rec || !(rec.balances || []).length) {
+    el.innerHTML = '<div class="bal-none">' + esc(balanceEmptyText(rec)) + "</div>";
+    return;
+  }
+  for (const b of rec.balances) {
+    const pct = b.totalUnits > 0 ? Math.max(0, Math.min(100, b.remainingUnits / b.totalUnits * 100)) : 0;
+    const row = document.createElement("div");
+    row.className = "bal-row";
+    const exp = Number(b.expiresAt);
+    const expiry = Number.isFinite(exp) && exp > 0
+      ? '<div class="bal-exp">' + T("bal_expires") + " " +
+        '<span class="cd" data-until="' + (exp * 1000) + '"></span></div>'
+      : "";
+    row.innerHTML = '<div class="bal-top"><span>' + esc(b.showName) + "</span><span>" +
+      fmtNum(b.remainingUnits) + " / " + fmtNum(b.totalUnits) + "</span></div>" +
+      '<div class="bar' + (pct < 20 ? " low" : "") + '"><i style="width:' + pct + '%"></i></div>' +
+      expiry;
+    el.appendChild(row);
+  }
+  for (const p of (rec.activePlans || [])) {
+    if (p.pending || !p.endsAt) continue;
+    const line = document.createElement("div");
+    line.className = "plan-exp";
+    const total = (p.entitlements || []).reduce((s, e) => s + (e.grantUnits || 0), 0);
+    line.innerHTML = '<span class="pe-name">' + esc(p.name) + "</span>" +
+      (total ? '<span class="pe-units">' + fmtNum(total) + "</span>" : "") +
+      '<span class="pe-tag">' + T("pg_ends") + "</span>" +
+      '<span class="cd" data-until="' + (p.endsAt * 1000) + '" data-fmt="days"></span>';
+    el.appendChild(line);
+  }
+  const claimed = (rec.claimablePlans || []).length === 0 && (rec.activePlans || []).length > 0;
+  if (claimed) {
+    const done = document.createElement("div");
+    done.className = "bal-none claim-done-line";
+    done.textContent = T("claim_done");
+    el.appendChild(done);
   }
 }
 /**
