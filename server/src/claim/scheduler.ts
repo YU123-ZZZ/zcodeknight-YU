@@ -296,18 +296,33 @@ export class ClaimScheduler {
     // retry interval instead of retrying at a fixed cadence: when the egress
     // cannot reach zcode.z.ai at all, four accounts × every 10 minutes is a
     // log flood that carries no new information per line.
+    //
+    // RISK-SHAPED failures (3012 unusual activity, per-IP/per-account grant
+    // caps) escalate the same way but with a 30-minute FLOOR — the field
+    // report (2026-10-03) showed a 19-account pool on a fixed 600s retry
+    // re-hitting upstream's 3012 window exactly as it was about to expire,
+    // continuously RENEWING the risk-control block. A risk-shaped failure
+    // needs hours, not minutes, before the next touch.
     const networkish = /ETIMEDOUT|ECONNRESET|EAI_AGAIN|getaddrinfo|aborted|network|timeout|socket/i.test(message);
-    if (networkish) {
+    const riskish = /\b3012\b|unusual activity|exceed quota|名额已领完|今日名额|名额用完/i.test(message);
+    if (networkish || riskish) {
       this.consecutiveErrors += 1;
     } else {
       this.consecutiveErrors = 0;
     }
     const escal = Math.min(this.consecutiveErrors, 6);
-    const holdMs = networkish && this.consecutiveErrors > 1
-      ? Math.min(this.deps.config.cooldownMs * 2 ** (escal - 1), 6 * 60 * 60_000)
-      : this.deps.config.cooldownMs;
+    let holdMs = this.deps.config.cooldownMs;
+    if (networkish && this.consecutiveErrors > 1) {
+      holdMs = Math.min(this.deps.config.cooldownMs * 2 ** (escal - 1), 6 * 60 * 60_000);
+    } else if (riskish) {
+      holdMs = Math.min(
+        Math.max(30 * 60_000, this.deps.config.cooldownMs) * (this.consecutiveErrors > 1 ? 2 ** (escal - 1) : 1),
+        6 * 60 * 60_000,
+      );
+    }
     this.holdUntil = this.now() + holdMs;
-    const label = networkish && this.consecutiveErrors > 1 ? `(network ${this.consecutiveErrors}x) ` : "";
+    const label = networkish && this.consecutiveErrors > 1 ? `(network ${this.consecutiveErrors}x) `
+      : riskish && this.consecutiveErrors > 1 ? `(risk ${this.consecutiveErrors}x) ` : "";
     this.log(`claim: ${label}${message}; retry in ${Math.round(holdMs / 1000)}s`);
     return { action: "error", message, holdMs };
   }

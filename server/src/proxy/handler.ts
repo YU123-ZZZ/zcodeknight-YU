@@ -59,6 +59,7 @@ import { isCaptchaChallenged, retryOnCaptchaChallenge } from "./captcha-retry.js
 import { type ClientSessionResult } from "./client-session.js";
 import { resolveSessionContext } from "./session-context.js";
 import { listRiskHolds, markRiskHold, riskHoldRemaining } from "./risk-hold.js";
+import { proxyActive, proxyUrl, markExitFailure } from "./network-proxy.js";
 import { gzipSync } from "node:zlib";
 
 // captcha.ts is loaded lazily inside the `startPlan` branch (only path that
@@ -449,6 +450,10 @@ export async function proxyRequest(
   } catch (err) {
     if (debug) debugError(reqId, "upstream_unreachable", (err as Error).message);
     engineError("upstream", `${reqId} unreachable: ${(err as Error).message}`);
+    // Feed the egress health tracker: a full dispatch round of connect
+    // failures is a strong dead-proxy signal (the probe loop independently
+    // confirms or clears it within a minute). Direct egress is untracked.
+    if (proxyActive()) markExitFailure(proxyUrl());
     printRow(reqId, format, meta, 502, started, Date.now(), 0, 0, 0);
     reportOutcomeToPool(auth, accountId, { kind: "error", message: (err as Error).message });
     releaseLeaseFor(auth, cred);
