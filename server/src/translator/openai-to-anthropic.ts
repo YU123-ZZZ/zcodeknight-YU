@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.6
+ * 版本 Version: v4.7.7
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -394,7 +394,7 @@ export function translateResponseAnthropicToOpenAI(
   // Some upstream paths answer with content: null (a refusal envelope, or a
   // degenerate finish that carries only stop_reason) — guard instead of
   // crashing the request with "undefined is not an object (evaluating
-  // 'resp.content.filter')" (field report v4.7.6: /responses on glm-5.3).
+  // 'resp.content.filter')" (field report v4.7.7: /responses on glm-5.3).
   const blocks = Array.isArray(resp?.content) ? resp.content : [];
   const textBlocks = blocks.filter((b) => b.type === "text");
   const toolUseBlocks = blocks.filter((b) => b.type === "tool_use");

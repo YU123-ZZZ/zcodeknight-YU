@@ -378,20 +378,46 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
+  { ver: "v4.7.7", date: "2026-10-03", items: {
+    zh: [
+      "【调度】过期额度不再参与派发：每日赠款的 expiresAt 过后，缓存里的剩余数字仍为正，调度优先把请求打向该号、收获上游 1005——现在过期 bucket 记为 0 并被显式跳过",
+      "【调度】429 吸收重试：上游并发 429（3009）不再直接甩给客户端——释放并发槽等待 5 秒（可配 ZCODE_429_ABSORB_MS）后同账号原路重发一次，成功即返回；等待期槽位继续服务其他流量",
+      "【调度】403 双义分流：410004=真封禁（进重登流程并注明原因）；810002=high-demand 限流（仅模型级短冷却，账号不再被误伤进重登）",
+      "【调度】3012 出口轮换后立即用新出口重试一次当前请求——新 IP 干净，多数请求直接成功返回，不再干等 30 分钟静默",
+      "【面板】概览余额列表孤儿清扫：搜索/筛选后被过滤的旧卡片残留在列表尾部，现已清理",
+      "【面板】底部标注始创日期（2026-09-19）",
+    ],
+    en: [
+      "Dispatch: expired quota buckets no longer participate — a daily grant past its expiresAt kept a positive remaining figure in cache, so dispatch kept preferring that account into upstream 1005s. Expired buckets now report 0 and are explicitly skipped",
+      "Dispatch: 429 absorb-retry — an upstream concurrency 429 (3009) no longer bounces to the client; the freed slot serves other traffic for 5s (ZCODE_429_ABSORB_MS) then the same account is retried once through the normal dispatch path",
+      "Dispatch: 403 dual-classification — 410004 is a real ban (re-login flow with the reason surfaced); 810002 high-demand is only a short model-scoped cooldown, accounts no longer get benched into re-login for it",
+      "Dispatch: after a 3012 egress rotation the request is retried once on the fresh exit — the new IP is clean, most requests succeed immediately instead of waiting out the silence",
+      "Panel: overview balance list now sweeps orphan cards left behind by search/filter changes",
+      "Panel: footer shows the project's founding date (2026-09-19)",
+    ],
+  }},
   { ver: "v4.7.6", date: "2026-10-02", items: {
     zh: [
       "【面板】修复「登录会话已失效」横幅一直弹 + 概览「日志渲染出错」：概览轮询给未声明的 claimNextAtFetchedAt 赋值，严格模式下抛 ReferenceError 被 catch 误报为会话失效。现已声明变量，误报消失",
       "【面板】修复更新页自相矛盾：「当前版本 4.7.5 · 已是最新版本 (4.7.4)」——原因是没有建 4.7.5 的 GitHub Release，其他机器也因此检测不到新版。已补发 Release",
       "【面板】更新日志页补上 4.7.5 条目（3012 出口自动轮换等），面板内 changelog 与实际版本对齐",
-      "【3012】出口自动轮换：设置页新增「备用出口」，上游 3012 时自动切下一个出口，被标记的排到队尾最后再用；不填维持 30 分钟静默",
-      "【面板】概览余额列表 keyed 增量渲染，池同步不再抖动；领取倒计时改由 /overview 同帧返回（少一次认证请求）",
+      "【面板】日志页黑框根治：keyed 复用早退分支会把全部行滞留在游离节点里不落 DOM——改 replaceChildren 无条件落盘（不重解析 HTML，防卡顿价值保留）",
+      "【面板】日志「跟随底部」改为开关（默认关）+ 滚动感知：向上翻阅自动取消跟随，滚回底部自动恢复",
+      "【验证码】沙箱噪音静默：WINDOW-ERROR/stall/重复 certifyId 类失败压缩为单行短摘要，同类每分钟最多 1 条，不再淹没日志环",
+      "【面板】Playground 默认模型改为 flash（上游对 glm-5.3 限流严重）；429 后 Send 冷却 8 秒并提示可切换 flash",
+      "【面板】概览 15 秒内重复进入不再重新拉取余额（点「刷新」仍强制拉取）",
+      "【账号】refreshAccounts 单飞守卫：并发触发不再交错渲染，号池大时不再出现卡片缺号/余额区空白",
     ],
     en: [
-      "Panel: fixed the constant session-expired banner + overview render error - refreshOverview assigned the UNDECLARED claimNextAtFetchedAt, which throws under strict mode and surfaced as a fake session lapse. Variable now declared",
-      "Panel: fixed the contradictory update row (current 4.7.5 vs latest 4.7.4) - the v4.7.5 GitHub Release was never published, which also hid the update from other machines. Release now published",
-      "Panel: changelog page now carries the 4.7.5 entry (3012 egress rotation etc.), aligned with the running version",
-      "3012: egress auto-rotation - new Spare egress field in Settings; on a 3012 the engine switches to the next proxy, the flagged one goes to the back of the queue. Empty keeps the 30-min silence behaviour",
-      "Panel: overview balance list keyed incremental render; claim countdown rides on /overview (one less authed request)",
+      "Panel: fixed the constant session-expired banner + overview render error (undeclared variable threw under strict mode)",
+      "Panel: fixed the contradictory update row — the v4.7.5 GitHub Release was missing, so other engines never saw the update. Release published",
+      "Panel: changelog page aligned with the running version",
+      "Panel: logs black-box fixed at the root — the keyed-reuse early-return could strand all rows in a detached fragment; replaceChildren is now unconditional (still no HTML re-parse, so the anti-jank value stays)",
+      "Panel: log follow-bottom is now a checkbox (default off) with scroll-aware auto untick/retick",
+      "Captcha: sandbox noise (WINDOW-ERROR/stall dumps) condensed to one short line per minute, no longer drowning the log ring",
+      "Panel: Playground defaults to flash; 429 puts Send on an 8s cooldown with a switch-to-flash hint",
+      "Panel: overview skips balance refetch within 15s; the Refresh button still forces a real round trip",
+      "Accounts: refreshAccounts is single-flight with a pending rerun — concurrent triggers no longer interleave renders on large pools",
     ],
   }},
   { ver: "v4.7.5", date: "2026-10-02", items: {
@@ -859,7 +885,7 @@ async function refreshOverview() {
     const r = await api("/overview");
     const ov = await r.json();
     // Claim countdown data rides on the SAME /overview response (field report
-    // v4.7.6: the extra /config poll here surfaced every transient 4xx/403 as
+    // v4.7.7: the extra /config poll here surfaced every transient 4xx/403 as
     // "登录会话已失效" because isSessionLapse treats unknown error shapes as a
     // lapse and re-gated the UI). One request, no extra auth surface.
     // claimNextAtFetchedAt/claimAuto/claimNextAt are declared with the other
