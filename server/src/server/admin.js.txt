@@ -1295,6 +1295,14 @@ function renderBalanceList() {
     }
     el.appendChild(box);
   }
+  // Orphan sweep: cards whose account is no longer in the filtered rows (the
+  // search box or filter changed) must leave the DOM. Without this sweep a
+  // filtered view kept stale cards stacked after the live ones — the overview
+  // balance list grew ghosts on every filter change.
+  const liveIds = new Set(rows.map((a) => a.id));
+  for (const [id, c] of existing) {
+    if (!liveIds.has(id)) c.remove();
+  }
 }
 
 /**

@@ -592,7 +592,29 @@ export async function proxyRequest(
         const holds = listRiskHolds();
         const held = holds.find((h) => h.model === meta.model);
         const unlockClock = held ? new Date(held.unlockAt).toLocaleTimeString() : "";
-        await maybeRotateEgress(meta.model || "");
+        const rotated = await maybeRotateEgress(meta.model || "");
+        // One retry on the FRESH egress (peer-gateway pattern, 2026-10): a
+        // rotated exit has a clean IP-side reputation, so a single immediate
+        // re-dispatch often succeeds where the flagged one failed. The model
+        // hold is NOT cleared for the retry — if the fresh egress also fails,
+        // the silence still applies engine-wide and the evidence feed stops.
+        if (rotated && !clientReq.signal.aborted) {
+          try {
+            const retried = await dispatch(
+              buildUpstreamRequest(clientReq, upstreamFormat, provider2, cred, transformedBody, effectiveIdentity, effectivePlan, captchaHeaders, clientSession),
+              buildUpstreamHeaderPairs(clientReq, upstreamFormat, cred, effectiveIdentity, effectivePlan, captchaHeaders, clientSession),
+            );
+            if (retried.ok) {
+              releaseLeaseFor(auth, cred);
+              printRow(reqId, format, meta, 200, started, Date.now(), 0, 0, 0, "", true);
+              reportOutcomeToPool(auth, accountId, { kind: "success" });
+              adminLog.push(`[proxy] 3012 — 出口轮换后重试成功（${accountName} · ${meta.model}）`, "ok");
+              return retried;
+            }
+          } catch (retryErr) {
+            if (debug) debugError(reqId, "retry_after_rotate", String(retryErr));
+          }
+        }
         reportOutcomeToPool(auth, accountId, {
           kind: "concurrency_rejected",
           note: `上游风控 3012 unusual activity — 出口 IP 被标记；${meta.model || "该模型"} 进入 30 分钟静默期${unlockClock ? `（至 ${unlockClock}）` : ""}，期间不再请求上游，自动恢复`,
@@ -699,6 +721,20 @@ export async function proxyRequest(
       markRiskHold(failedModel);
       await maybeRotateEgress(failedModel || "");
       outcome = { kind: "concurrency_rejected" };
+    } else if (upstreamResp.status === 403) {
+      // 403 is TWO different conditions wearing the same status (peer-gateway
+      // research, 2026-10): a body biz code of 410004 is a REAL credential
+      // ban — the account needs a human; 810002 "high demand" is free-tier
+      // capacity throttling wearing a 403 — the credential is fine and a
+      // short model-scoped cooldown is the right response. Treating both as
+      // auth_rejected benched healthy accounts and demanded pointless
+      // re-logins.
+      if (/\b810002\b|high demand/i.test(bodyText)) {
+        outcome = { kind: "concurrency_rejected", ...(failedModel ? { model: failedModel } : {}) };
+      } else if (/\b410004\b/i.test(bodyText)) {
+        outcome = { kind: "auth_rejected", note: "credential banned by upstream (410004) — re-login required" };
+      }
+      // Unknown 403 bodies keep the conservative auth_rejected default.
     }
   }
   /**
@@ -1491,25 +1527,27 @@ function peekBody(body: string | undefined): RequestMeta {
  *    nothing to rotate to (no spares / proxy off). It must never throw into
  *    the 3012 handling path — the client has already been answered.
  */
-async function maybeRotateEgress(model: string): Promise<void> {
+async function maybeRotateEgress(model: string): Promise<boolean> {
   try {
     const { riskHoldRemaining, RISK_HOLD_MS } = await import("./risk-hold.js");
     const { rotateProxyEgress, proxyRotationAvailable } = await import("./network-proxy.js");
     // Only the first 3012 of a hold window rotates: a remaining time close to
     // the full window means the hold was just placed by THIS request.
-    if (riskHoldRemaining(model) < RISK_HOLD_MS - 5_000) return;
-    if (!proxyRotationAvailable()) return;
+    if (riskHoldRemaining(model) < RISK_HOLD_MS - 5_000) return false;
+    if (!proxyRotationAvailable()) return false;
     const next = await rotateProxyEgress();
     if (next) {
       let host = next;
       try { host = new URL(next).host; } catch { /* keep the raw string */ }
       console.warn(`[proxy] 3012 risk control — egress rotated to ${host}`);
       adminLog.push(`[proxy] 3012 风控触发 — 出口已轮换到 ${host}`, "warn");
+      return true;
     }
   } catch {
     // Rotation is an optimisation on top of the hold; never let it break
     // request handling.
   }
+  return false;
 }
 
 let reqCounter = 0;

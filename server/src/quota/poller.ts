@@ -126,12 +126,32 @@ export function remainingQuota(accountId: string, model?: string): number | null
   const norm = (s: string): string => s.toLowerCase().replace(/[\s_.-]/g, "");
   const want = model ? norm(model) : "";
 
-  const buckets = want
+  // EXPIRED buckets must not count as usable allowance: a daily grant whose
+  // expiresAt has passed still carries a positive remainingUnits in the cached
+  // snapshot, and dispatching on it earns upstream 1005 "exceed quota limit"
+  // (measured 2026-10-03: the only GLM-5.3 bucket in the pool expired at
+  // 08:00 and kept being selected until the account burned 1005s). An expired
+  // bucket reports 0 — the account's quota for that model is genuinely gone
+  // until upstream issues a fresh grant.
+  const nowSec = Math.floor(Date.now() / 1000);
+  const notExpired = (b: { expiresAt?: number }): boolean =>
+    !(Number.isFinite(b.expiresAt) && (b.expiresAt as number) > 0 && (b.expiresAt as number) <= nowSec);
+
+  const buckets = (want
     ? snap.balances.filter((b) => norm(b.showName) === want)
-    : snap.balances;
-  // No bucket for this model: unknown, not zero. Some models are served without
-  // a per-model grant and must not be treated as exhausted.
-  if (!buckets.length) return null;
+    : snap.balances
+  ).filter(notExpired);
+  // No LIVE bucket for this model: unknown, not zero. Some models are served
+  // without a per-model grant and must not be treated as exhausted. (An
+  // EXPIRED bucket is not "no bucket" — it means the account HAD a grant that
+  // ran out, but reporting null here would let the rotation fall through to
+  // accounts with no grant at all; 0 is the honest state.)
+  if (!buckets.length) {
+    const hadAny = want
+      ? snap.balances.some((b) => norm(b.showName) === want)
+      : false;
+    return hadAny ? 0 : null;
+  }
 
   const remaining = buckets.map((b) => b.remainingUnits).filter((n) => Number.isFinite(n));
   if (!remaining.length) return null;
