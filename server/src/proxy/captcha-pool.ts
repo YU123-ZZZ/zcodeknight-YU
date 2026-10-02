@@ -176,6 +176,8 @@ export class CaptchaTokenPool {
   private refillInFlight = false;
   private lastSolveAt = 0;
   private activeSolves = 0;
+  /** Rate-limits the condensed sandbox-noise log line (see solveBatch). */
+  private lastNoiseLogAt = 0;
   private cfg: CaptchaConfig | null = null;
   private pausedUntil = 0;
   private lastTakeAt: number;
@@ -553,7 +555,22 @@ export class CaptchaTokenPool {
         if (r.status === "fulfilled") {
           this.pushToken(r.value);
         } else {
-          engineError("captcha", `parallel solve failed: ${r.reason}`, "warn");
+          // The full failure text carries the per-request XHR dump and the
+          // happy-dom guestErrors ring — hundreds of characters per wave, all
+          // landing in the panel's log ring on every claim round (field report:
+          // WINDOW-ERROR spam drowning real events). Sandbox noise is condensed
+          // to one short line and logged at most once per minute; everything
+          // else keeps the full text.
+          const raw = String(r.reason);
+          if (/WINDOW-ERROR|captcha solve (stall|timeout)|duplicate certifyId/i.test(raw)) {
+            const now = Date.now();
+            if (now - this.lastNoiseLogAt < 60_000) continue;
+            this.lastNoiseLogAt = now;
+            const brief = raw.split("| guestErrors")[0].slice(0, 140);
+            engineError("captcha", `solve failed (sandbox noise): ${brief} — similar lines suppressed 1/min`, "warn");
+          } else {
+            engineError("captcha", `parallel solve failed: ${raw}`, "warn");
+          }
         }
       }
       remaining -= wave;

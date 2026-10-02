@@ -205,6 +205,9 @@
         <label class="sub" style="margin:0;display:flex;align-items:center;gap:6px">
           <input type="checkbox" id="rq-auto" checked> <span data-i18n="rq_auto">Auto-refresh</span>
         </label>
+        <label class="sub" style="margin:0;display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="rq-follow" checked> <span data-i18n="rq_follow">Follow bottom</span>
+        </label>
         <span class="sub" id="rq-count" style="margin:0"></span>
       </div>
       <div class="logbox" id="log-box"></div>

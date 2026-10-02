@@ -63,7 +63,7 @@ const I18N = {
     log_title: "日志", log_sub: "请求与引擎消息合并成一条时间线，按时间排序",
     log_raw: "引擎日志",
     rq_search_ph: "搜索 IP / 模型 / 路径 / 客户端…", rq_ok: "成功", rq_fail: "失败",
-    rq_auto: "自动刷新", rq_ip: "来源 IP", rq_path: "调用路径", rq_ua: "客户端",
+    rq_auto: "自动刷新", rq_follow: "跟随底部", rq_ip: "来源 IP", rq_path: "调用路径", rq_ua: "客户端",
     rq_count: "显示 {n} / 共 {m} 条", rq_none: "没有匹配的请求记录",
     rq_running: "进行中", rq_running_for: "已运行",
     claim_auto_off: "自动领取已关闭", claim_none_grey: "当前没有可领取的活动套餐",
@@ -115,6 +115,7 @@ const I18N = {
     set_proxy_save: "保存代理设置",
     set_proxy_on: "当前出口：{h}", set_proxy_off: "当前直连（未走代理）",
     set_proxy_rotate_n: "轮换池 {n} 个出口",
+    pg_throttled_hint: "该模型当前被上游限流，稍候自动恢复；或改用 glm-5.3-flash（不限流）",
     panel_stale: "引擎已更新，本页脚本已过期，请强制刷新（Ctrl+F5）",
     set_idle: "面板空闲登出", set_idle_hint: "多少分钟不操作后重新要求输入密钥。任何操作都会重置计时；0 表示永不登出",
     set_idle_save: "保存超时", set_idle_stat: "当前空闲超时", min_unit: "分钟",
@@ -240,7 +241,7 @@ const I18N = {
     log_title: "Logs", log_sub: "Requests and engine messages in one timeline, ordered by time",
     log_raw: "Engine log",
     rq_search_ph: "Search IP / model / path / client…", rq_ok: "OK", rq_fail: "Failed",
-    rq_auto: "Auto-refresh", rq_ip: "Caller IP", rq_path: "Path", rq_ua: "Client",
+    rq_auto: "Auto-refresh", rq_follow: "Follow bottom", rq_ip: "Caller IP", rq_path: "Path", rq_ua: "Client",
     rq_count: "Showing {n} of {m}", rq_none: "No matching requests",
     rq_running: "RUN", rq_running_for: "running for",
     claim_auto_off: "Auto-claim is OFF", claim_none_grey: "No claimable activity plan right now",
@@ -292,6 +293,7 @@ const I18N = {
     set_proxy_save: "Save proxy settings",
     set_proxy_on: "Egress: {h}", set_proxy_off: "Direct connection (no proxy)",
     set_proxy_rotate_n: "rotation pool of {n} egresses",
+    pg_throttled_hint: "This model is throttled upstream right now; it recovers on its own, or switch to glm-5.3-flash",
     panel_stale: "The engine was updated — this page runs stale script, please hard-refresh (Ctrl+F5)",
     set_idle: "Panel idle logout", set_idle_hint: "Minutes of inactivity before the panel asks for the key again. Any activity resets the clock; 0 never logs out",
     set_idle_save: "Save timeout", set_idle_stat: "Current idle timeout", min_unit: "min",
@@ -1026,6 +1028,17 @@ async function loadBalances(knownAccounts, knownQuota) {
   if (loadBalances._inflight) return;
   loadBalances._inflight = true;
   const el = document.getElementById("ov-balances");
+  // Recent-data skip: boot(), showPage("overview") and pool actions all call
+  // this, and every call used to fetch quota + accounts again — entering the
+  // overview repainted the whole list from scratch each time (field report:
+  // "点进去和其他之前一样要每次刷新数据"). If a load completed within the last
+  // 15 seconds (the engine's balance cache changes slower than that), keep the
+  // rendered list and skip the round trips. An explicit refresh button or a
+  // pool action still passes fresh data and always wins.
+  if (Date.now() - (loadBalances._doneAt || 0) < 15_000 && el.dataset.loaded === "1") {
+    loadBalances._inflight = false;
+    return;
+  }
   // Show the placeholder only when nothing has been rendered yet.
   //
   // This used to blank the list on EVERY call, and refreshAccounts() calls it on
@@ -1051,6 +1064,7 @@ async function loadBalances(knownAccounts, knownQuota) {
     // Marks the overview as rendered, so refreshAccounts knows a later pool
     // change has something to update (see refreshOverviewBalances).
     el.dataset.loaded = "1";
+    loadBalances._doneAt = Date.now();
     renderTotals(lastQuota);
     refreshClaimAllDisabled();
     renderBalanceList();
@@ -1299,7 +1313,13 @@ function fmtLocalTime(sec) {
 }
 document.getElementById("ov-bal-search").addEventListener("input", renderBalanceList);
 document.getElementById("ov-bal-filter").addEventListener("change", renderBalanceList);
-document.getElementById("ov-refresh").onclick = () => { refreshOverview(); loadBalances(); };
+document.getElementById("ov-refresh").onclick = () => {
+  // The explicit button bypasses the 15s recent-data skip: a human pressing
+  // "刷新" wants a real round trip, not a cached "nothing changed".
+  loadBalances._doneAt = 0;
+  refreshOverview();
+  loadBalances();
+};
 // Jump to the page that owns the request data (see the ov-recent markup note).
 document.getElementById("ov-goto-logs").onclick = () => {
   const btn = [...document.querySelectorAll("#nav button")].find((b) => b.dataset.page === "logs");
@@ -2056,6 +2076,9 @@ async function pollLogin(sid) {
  */
 /** The model the transcript's most recent entries were produced with. */
 let pgLastModel = "";
+// Catalog snapshot from the last loadPlaygroundAccounts — the 429 hint looks
+// up the flash variant here instead of re-fetching.
+let lastPgModels = [];
 
 /**
  * The picker selections, kept alongside the conversation.
@@ -2459,17 +2482,27 @@ async function loadPlaygroundAccounts() {
     let models = Array.isArray(probe.union) && probe.union.length ? probe.union : null;
     if (!models) models = (cfg.models && cfg.models.length ? cfg.models : ["glm-5.3-flash"]);
     setPickerOptions("pg-model", models.map(m => ({ value: m, label: m, sub: "" })));
-    // Restore the last choice BEFORE falling back to the first entry, and only
-    // accept it if it is still offered: the model list comes from probe results,
-    // so a stored model can disappear when an account is removed or upstream
-    // stops serving it. A stale value would leave the picker captioned with a
-    // model the pool cannot call.
+    // Remembered for the 429 hint: the error bubble suggests the flash variant
+    // when the throttled model has one in the catalog.
+    lastPgModels = models;
+    // Restore the last choice BEFORE falling back, and only accept it if it is
+    // still offered: the model list comes from probe results, so a stored model
+    // can disappear when an account is removed or upstream stops serving it. A
+    // stale value would leave the picker captioned with a model the pool cannot
+    // call.
+    //
+    // The DEFAULT for a fresh visitor is the flash variant when one exists:
+    // upstream throttles glm-5.3 hard (single-digit success during bursts vs
+    // flash's ~97%), and the playground is where a new operator first tests the
+    // chain — starting them on the model most likely to answer. An explicit
+    // stored choice always wins over this default.
     const sel = pgLoadSelection();
     if (!document.getElementById("pg-model").value && sel.model && models.includes(sel.model)) {
       setPickerValue("pg-model", sel.model);
     }
     if (!document.getElementById("pg-model").value && models.length) {
-      setPickerValue("pg-model", models[0]);
+      const preferred = models.find((m) => /flash/i.test(m));
+      setPickerValue("pg-model", preferred || models[0]);
     }
     // Same for the account, matched against the ids actually in the pool.
     if (!document.getElementById("pg-account").value && sel.account
@@ -2523,7 +2556,23 @@ async function pgSend() {
       const t = await resp.text();
       bot.remove();
       const errText = "HTTP " + resp.status + " · " + t.slice(0, 220);
-      chatBubble("err", errText);
+      // 429 means upstream throttled THIS model (glm-5.3 is the usual victim).
+      // Point at the flash variant right in the error bubble — the operator's
+      // next question is always "what do I use instead" — and put the Send
+      // button on a short cooldown so a double-click cannot fire straight back
+      // into the same limit (field report: three rapid 429s in a row).
+      if (resp.status === 429) {
+        const cur = document.getElementById("pg-model").value;
+        const alt = /flash/i.test(cur) ? null : (lastPgModels || []).find((m) => /flash/i.test(m));
+        chatBubble("err", T("pg_throttled_hint") + (alt ? " → " + alt : ""));
+        const send = document.getElementById("pg-send");
+        if (send) {
+          send.disabled = true;
+          setTimeout(() => { send.disabled = false; }, 8000);
+        }
+      } else {
+        chatBubble("err", errText);
+      }
       // Recorded, not just displayed: the failure text is the evidence of what
       // happened, and it is what the operator looks for after a refresh.
       //
@@ -2539,8 +2588,7 @@ async function pgSend() {
       pgSave();
       return;
     }
-    const reader = resp.body.getReader(), dec = new TextDecoder();
-    let buf = "", think = "", out = "";
+    const reader = resp.body.getReader(), dec = new TextDecoder();    let buf = "", think = "", out = "";
     bot.textContent = "";
     while (true) {
       const { done, value } = await reader.read();
@@ -2766,7 +2814,22 @@ function renderMergedLog(rows, entries, filter, active) {
     // Same content: only ensure order/selection — cheap re-append is skipped
     // entirely when nothing changed.
   }
-  if (atBottom) box.scrollTop = box.scrollHeight;
+  if (followBottom() && atBottom) box.scrollTop = box.scrollHeight;
+}
+
+/**
+ * Whether the merged log should keep itself pinned to the newest line.
+ *
+ * Follow was UNCONDITIONAL, which made a 2000-line history useless: the first
+ * auto-refresh yanked the view to the bottom the moment the page opened, and
+ * the operator saw a black box ("渲染坏了") instead of the log. Now it is a
+ * checkbox next to auto-refresh; on by default (live tail is what the page is
+ * FOR), and the user who wants to scroll history just unticks it — the view
+ * then stays wherever they put it.
+ */
+function followBottom() {
+  const el = document.getElementById("rq-follow");
+  return !el || el.checked;
 }
 const logKeyCache = new Map();
 

@@ -567,11 +567,18 @@ describe("the picker choices survive a refresh", () => {
     // The model list comes from probe results, so a stored model can vanish when
     // an account is removed. Restoring it blindly would caption the picker with
     // a model the pool cannot call.
-    const restore = /const sel = pgLoadSelection\(\);[\s\S]*?setPickerValue\("pg-model", models\[0\]\);/.exec(html);
+    const restore = /const sel = pgLoadSelection\(\);[\s\S]*?setPickerValue\("pg-model", preferred \|\| models\[0\]\);/.exec(html);
     expect(restore).not.toBeNull();
     expect(restore![0]).toContain("models.includes(sel.model)");
     // And the account is matched against the ids actually in the pool.
     expect(html).toContain("acc.some((a) => a.id === sel.account)");
+  });
+
+  it("a fresh visitor defaults to the flash variant when the catalog has one", () => {
+    // glm-5.3 gets throttled upstream hard; the playground is where a new
+    // operator first tests the chain, so the default model is the one most
+    // likely to answer. An explicit stored choice still wins (tested above).
+    expect(html).toMatch(/const preferred = models\.find\(\(m\) => \/flash\/i\.test\(m\)\);/);
   });
 
   it("saving the conversation also saves the selection", () => {
