@@ -2650,17 +2650,25 @@ function renderMergedLog(rows, entries, filter, active) {
   }
   // Keyed incremental render (same pattern as the account cards): a full
   // innerHTML rebuild every 3s poll re-created 200+ nodes and re-parsed their
-  // HTML — visible as jank on low-end boxes. Each line now carries a stable
-  // key (its html is deterministic per entry); identical lines are reused,
-  // only genuinely new lines are parsed, and stale ones removed from the tail.
+  // HTML — visible as jank on low-end boxes. Each line is keyed by the FULL
+  // html (deterministic per entry); identical lines are reused, only genuinely
+  // new lines are parsed, and stale ones are dropped.
+  //
+  // The key must NOT include the row's index: rows re-sort as new lines merge
+  // in (a slow request row can finish with an OLDER timestamp than engine
+  // lines around it), and an index in the key shifts every key on such a
+  // re-sort — which both defeated reuse and, worse, let two DIFFERENT rows
+  // with the same length/prefix collide onto one cached node (the reported
+  // "日志渲染一会就不显示了" — the visible list and the data quietly diverged,
+  // and the changed=false early-return below then froze the wrong DOM in
+  // place instead of ever correcting it).
+  const LOGKEY_CACHE_MAX = 4000;
   const nextKeys = [];
   const frag = document.createDocumentFragment();
   const existing = [...box.querySelectorAll(".logline")];
-  const keyOf = (it, i) => i + "|" + it.html.length + "|" + (it.html.slice(0, 120));
-  let reuseIdx = 0;
   let changed = false;
   for (const it of shown) {
-    const key = keyOf(it, nextKeys.length);
+    const key = it.html;
     nextKeys.push(key);
     let node = logKeyCache.get(key);
     if (!node) {
@@ -2669,14 +2677,25 @@ function renderMergedLog(rows, entries, filter, active) {
       node.innerHTML = it.html;
       logKeyCache.set(key, node);
       changed = true;
+      // Bound the cache: identical full-html keys mean true duplicates, so a
+      // flooded cache can only come from runaway growth, never from reuse.
+      if (logKeyCache.size > LOGKEY_CACHE_MAX) logKeyCache.clear();
     }
     frag.appendChild(node);
   }
-  // Drop cache entries and DOM nodes no longer present.
-  for (const [k, node] of [...logKeyCache]) {
-    if (!nextKeys.includes(k)) { logKeyCache.delete(k); changed = true; }
+  // Drop cache entries whose rows are no longer shown.
+  if (logKeyCache.size > shown.length) {
+    const keep = new Set(nextKeys);
+    for (const k of [...logKeyCache.keys()]) {
+      if (!keep.has(k)) logKeyCache.delete(k);
+    }
   }
-  if (changed || existing.length !== shown.length) {
+  // Rebuild when content changed OR the live DOM's line count/order disagrees
+  // with `shown` — the order check is what self-heals a previously diverged
+  // box (error text written into it by a failed poll, a re-sort, duplicates).
+  const domOk = existing.length === shown.length &&
+    existing.every((el, i) => el === frag.childNodes[i]);
+  if (changed || !domOk) {
     box.innerHTML = "";
     box.appendChild(frag);
   } else {
@@ -2725,7 +2744,23 @@ async function pollLogs() {
     // nothing to distinguish "no data" from "the renderer is broken".
     const box = document.getElementById("log-box");
     if (box) box.innerHTML = '<div class="bal-empty">' + esc(T("log_err") + " " + e) + "</div>";
+    // Self-heal: a failed poll must not wedge the incremental cursor. Two
+    // consecutive failures (a real outage, not one blip) reset the cursor and
+    // the local buffer, so the next successful poll re-pulls everything and
+    // the page recovers on its own instead of showing a stale frozen view.
+    // The reset only clears the STREAK on success — handled by the early
+    // return below — never here, or two failures could never accumulate.
+    pollLogs._fails = (pollLogs._fails || 0) + 1;
+    if (pollLogs._fails >= 2) {
+      logSince = 0;
+      logEntries = [];
+    }
+    return;
   }
+  // Success: clear the failure streak (declared on the function object like
+  // the other ._inflight guards so the extracted-function tests stay
+  // standalone).
+  pollLogs._fails = 0;
 }
 
 document.getElementById("rq-search").addEventListener("input", () => pollLogs());
@@ -2747,7 +2782,18 @@ logTimer = setInterval(() => {
       document.getElementById("page-logs").classList.contains("on")) {
     pollLogs();
   }
-}, 3000);
+}, 2000);
+// Tab re-reveal: the 2s tick may land up to 2s away, which reads as "not live"
+// right after switching back to the tab. Fire one poll immediately (the
+// inflight guard inside pollLogs makes the double-fire harmless), and reset a
+// diverged incremental cursor so the view converges instead of starving.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  if (!zkAuthed) return;
+  if (!document.getElementById("page-logs").classList.contains("on")) return;
+  if (!document.getElementById("rq-auto").checked) return;
+  pollLogs();
+});
 
 
 /**
