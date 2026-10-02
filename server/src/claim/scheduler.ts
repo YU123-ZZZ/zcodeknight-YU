@@ -240,14 +240,22 @@ export class ClaimScheduler {
     try {
       captcha = await this.deps.getCaptcha();
     } catch (err) {
-      return this.errorBackoff(`captcha token failed: ${(err as Error).message}`);
+      // The failure message can embed the happy-dom XHR dump and guestErrors
+      // ring — hundreds of chars of sandbox noise per claim round (field
+      // report: WINDOW-ERROR lines drowning the log ring). Keep the reason,
+      // drop the noise tail, cap the length.
+      const raw = (err as Error).message || "unknown";
+      const brief = raw.split("| guestErrors")[0].slice(0, 160);
+      return this.errorBackoff(`captcha token failed: ${brief}`);
     }
 
     let outcome: ClaimOutcome;
     try {
       outcome = await client.claim(target.planId, captcha);
     } catch (err) {
-      return this.errorBackoff(`claim request failed: ${(err as Error).message}`);
+      const raw = (err as Error).message || "unknown";
+      const brief = raw.split("| guestErrors")[0].slice(0, 200);
+      return this.errorBackoff(`claim request failed: ${brief}`);
     }
 
     if (outcome.ok) {

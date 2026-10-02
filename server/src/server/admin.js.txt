@@ -2802,18 +2802,17 @@ function renderMergedLog(rows, entries, filter, active) {
       if (!keep.has(k)) logKeyCache.delete(k);
     }
   }
-  // Rebuild when content changed OR the live DOM's line count/order disagrees
-  // with `shown` — the order check is what self-heals a previously diverged
-  // box (error text written into it by a failed poll, a re-sort, duplicates).
-  const domOk = existing.length === shown.length &&
-    existing.every((el, i) => el === frag.childNodes[i]);
-  if (changed || !domOk) {
-    box.innerHTML = "";
-    box.appendChild(frag);
-  } else {
-    // Same content: only ensure order/selection — cheap re-append is skipped
-    // entirely when nothing changed.
-  }
+  // Rebuild unconditionally with replaceChildren. The earlier version had an
+  // early-return when "nothing changed", but the check could never fire
+  // correctly: reusing a cached node means appendChild has ALREADY moved it out
+  // of the box into the fragment, so `existing` (queried before the loop) no
+  // longer reflected the live DOM and the equality check passed vacuously —
+  // leaving the box EMPTY with all rows stranded in the detached fragment.
+  // That was the "Logs page opens as a black box, Refresh fixes it" report.
+  // replaceChildren moves already-parsed nodes without re-parsing their HTML,
+  // so the keyed cache keeps its original purpose (no innerHTML re-parse of
+  // 2000 lines per poll) while the DOM can never strand.
+  box.replaceChildren(frag);
   if (followBottom() && atBottom) box.scrollTop = box.scrollHeight;
 }
 
@@ -2903,6 +2902,19 @@ if (bannerClose) bannerClose.onclick = () => {
   try { sessionStorage.setItem("zk-upd-banner-dismissed", "1"); } catch (e) {}
 };
 try { if (sessionStorage.getItem("zk-upd-banner-dismissed") === "1") { const b = document.getElementById("upd-banner"); if (b) b.style.display = "none"; } } catch (e) {}
+
+// Scroll-aware follow: the checkbox is the operator's stated intent, but a
+// manual scroll speaks louder — scrolling UP unticks follow so refreshes stop
+// yanking the view to the bottom, and scrolling back to the very bottom ticks
+// it again. Both directions update the checkbox so the state stays visible.
+document.getElementById("log-box").addEventListener("scroll", () => {
+  const follow = document.getElementById("rq-follow");
+  if (!follow) return;
+  const box = document.getElementById("log-box");
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  if (!atBottom && follow.checked) follow.checked = false;
+  else if (atBottom && !follow.checked) follow.checked = true;
+});
 
 logTimer = setInterval(() => {
   if (document.getElementById("rq-auto").checked &&
