@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.7
+ * 版本 Version: v4.7.8
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -43,7 +43,7 @@ export async function handleChatCompletions(
 /**
  * Handle GET /v1/models — return the model list in OpenAI format.
  *
- * ALWAYS the full catalog (field report v4.7.7: "探测如果不出来对应模型，那对应
+ * ALWAYS the full catalog (field report v4.7.8: "探测如果不出来对应模型，那对应
  * 模型也不能用了" — the probe filtered this list, so one transient probe
  * failure — captcha burst, 3012 sweep, a blocked round past MAX_CARRY_RUNS —
  * removed the model from every client's picker, and the only way back was a

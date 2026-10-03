@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.7
+ * 版本 Version: v4.7.8
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -465,11 +465,11 @@ function streamResponse(upstreamResp: Response, context: StreamResponseContext):
         for (;;) {
           if (errored) break;
           // Backpressure: hold off reading upstream while the client-side
-          // queue is full (field report v4.7.7: a 951s slow-client stream
+          // queue is full (field report v4.7.8: a 951s slow-client stream
           // ballooned RSS ~470MB/h when this loop read unconditionally).
           // desiredSize starts at -HWM before the FIRST client read — a naive
           // `<= 0` check deadlocked the stream (only pings ever arrived,
-          // field report v4.7.7 /responses). Skip the wait until the client
+          // field report v4.7.8 /responses). Skip the wait until the client
           // has performed its first read (desiredSize becomes >= 0), then
           // apply the queue-full check for real.
           const ds = typeof controller.desiredSize === "number" ? controller.desiredSize : 1;

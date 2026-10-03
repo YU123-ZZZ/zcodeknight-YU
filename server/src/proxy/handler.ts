@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.7
+ * 版本 Version: v4.7.8
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -866,7 +866,7 @@ interface StreamTap {
  * wired explicitly: `pipeThrough` alone skips `flush` on abort, so the
  * returned stream's own `cancel` closes the tap and cancels the upstream.
  */
-// Hard kill-switch for a single streamed response (field report v4.7.7: the
+// Hard kill-switch for a single streamed response (field report v4.7.8: the
 // 951s slow-client stream was the RSS climb's carrier). 512MB of forwarded
 // bytes on ONE response is far beyond any legitimate GLM answer; past this the
 // stream is closed with an error instead of letting any queueing path take the
@@ -887,7 +887,7 @@ function tappedStream(
   // PULL-driven: upstream is read ONLY when the client's queue has room.
   // The previous rewrite used a start()-driven loop that read unconditionally
   // and controller.enqueue()d every chunk — an unbounded pump again (field
-  // report v4.7.7: ~470MB/h over a 951s slow-client stream, 68min to D-state).
+  // report v4.7.8: ~470MB/h over a 951s slow-client stream, 68min to D-state).
   // With pull, one chunk is in flight per client read; a slow client now
   // throttles the upstream socket itself.
   let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;

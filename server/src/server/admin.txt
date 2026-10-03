@@ -282,22 +282,30 @@
 
     <div class="card" style="margin-top:14px">
       <div class="lbl" data-i18n="apidoc_prompt_title">Prompt for your AI (click to select all, then copy)</div>
-      <pre id="apidoc-prompt" class="sub" style="margin-top:6px;white-space:pre-wrap;word-break:break-all;background:#0d1014;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:11.5px;cursor:text">Batch-add accounts to my ZcodeKnight gateway.
+      <pre id="apidoc-prompt" class="sub" style="margin-top:6px;white-space:pre-wrap;word-break:break-all;background:#0d1014;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:11.5px;cursor:text">Batch-add accounts to my ZcodeKnight gateway, FULLY AUTOMATIC.
 
 Gateway: {BASE_URL}  (admin key: I will provide it when you ask)
 Panel page: {BASE_URL}/admin
+Account credentials: I will provide the list (email + password per line) when you ask.
 
 Do this:
 1. POST {BASE_URL}/admin/api/accounts/login/batch
    Headers: Authorization: Bearer &lt;admin key&gt;, content-type: application/json
    Body: {"count": N, "provider": "zai", "namePrefix": "&lt;short prefix&gt;"}
    Save every sessionId + authorizeUrl from the response.
-2. Show me each authorizeUrl as a numbered clickable list — I will open them in my browser and sign in (5-minute expiry, do this step promptly).
+2. For each authorizeUrl, open it with your browser automation (Playwright or
+   browser-use), sign in with THAT account's email + password, and complete
+   the authorization. Sessions expire 5 minutes after creation — process them
+   in small waves (e.g. 3-5 at a time) so nothing expires while you work.
 3. Poll POST {BASE_URL}/admin/api/accounts/login/batch/status
    Body: {"sessionIds": ["&lt;all sessionIds&gt;"]}
-   Repeat every 5 seconds until summary.pending is 0. Report each account's ok/error and the final summary.
-4. If some sessions expire before I finish, call the batch endpoint again for just the missing count.
-5. Never send provider passwords anywhere. Only the authorize URLs are involved.</pre>
+   Repeat every 5 seconds until summary.pending is 0. Report each account's
+   ok/error and the final summary. The engine registers every successful
+   account into the pool automatically — no further calls needed.
+4. If some sessions expire before automation finishes, call the batch
+   endpoint again for just the missing count and repeat steps 2-3.
+5. Type credentials ONLY into the provider's own authorize page opened from
+   its authorizeUrl — never send them to any other endpoint or third party.</pre>
       <button class="btn sm" id="apidoc-copy" data-i18n="apidoc_copy">Copy prompt</button>
     </div>
   </div>

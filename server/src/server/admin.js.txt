@@ -86,7 +86,7 @@ const I18N = {
     nav_apidoc: "API 文档", apidoc_title: "批量登录 API — 给 AI 用", apidoc_sub: "让你的 AI 助手批量添加账号。把下面的提示词复制给你的编程 Agent，它就知道该怎么做。",
     apidoc_how_title: "工作流程（3 步）",
     apidoc_how_1: "1. AI 调用 POST /admin/api/accounts/login/batch（body 传 { \"count\": N }）——引擎开 N 个登录会话，返回 N 个授权链接。",
-    apidoc_how_2: "2. 由【人】逐个打开链接并在上游完成登录（这一步刻意保留人工——网关不收集上游账号密码）。会话 5 分钟过期，请尽快完成。",
+    apidoc_how_2: "2. 全自动：AI 用浏览器自动化（Playwright / browser-use 等）逐个打开 authorizeUrl，在页面里输入该账号的邮箱密码并完成授权；也可以人工打开链接登录。会话 5 分钟过期，请尽快完成。",
     apidoc_how_3: "3. AI 轮询 POST /admin/api/accounts/login/batch/status（带 sessionIds），直到每条都 done:true——成功后引擎自动注册账号。",
     apidoc_endpoints: "端点",
     apidoc_auth: "鉴权：与其他管理 API 相同（面板 Cookie 会话，或 API Key 调用走 Authorization: Bearer；Cookie 方式的写请求需带 x-csrf-token 头）。",
@@ -273,7 +273,7 @@ const I18N = {
     nav_apidoc: "API Docs", apidoc_title: "Batch Login API — for AI agents", apidoc_sub: "Let your AI assistant add accounts in bulk. Copy the prompt below into your coding agent — it knows everything it needs.",
     apidoc_how_title: "How it works (3 steps)",
     apidoc_how_1: "1. Your AI calls POST /admin/api/accounts/login/batch with { \"count\": N } — the engine opens N login sessions and returns N authorize URLs.",
-    apidoc_how_2: "2. A HUMAN opens each URL and signs in to the provider (this step is deliberately manual — the gateway never collects provider passwords). Sessions expire in 5 minutes, so do them promptly.",
+    apidoc_how_2: "2. Fully automatic: the AI opens each authorizeUrl with browser automation (Playwright / browser-use etc.), enters that account's email + password, and completes the authorization. A human opening the links manually works just as well. Sessions expire in 5 minutes, so do them promptly.",
     apidoc_how_3: "3. The AI polls POST /admin/api/accounts/login/batch/status with the sessionIds until every entry reports done:true — the engine registers each account automatically on success.",
     apidoc_endpoints: "Endpoints",
     apidoc_auth: "Auth: same admin key / panel session as every other admin API (Cookie session, or Authorization: Bearer for API-key callers; writes need the x-csrf-token header when cookie-authenticated).",
@@ -395,8 +395,11 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
-  { ver: "v4.7.7", date: "2026-10-03", items: {
+  { ver: "v4.7.8", date: "2026-10-03", items: {
     zh: [
+      "【账号】批量登录 API（AI 全自动开号）：POST /accounts/login/batch 一次开 1-20 个登录会话（串行创建防风控、namePrefix 自动命名），/batch/status 批量查状态（成功自动注册入池），/batch/cancel 一键取消整批",
+      "【账号】全自动链路：引擎返回授权链接后，AI 用浏览器自动化（Playwright / browser-use）打开链接、按账号清单输入邮箱密码完成授权；引擎后台自动轮询注册——全程无需人工",
+      "【面板】新增「API 文档」页：3 步工作流、端点参考、可复制的 AI 提示词（{BASE_URL} 打开时自动替换为当前面板地址），复制给编程 Agent 即可执行",
       "【调度】过期额度不再参与派发：每日赠款的 expiresAt 过后，缓存里的剩余数字仍为正，调度优先把请求打向该号、收获上游 1005——现在过期 bucket 记为 0 并被显式跳过",
       "【调度】429 吸收重试：上游并发 429（3009）不再直接甩给客户端——释放并发槽等待 5 秒（可配 ZCODE_429_ABSORB_MS）后同账号原路重发一次，成功即返回；等待期槽位继续服务其他流量",
       "【调度】403 双义分流：410004=真封禁（进重登流程并注明原因）；810002=high-demand 限流（仅模型级短冷却，账号不再被误伤进重登）",
@@ -405,6 +408,9 @@ const CHANGELOG = [
       "【面板】底部标注始创日期（2026-09-19）",
     ],
     en: [
+      "Accounts: batch login API for AI-driven onboarding — POST /accounts/login/batch opens 1-20 login sessions (sequential creation, namePrefix auto-naming), /batch/status polls them in bulk (successful sessions auto-register into the pool), /batch/cancel closes a batch",
+      "Accounts: fully-automatic chain — the engine returns authorize URLs, the AI opens each with browser automation (Playwright / browser-use), types that account's email + password, completes authorization; the engine polls and registers in the background — no human required",
+      "Panel: new API Docs page — 3-step workflow, endpoint reference, and a copyable AI prompt ({BASE_URL} auto-stamped to the current panel address)",
       "Dispatch: expired quota buckets no longer participate — a daily grant past its expiresAt kept a positive remaining figure in cache, so dispatch kept preferring that account into upstream 1005s. Expired buckets now report 0 and are explicitly skipped",
       "Dispatch: 429 absorb-retry — an upstream concurrency 429 (3009) no longer bounces to the client; the freed slot serves other traffic for 5s (ZCODE_429_ABSORB_MS) then the same account is retried once through the normal dispatch path",
       "Dispatch: 403 dual-classification — 410004 is a real ban (re-login flow with the reason surfaced); 810002 high-demand is only a short model-scoped cooldown, accounts no longer get benched into re-login for it",
@@ -912,7 +918,7 @@ async function refreshOverview() {
     const r = await api("/overview");
     const ov = await r.json();
     // Claim countdown data rides on the SAME /overview response (field report
-    // v4.7.7: the extra /config poll here surfaced every transient 4xx/403 as
+    // v4.7.8: the extra /config poll here surfaced every transient 4xx/403 as
     // "登录会话已失效" because isSessionLapse treats unknown error shapes as a
     // lapse and re-gated the UI). One request, no extra auth surface.
     // claimNextAtFetchedAt/claimAuto/claimNextAt are declared with the other
