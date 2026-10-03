@@ -1,6 +1,7 @@
 /**
  * ZcodeKnight — Black Knight Gateway
  * 作者 Author: YU123-ZZZ — https://github.com/YU123-ZZZ
+ * 项目始创 Project started: 2026-09-19
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
@@ -333,6 +334,14 @@ async function serve(configPath: string | undefined, debug: boolean): Promise<vo
       })
       .catch((err) => console.error(`[probe] scheduler failed to start: ${(err as Error).message}`));
   }
+  // Engine-level memory watchdog (2026-10-03 field report: pure proxy traffic
+  // never triggered the captcha-pool RSS guard, RSS climbed 88→728MB, swap
+  // filled, D-state, 502s). Warn tier force-GCs; two consecutive readings over
+  // the exit line exit(1) for a clean systemd respawn. Thresholds via
+  // ZCODE_MEMORY_WARN_MB (400) / ZCODE_MEMORY_EXIT_MB (700), 0 disables a tier.
+  void import("./monitor/memory-watch.js")
+    .then((m) => m.startMemoryWatch())
+    .catch((err) => console.error(`[memory] watchdog failed to start: ${(err as Error).message}`));
   console.log(`  provider: ${config.provider}`);
   if (config.proxy.enabled && config.proxy.url) {
     // Printed so the operator can see at a glance whether their traffic is

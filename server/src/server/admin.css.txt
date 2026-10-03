@@ -50,6 +50,13 @@
   .foot-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
   .foot-row a { color: var(--muted); }
   .foot-row a:hover { color: var(--blue); }
+  /* Meta rows (copyright / version): quieter than the link rows — smaller,
+     dimmer, centred, so the block reads as one tidy footer instead of four
+     crowded lines of mixed sizes. */
+  .foot-row.foot-meta {
+    display: block; margin-top: 8px; text-align: center;
+    font-size: 11px; color: #5a6270; line-height: 1.6;
+  }
   .badge-lang {
     margin-left: auto; background: var(--card); border: 1px solid var(--line); color: var(--steel);
     border-radius: 6px; padding: 2px 8px; cursor: pointer; font-size: 11px; font-family: inherit;

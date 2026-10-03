@@ -4,8 +4,7 @@ const I18N = {
     tagline: "黑骑士网关",
     nav_overview: "概览", nav_accounts: "账号池", nav_playground: "测试页", nav_logs: "日志",
     nav_invite: "邀请好友", nav_changelog: "更新日志", nav_settings: "设置", nav_system: "系统信息",
-    author: "作者主页", donate: "打赏", free_notice: "完全开源免费 · 收费的都是骗子", footer_since: "始创于 2026-09-19", bal_none: "暂无余额数据（需重新登录该账号）",
-    // An empty balance row has four different causes and the panel used to print
+    author: "作者主页", donate: "打赏", free_notice: "完全开源免费 · 收费的都是骗子", footer_since: "始创于 2026-09-19", bal_none: "暂无余额数据（需重新登录该账号）",    // An empty balance row has four different causes and the panel used to print
     // the re-login line for all of them — telling the operator to re-login an
     // account whose credential was fine and which simply has no plan. Each
     // message now names its own cause; the engine reports which via balanceState.
