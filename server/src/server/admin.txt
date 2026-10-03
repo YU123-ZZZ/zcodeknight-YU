@@ -64,6 +64,7 @@
     <button data-page="invite"><span class="ico">＋</span><span data-i18n="nav_invite">Invite</span></button>
     <button data-page="changelog"><span class="ico">✦</span><span data-i18n="nav_changelog">Changelog</span></button>
     <button data-page="intel"><span class="ico">◉</span><span data-i18n="nav_intel">Upstream Intel</span></button>
+    <button data-page="apidoc"><span class="ico">⌨</span><span data-i18n="nav_apidoc">API Docs</span></button>
     <button data-page="settings"><span class="ico">⚙</span><span data-i18n="nav_settings">Settings</span></button>
   </nav>
   <div class="side-foot">
@@ -256,6 +257,49 @@
     <h2 data-i18n="intel_title">Upstream Intel</h2>
     <div class="sub" data-i18n="intel_sub">Official release notes and gate changes — live feed, newest 15 only</div>
     <div id="intel-body"><span class="sub" data-i18n="loading">Loading…</span></div>
+  </div>
+
+  <div class="page" id="page-apidoc">
+    <h2 data-i18n="apidoc_title">Batch Login API — for AI agents</h2>
+    <div class="sub" data-i18n="apidoc_sub">Let your AI assistant add accounts in bulk. Copy the prompt below into your coding agent — it knows everything it needs.</div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="lbl" data-i18n="apidoc_how_title">How it works (3 steps)</div>
+      <div class="sub" style="margin-top:6px" data-i18n="apidoc_how_1">1. Your AI calls POST /admin/api/accounts/login/batch with { "count": N } — the engine opens N login sessions and returns N authorize URLs.</div>
+      <div class="sub" style="margin-top:4px" data-i18n="apidoc_how_2">2. A HUMAN opens each URL and signs in to the provider (this step is deliberately manual — the gateway never collects provider passwords). Sessions expire in 5 minutes, so do them promptly.</div>
+      <div class="sub" style="margin-top:4px" data-i18n="apidoc_how_3">3. The AI polls POST /admin/api/accounts/login/batch/status with the sessionIds until every entry reports done:true — the engine registers each account automatically on success.</div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="lbl" data-i18n="apidoc_endpoints">Endpoints</div>
+      <div class="sub" style="margin-top:6px;font-family:var(--mono);font-size:11.5px;line-height:1.9">
+        POST /admin/api/accounts/login/batch &nbsp; { "count": 5, "provider": "zai", "namePrefix": "farm" }<br>
+        POST /admin/api/accounts/login/batch/status &nbsp; { "sessionIds": ["…","…"] }<br>
+        POST /admin/api/accounts/login/batch/cancel &nbsp; { "sessionIds": ["…"] }
+      </div>
+      <div class="hint" style="margin-top:6px" data-i18n="apidoc_auth">Auth: same admin key / panel session as every other admin API (Cookie session, or Authorization: Bearer for API-key callers; writes need the x-csrf-token header when cookie-authenticated).</div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="lbl" data-i18n="apidoc_prompt_title">Prompt for your AI (click to select all, then copy)</div>
+      <pre id="apidoc-prompt" class="sub" style="margin-top:6px;white-space:pre-wrap;word-break:break-all;background:#0d1014;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:11.5px;cursor:text">Batch-add accounts to my ZcodeKnight gateway.
+
+Gateway: {BASE_URL}  (admin key: I will provide it when you ask)
+Panel page: {BASE_URL}/admin
+
+Do this:
+1. POST {BASE_URL}/admin/api/accounts/login/batch
+   Headers: Authorization: Bearer &lt;admin key&gt;, content-type: application/json
+   Body: {"count": N, "provider": "zai", "namePrefix": "&lt;short prefix&gt;"}
+   Save every sessionId + authorizeUrl from the response.
+2. Show me each authorizeUrl as a numbered clickable list — I will open them in my browser and sign in (5-minute expiry, do this step promptly).
+3. Poll POST {BASE_URL}/admin/api/accounts/login/batch/status
+   Body: {"sessionIds": ["&lt;all sessionIds&gt;"]}
+   Repeat every 5 seconds until summary.pending is 0. Report each account's ok/error and the final summary.
+4. If some sessions expire before I finish, call the batch endpoint again for just the missing count.
+5. Never send provider passwords anywhere. Only the authorize URLs are involved.</pre>
+      <button class="btn sm" id="apidoc-copy" data-i18n="apidoc_copy">Copy prompt</button>
+    </div>
   </div>
 
   <div class="page" id="page-settings">

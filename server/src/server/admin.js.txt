@@ -83,6 +83,15 @@ const I18N = {
     cl_title: "版本更新日志", cl_sub: "每个版本修复了什么 —— 新版本在前",
     cl_known_issues: "已知遗留问题与说明",
     nav_intel: "官方实时情报", intel_title: "官方实时情报", intel_sub: "官方客户端更新与门禁变化 —— 实时拉取，仅保留最新 15 条", intel_stale: "（缓存，拉取失败 — 显示的是上次内容）", intel_none: "暂无情报条目", intel_fetched: "更新于",
+    nav_apidoc: "API 文档", apidoc_title: "批量登录 API — 给 AI 用", apidoc_sub: "让你的 AI 助手批量添加账号。把下面的提示词复制给你的编程 Agent，它就知道该怎么做。",
+    apidoc_how_title: "工作流程（3 步）",
+    apidoc_how_1: "1. AI 调用 POST /admin/api/accounts/login/batch（body 传 { \"count\": N }）——引擎开 N 个登录会话，返回 N 个授权链接。",
+    apidoc_how_2: "2. 由【人】逐个打开链接并在上游完成登录（这一步刻意保留人工——网关不收集上游账号密码）。会话 5 分钟过期，请尽快完成。",
+    apidoc_how_3: "3. AI 轮询 POST /admin/api/accounts/login/batch/status（带 sessionIds），直到每条都 done:true——成功后引擎自动注册账号。",
+    apidoc_endpoints: "端点",
+    apidoc_auth: "鉴权：与其他管理 API 相同（面板 Cookie 会话，或 API Key 调用走 Authorization: Bearer；Cookie 方式的写请求需带 x-csrf-token 头）。",
+    apidoc_prompt_title: "给你 AI 的提示词（点击选中，然后复制）",
+    apidoc_copy: "复制提示词",
     set_title: "设置", set_sub: "修改后部分项需重启代理生效",
     set_zcode_compat: "适配 ZCode 客户端版本：3.14.4+（身份指纹按此版本伪装；低于此版本可能触发上游 1004 ineligible）",
     intel_link_text: "在 GitHub 查看",
@@ -261,6 +270,15 @@ const I18N = {
     cl_title: "Version Changelog", cl_sub: "What each version fixed — newest first",
     cl_known_issues: "Known issues and notes",
     nav_intel: "Upstream Intel", intel_title: "Upstream Intel", intel_sub: "Official client releases and gate changes — live feed, newest 15 only", intel_stale: "(cached — fetch failed, showing last known)", intel_none: "No intel entries", intel_fetched: "fetched",
+    nav_apidoc: "API Docs", apidoc_title: "Batch Login API — for AI agents", apidoc_sub: "Let your AI assistant add accounts in bulk. Copy the prompt below into your coding agent — it knows everything it needs.",
+    apidoc_how_title: "How it works (3 steps)",
+    apidoc_how_1: "1. Your AI calls POST /admin/api/accounts/login/batch with { \"count\": N } — the engine opens N login sessions and returns N authorize URLs.",
+    apidoc_how_2: "2. A HUMAN opens each URL and signs in to the provider (this step is deliberately manual — the gateway never collects provider passwords). Sessions expire in 5 minutes, so do them promptly.",
+    apidoc_how_3: "3. The AI polls POST /admin/api/accounts/login/batch/status with the sessionIds until every entry reports done:true — the engine registers each account automatically on success.",
+    apidoc_endpoints: "Endpoints",
+    apidoc_auth: "Auth: same admin key / panel session as every other admin API (Cookie session, or Authorization: Bearer for API-key callers; writes need the x-csrf-token header when cookie-authenticated).",
+    apidoc_prompt_title: "Prompt for your AI (click to select all, then copy)",
+    apidoc_copy: "Copy prompt",
     set_zcode_compat: "Compatible ZCode client version: 3.14.4+ (identity fingerprint mimics this release; older versions may trigger upstream 1004 ineligible)",
     intel_link_text: "View on GitHub",
     set_title: "Settings", set_sub: "Some changes need a proxy restart",
@@ -824,6 +842,16 @@ function showPage(name) {
   if (name === "playground") { pgRestore(); loadPlaygroundAccounts(); }
   if (name === "changelog") renderChangelog();
   if (name === "intel") loadIntel(false);
+  if (name === "apidoc" && !document.getElementById("apidoc-prompt").dataset.filled) {
+    // Stamp the real BASE_URL into the copyable prompt the first time the page
+    // opens, so the agent gets a ready-to-paste address instead of a
+    // placeholder the user must edit by hand.
+    const pre = document.getElementById("apidoc-prompt");
+    pre.textContent = pre.textContent
+      .replaceAll("{BASE_URL}", location.origin)
+      .replaceAll("&lt;", "<").replaceAll("&gt;", ">");
+    pre.dataset.filled = "1";
+  }
   if (name === "accounts") refreshAccounts();
   if (name === "models") loadProbeAccounts();
   if (name === "logs") pollLogs();
@@ -4170,5 +4198,26 @@ async function boot() {
     if (document.getElementById("page-accounts").classList.contains("on")) refreshAccounts();
   }, 5000);
 }
+// ── API Docs page: copy-prompt button ──────────────────────────────────────
+// Selects the whole prompt block and copies it; textContent (not innerHTML)
+// is what gets copied so the agent receives clean text without entities.
+document.getElementById("apidoc-copy").onclick = async () => {
+  const pre = document.getElementById("apidoc-prompt");
+  const text = pre.textContent || "";
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(T("copied"));
+  } catch {
+    // Clipboard API can be denied (http origins, permissions) — fall back to
+    // the classic select-all so the user can Ctrl+C manually.
+    const range = document.createRange();
+    range.selectNodeContents(pre);
+    const sel = getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    toast(T("copy_manual"));
+  }
+};
+
 armSelfHeal();
 boot();

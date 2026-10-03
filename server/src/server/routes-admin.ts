@@ -40,7 +40,7 @@ import { randomUUID } from "node:crypto";
 import type { ProxyConfig } from "../config/types.js";
 import type { AuthManager } from "../auth/manager.js";
 import { errorResponse } from "../proxy/handler.js";
-import { proxyUrl, proxyRotationSize } from "../proxy/network-proxy.js";
+import { proxyUrl, proxyRotationSize, exitHealthList } from "../proxy/network-proxy.js";
 import {
   loadAccounts, addAccount, deleteAccount, updateAccount,
   type AccountPlan,
@@ -830,6 +830,115 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
   }
 
   /**
+   * Batch login — designed for AI-DRIVEN onboarding (2026-10-03): one call
+   * opens N login sessions at once and returns every authorize URL plus its
+   * sessionId, so an external agent can orchestrate "add a dozen accounts"
+   * without round-tripping the single-account endpoint N times.
+   *
+   * The automation boundary is deliberate and documented in the API page:
+   * the ENGINE automates session creation, polling and account registration;
+   * the actual authorization (signing in to the provider inside the opened
+   * authorize URL) is a HUMAN step by design — collecting provider passwords
+   * into the gateway would be credential harvesting, and provider risk
+   * control already counts mass-authorized sessions per IP. The agent's loop
+   * is therefore: batch-start → hand URLs to the operator → poll batch status
+   * until every entry reports done.
+   *
+   * Sessions are created SEQUENTIALLY (each `client.start()` is an upstream
+   * call; a burst of 20 parallel inits is exactly the pattern that trips 3012
+   * on the claim path) and the whole batch is capped at 20.
+   */
+  if (method === "POST" && path === "/accounts/login/batch") {
+    const body = await readJson<{ count?: number; provider?: ProviderId; namePrefix?: string }>(req);
+    const count = Math.max(1, Math.min(20, Math.trunc(Number(body?.count) || 1)));
+    const provider = body?.provider === "bigmodel" ? "bigmodel" : "zai";
+    const prefix = (body?.namePrefix ?? "").trim().slice(0, 40);
+    const created: Array<{ sessionId: string; authorizeUrl: string; name: string; error?: string }> = [];
+    for (let i = 0; i < count; i++) {
+      const name = prefix ? `${prefix}-${String(i + 1).padStart(2, "0")}` : undefined;
+      try {
+        const client = provider === "bigmodel" ? new BigmodelPollOAuthClient() : new ZaiOAuthClient();
+        const started = await client.start();
+        const session: LoginSession = {
+          id: randomUUID(),
+          provider,
+          client,
+          authorizeUrl: started.authorizeUrl,
+          started,
+          createdAt: Date.now(),
+          expiresAt: Date.now() + LOGIN_TTL_MS,
+          result: null,
+        };
+        sessions.set(session.id, session);
+        void resolveLoginSession(session, name, config);
+        created.push({ sessionId: session.id, authorizeUrl: session.authorizeUrl, name: name ?? "(auto)" });
+      } catch (err) {
+        created.push({ sessionId: "", authorizeUrl: "", name: name ?? `(slot ${i + 1})`, error: (err as Error).message });
+      }
+    }
+    const failed = created.filter((c) => c.error).length;
+    return json({
+      ok: failed < count,
+      total: count,
+      created: count - failed,
+      failed,
+      expiresIn: LOGIN_TTL_MS / 1000,
+      sessions: created,
+      next: "POST /accounts/login/batch/status with the sessionIds until every entry reports done:true",
+    });
+  }
+
+  /** Batch status — one call for N sessions (see /accounts/login/batch). */
+  if (method === "POST" && path === "/accounts/login/batch/status") {
+    const body = await readJson<{ sessionIds?: string[] }>(req);
+    const ids = Array.isArray(body?.sessionIds) ? body!.sessionIds.slice(0, 40) : [];
+    const sessionsOut = ids.map((id) => {
+      const s = sessions.get(id);
+      if (!s) return { sessionId: id, known: false, done: false, expired: true };
+      return {
+        sessionId: id,
+        known: true,
+        provider: s.provider,
+        name: s.result?.ok ? s.result.accountName : undefined,
+        done: s.result !== null,
+        ok: s.result?.ok === true,
+        error: s.result && !s.result.ok ? s.result.error : undefined,
+        existed: s.result?.ok ? s.result.existed : undefined,
+        newAccountRest: s.result?.ok ? s.result.newAccountRest : undefined,
+        authorizeUrl: s.result ? undefined : s.authorizeUrl,
+        expired: Date.now() >= s.expiresAt,
+        expiresAt: s.expiresAt,
+      };
+    });
+    return json({
+      done: sessionsOut.every((s) => !s.known || s.done || s.expired),
+      summary: {
+        total: sessionsOut.length,
+        ok: sessionsOut.filter((s) => s.ok).length,
+        failed: sessionsOut.filter((s) => s.done && !s.ok).length,
+        pending: sessionsOut.filter((s) => s.known && !s.done && !s.expired).length,
+      },
+      sessions: sessionsOut,
+    });
+  }
+
+  /** Batch-cancel — close every still-pending session of a batch at once. */
+  if (method === "POST" && "/accounts/login/batch/cancel" === path) {
+    const body = await readJson<{ sessionIds?: string[] }>(req);
+    const ids = Array.isArray(body?.sessionIds) ? body!.sessionIds.slice(0, 40) : [];
+    let closed = 0;
+    for (const id of ids) {
+      const s = sessions.get(id);
+      if (s && !s.result) {
+        await s.client.close().catch(() => {});
+        sessions.delete(id);
+        closed += 1;
+      }
+    }
+    return json({ ok: true, closed });
+  }
+
+  /**
    * Mark an account as the pool default. Advisory only — dispatch still
    * round-robins, so this changes which account single-account operations pick
    * rather than diverting traffic.
@@ -1014,6 +1123,9 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
         noProxy: config.proxy.noProxy,
         current: proxyUrl(),
         rotationSize: proxyRotationSize(),
+        // Egresses benched by failed health probes / dispatch connect checks —
+        // rotation skips them, so this is the "why is my spare not used" answer.
+        deadExits: exitHealthList().filter((e) => e.dead).length,
       },
     });
   }
