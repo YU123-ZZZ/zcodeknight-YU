@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.4
+ * 版本 Version: v4.7.8
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -619,6 +619,14 @@ function resolveProxyConfig(raw: unknown): NetworkProxyConfig {
   const url = (urlEnv ?? (typeof obj.url === "string" ? obj.url : DEFAULTS.PROXY_URL)).trim()
     || (process.env.HTTPS_PROXY || process.env.HTTP_PROXY || "").trim();
   const noProxy = (typeof obj.noProxy === "string" ? obj.noProxy : DEFAULTS.PROXY_NO_PROXY).trim();
+  // Spare egress list. Newline/comma/semicolon separated; each entry is
+  // validated like the primary URL because a malformed spare must fail at
+  // startup too — discovering a typo only when 3012 fires and the engine tries
+  // to rotate would turn the recovery path into the outage.
+  const rotateUrls = (typeof obj.rotateUrls === "string" ? obj.rotateUrls : "")
+    .split(/[\n,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   if (enabled && !url) {
     throw new Error(
@@ -638,7 +646,19 @@ function resolveProxyConfig(raw: unknown): NetworkProxyConfig {
       throw new Error(`proxy.url must use one of ${allowed.join(" ")} (got ${parsed.protocol})`);
     }
   }
-  return { enabled, url, noProxy };
+  for (const spare of rotateUrls) {
+    let parsed: URL;
+    try {
+      parsed = new URL(spare);
+    } catch {
+      throw new Error(`proxy.rotateUrls entry "${spare}" is not a valid URL`);
+    }
+    const allowed = ["http:", "https:", "socks:", "socks5:", "socks4:"];
+    if (!allowed.includes(parsed.protocol)) {
+      throw new Error(`proxy.rotateUrls entry "${spare}" must use one of ${allowed.join(" ")} (got ${parsed.protocol})`);
+    }
+  }
+  return { enabled, url, rotateUrls: rotateUrls.join("\n"), noProxy };
 }
 
 function validate(config: ProxyConfig): void {

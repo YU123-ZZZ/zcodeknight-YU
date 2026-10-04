@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.4
+ * 版本 Version: v4.7.8
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -84,7 +84,14 @@ export function listRiskHolds(now = Date.now()): Array<{ model: string; unlockAt
   return out;
 }
 
-/** Test hook — forget every hold. */
+/**
+ * Forget every hold. Called on egress change: a 3012 hold is a statement about
+ * the EXIT IP upstream flagged, so when the operator switches proxy (or turns
+ * it off) the old holds describe an IP that is no longer in use — keeping them
+ * silenced models that are actually fine on the new egress (live failure:
+ * "switched proxy, everything unusable; disabled proxy, glm-5.3 still reported
+ * throttled while a pinned single-account test passed", 2026-10-04).
+ */
 export function clearRiskHolds(): void {
   holds.clear();
 }

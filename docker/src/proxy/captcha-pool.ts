@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.4
+ * 版本 Version: v4.7.8
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -176,6 +176,8 @@ export class CaptchaTokenPool {
   private refillInFlight = false;
   private lastSolveAt = 0;
   private activeSolves = 0;
+  /** Rate-limits the condensed sandbox-noise log line (see solveBatch). */
+  private lastNoiseLogAt = 0;
   private cfg: CaptchaConfig | null = null;
   private pausedUntil = 0;
   private lastTakeAt: number;
@@ -553,7 +555,22 @@ export class CaptchaTokenPool {
         if (r.status === "fulfilled") {
           this.pushToken(r.value);
         } else {
-          engineError("captcha", `parallel solve failed: ${r.reason}`, "warn");
+          // The full failure text carries the per-request XHR dump and the
+          // happy-dom guestErrors ring — hundreds of characters per wave, all
+          // landing in the panel's log ring on every claim round (field report:
+          // WINDOW-ERROR spam drowning real events). Sandbox noise is condensed
+          // to one short line and logged at most once per minute; everything
+          // else keeps the full text.
+          const raw = String(r.reason);
+          if (/WINDOW-ERROR|captcha solve (stall|timeout)|duplicate certifyId/i.test(raw)) {
+            const now = Date.now();
+            if (now - this.lastNoiseLogAt < 60_000) continue;
+            this.lastNoiseLogAt = now;
+            const brief = raw.split("| guestErrors")[0].slice(0, 140);
+            engineError("captcha", `solve failed (sandbox noise): ${brief} — similar lines suppressed 1/min`, "warn");
+          } else {
+            engineError("captcha", `parallel solve failed: ${raw}`, "warn");
+          }
         }
       }
       remaining -= wave;

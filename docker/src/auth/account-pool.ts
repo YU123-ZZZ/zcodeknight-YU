@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.4
+ * 版本 Version: v4.7.8
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -678,6 +678,35 @@ export class AccountPool {
       const until = rt.modelCooldownUntil.get(opts.model) ?? 0;
       return until <= now;
     };
+    // Which candidates hold KNOWN-POSITIVE quota for this model (and therefore
+    // should be waited for when they are only temporarily busy), and the
+    // earliest moment one of them frees up. Computed here because the
+    // fallback passes below need it: without this, the only account with a
+    // real bucket enters a short post-3009 model cooldown and the rotation
+    // falls through to accounts that have NO grant for the model — upstream
+    // answers 1005, the operator sees "轮不到有额度的那个号" (field report
+    // 2026-10-02: one account held the only GLM-5.3 bucket; every automatic
+    // dispatch during its cooldown went to a bucket-less account).
+    let knownPositiveExists = false;
+    let knownPositiveReadyAt = Number.POSITIVE_INFINITY;
+    if (opts.model && this.opts.quotaLookup) {
+      for (const rt of candidates) {
+        let left: number | null = null;
+        try {
+          left = this.opts.quotaLookup(rt.record.id, opts.model);
+        } catch {
+          left = null;
+        }
+        if (left !== null && left > 0) {
+          knownPositiveExists = true;
+          const busyUntil = Math.max(
+            rt.modelCooldownUntil.get(opts.model) ?? 0,
+            rt.modelInFlight.get(opts.model) ? now : 0,
+          );
+          if (busyUntil < knownPositiveReadyAt) knownPositiveReadyAt = busyUntil;
+        }
+      }
+    }
     // Per-model concurrency. Without this the account gate admitted two parallel
     // requests for a model upstream serialises, and the second one came back 3009
     // — a failure the caller had to retry when it could simply have waited.
@@ -709,6 +738,23 @@ export class AccountPool {
         const soonest = Math.min(...spacingBlocked.map((rt) => rt.lastDispatchAt + this.opts.minSpacingMs - now));
         return { ok: false, waitMs: Math.max(0, soonest), reason: "account_spacing" };
       }
+    }
+
+    // Pass 1c: an account with KNOWN-POSITIVE quota for this model exists but
+    // is only temporarily busy (post-3009 model cooldown, or its single model
+    // slot still in flight). Wait for IT — never dispatch to an account with
+    // no grant for the model, which upstream answers 1005. The caller treats
+    // this exactly like all_gates_full (queue or refuse), and once the
+    // cooldown ends the normal rotation picks the bucket holder again.
+    // Deliberately placed BEFORE the unknown-fallback inside nextRoundRobin:
+    // the fallback exists for pools with no bucket data at all, not to paper
+    // over a temporarily-busy bucket holder.
+    if (knownPositiveExists && Number.isFinite(knownPositiveReadyAt)) {
+      return {
+        ok: false,
+        waitMs: Math.max(0, knownPositiveReadyAt - now),
+        reason: "model_busy_with_quota",
+      };
     }
 
     // Pass 1c: everything is at its account gate. Before refusing, admit an

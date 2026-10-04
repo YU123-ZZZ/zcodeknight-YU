@@ -44,7 +44,7 @@ import { openBrowser } from "./runtime/open-browser.js";
 import { pasteLoginInstructions, readPastedLine, boldIfTTY } from "./runtime/paste-login.js";
 import { buildServerOptions } from "./server/server-options.js";
 import { readFileSync, existsSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { ensureNodeFetchNoTimeouts } from "./runtime/node-fetch-compat.js";
@@ -190,7 +190,13 @@ Examples:
 }
 
 async function serve(configPath: string | undefined, debug: boolean): Promise<void> {
-  const path = configPath ?? process.env.ZCODE_PROXY_CONFIG ?? "config.yaml";
+  // Resolve to an ABSOLUTE path: the panel's config writers (proxy / claim-auto
+  // / panel-timeout / pool saves) persist to this exact file. A relative path
+  // here is interpreted against whatever cwd the process happens to have —
+  // under systemd that is not necessarily the deploy root, so panel saves
+  // would land in a stray config.yaml and silently vanish on restart (live
+  // failure: "exit proxy did not survive an engine restart", 2026-10-04).
+  const path = resolve(configPath ?? process.env.ZCODE_PROXY_CONFIG ?? "config.yaml");
   if (ensureConfigFile(path)) {
     ensureDeviceMidInConfig(path);
     console.log(`Created ${path} from bundled template.`);

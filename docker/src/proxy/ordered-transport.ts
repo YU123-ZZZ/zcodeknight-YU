@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.4
+ * 版本 Version: v4.7.8
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -25,6 +25,8 @@
 
 import { connect as connectTcp, type Socket } from "node:net";
 import { connect as connectTls, type TLSSocket } from "node:tls";
+import { egressFor } from "./network-proxy.js";
+import { socksConnect, httpConnect } from "./socks.js";
 
 export type OrderedHeaderPair = [string, string];
 
@@ -264,7 +266,38 @@ function openSocket(url: URL): Promise<WireSocket> {
       socket.off("error", reject);
       resolve(socket);
     };
-    const socket: WireSocket = isHttps
+    // Proxy awareness (2026-10-03): this raw-socket sender NEVER consulted
+    // any dispatcher — an http:// proxy was bypassed here entirely, and a
+    // socks5:// proxy could not be honored at all, both leaking the real IP
+    // on the GLM upstream path. egressFor() classifies which egress applies
+    // to this destination (loopback always direct), and the tunnel builders
+    // deliver the socket; TLS is layered on the tunnel exactly as it was on
+    // the direct dial.
+    let socket: WireSocket;
+    const egress = egressFor(url.href);
+    if (egress.kind === "socks") {
+      socksConnect(egress.url, url.hostname, port)
+        .then((tunnel) => {
+          socket = isHttps
+            ? connectTls({ socket: tunnel, servername: url.hostname }, onConnect)
+            : tunnel;
+          socket.once("error", reject);
+        })
+        .catch(reject);
+      return;
+    }
+    if (egress.kind === "http") {
+      httpConnect(egress.url, url.hostname, port)
+        .then((tunnel) => {
+          socket = isHttps
+            ? connectTls({ socket: tunnel, servername: url.hostname }, onConnect)
+            : tunnel;
+          socket.once("error", reject);
+        })
+        .catch(reject);
+      return;
+    }
+    socket = isHttps
       ? connectTls({ host: url.hostname, port, servername: url.hostname }, onConnect)
       : connectTcp({ host: url.hostname, port }, onConnect);
     socket.once("error", reject);

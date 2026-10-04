@@ -4,8 +4,7 @@ const I18N = {
     tagline: "黑骑士网关",
     nav_overview: "概览", nav_accounts: "账号池", nav_playground: "测试页", nav_logs: "日志",
     nav_invite: "邀请好友", nav_changelog: "更新日志", nav_settings: "设置", nav_system: "系统信息",
-    author: "作者主页", donate: "打赏", free_notice: "完全开源免费 · 收费的都是骗子", bal_none: "暂无余额数据（需重新登录该账号）",
-    // An empty balance row has four different causes and the panel used to print
+    author: "作者主页", donate: "打赏", free_notice: "完全开源免费 · 收费的都是骗子", footer_since: "始创于 2026-09-19", bal_none: "暂无余额数据（需重新登录该账号）",    // An empty balance row has four different causes and the panel used to print
     // the re-login line for all of them — telling the operator to re-login an
     // account whose credential was fine and which simply has no plan. Each
     // message now names its own cause; the engine reports which via balanceState.
@@ -63,7 +62,7 @@ const I18N = {
     log_title: "日志", log_sub: "请求与引擎消息合并成一条时间线，按时间排序",
     log_raw: "引擎日志",
     rq_search_ph: "搜索 IP / 模型 / 路径 / 客户端…", rq_ok: "成功", rq_fail: "失败",
-    rq_auto: "自动刷新", rq_ip: "来源 IP", rq_path: "调用路径", rq_ua: "客户端",
+    rq_auto: "自动刷新", rq_follow: "跟随底部", rq_ip: "来源 IP", rq_path: "调用路径", rq_ua: "客户端",
     rq_count: "显示 {n} / 共 {m} 条", rq_none: "没有匹配的请求记录",
     rq_running: "进行中", rq_running_for: "已运行",
     claim_auto_off: "自动领取已关闭", claim_none_grey: "当前没有可领取的活动套餐",
@@ -84,6 +83,15 @@ const I18N = {
     cl_title: "版本更新日志", cl_sub: "每个版本修复了什么 —— 新版本在前",
     cl_known_issues: "已知遗留问题与说明",
     nav_intel: "官方实时情报", intel_title: "官方实时情报", intel_sub: "官方客户端更新与门禁变化 —— 实时拉取，仅保留最新 15 条", intel_stale: "（缓存，拉取失败 — 显示的是上次内容）", intel_none: "暂无情报条目", intel_fetched: "更新于",
+    nav_apidoc: "API 文档", apidoc_title: "批量登录 API — 给 AI 用", apidoc_sub: "让你的 AI 助手批量添加账号。把下面的提示词复制给你的编程 Agent，它就知道该怎么做。",
+    apidoc_how_title: "工作流程（3 步）",
+    apidoc_how_1: "1. AI 调用 POST /admin/api/accounts/login/batch（body 传 { \"count\": N }）——引擎开 N 个登录会话，返回 N 个授权链接。",
+    apidoc_how_2: "2. 全自动：AI 用浏览器自动化（Playwright / browser-use 等）逐个打开 authorizeUrl，在页面里输入该账号的邮箱密码并完成授权；也可以人工打开链接登录。会话 5 分钟过期，请尽快完成。",
+    apidoc_how_3: "3. AI 轮询 POST /admin/api/accounts/login/batch/status（带 sessionIds），直到每条都 done:true——成功后引擎自动注册账号。",
+    apidoc_endpoints: "端点",
+    apidoc_auth: "鉴权：与其他管理 API 相同（面板 Cookie 会话，或 API Key 调用走 Authorization: Bearer；Cookie 方式的写请求需带 x-csrf-token 头）。",
+    apidoc_prompt_title: "给你 AI 的提示词（点击选中，然后复制）",
+    apidoc_copy: "复制提示词",
     set_title: "设置", set_sub: "修改后部分项需重启代理生效",
     set_zcode_compat: "适配 ZCode 客户端版本：3.14.4+（身份指纹按此版本伪装；低于此版本可能触发上游 1004 ineligible）",
     intel_link_text: "在 GitHub 查看",
@@ -109,10 +117,14 @@ const I18N = {
     set_spacing: "同账号最小间隔（毫秒）", set_spacing_hint: "同一账号两次请求的最短间隔，降低风控命中；0 关闭",
     set_proxy: "出口代理", set_proxy_hint: "上游请求走代理。撞 3012 时可以试，但不是官方解法——拦截看的是请求形状，不只是地址。保存后立即生效，本机回环始终直连",
     set_proxy_url: "代理地址", set_proxy_url_hint: "如 http://127.0.0.1:7890 或 socks5://用户:密码@主机:1080；留空则读 HTTPS_PROXY 环境变量",
+    set_proxy_rotate: "备用出口（3012 轮换）", set_proxy_rotate_hint: "每行一个代理地址。上游返回 3012（出口 IP 被标记）时自动切换到下一个，被标记的地址排到队尾最后再用。留空 = 不轮换",
     set_proxy_node_now: "当前节点：",
     set_proxy_noproxy: "直连白名单", set_proxy_noproxy_hint: "逗号分隔，这些主机不走代理",
     set_proxy_save: "保存代理设置",
     set_proxy_on: "当前出口：{h}", set_proxy_off: "当前直连（未走代理）",
+    set_proxy_rotate_n: "轮换池 {n} 个出口",
+    pg_throttled_hint: "该模型当前被上游限流，稍候自动恢复；或改用 glm-5.3-flash（不限流）",
+    panel_stale: "引擎已更新，本页脚本已过期，请强制刷新（Ctrl+F5）",
     set_idle: "面板空闲登出", set_idle_hint: "多少分钟不操作后重新要求输入密钥。任何操作都会重置计时；0 表示永不登出",
     set_idle_save: "保存超时", set_idle_stat: "当前空闲超时", min_unit: "分钟",
     set_idle_never: "已设为永不登出", set_idle_bad: "请输入不小于 0 的分钟数",
@@ -180,7 +192,7 @@ const I18N = {
     tagline: "Black Knight Gateway",
     nav_overview: "Overview", nav_accounts: "Accounts", nav_playground: "Playground", nav_logs: "Logs",
     nav_invite: "Invite", nav_changelog: "Changelog", nav_settings: "Settings", nav_system: "System",
-    author: "Author", donate: "Donate", free_notice: "Fully open source & free — paid copies are scams", bal_none: "No balance data (re-login this account)",
+    author: "Author", donate: "Donate", free_notice: "Fully open source & free — paid copies are scams", footer_since: "Since 2026-09-19", bal_none: "No balance data (re-login this account)",
     // See the zh block: one message for four distinct causes was misleading.
     bal_no_plan: "No plan on this account (never subscribed, or the plan expired) — dispatch skips it when other accounts have known quota, but an all-unknown pool still rotates",
     bal_unavailable: "Balance read failed — retry later (credential was not rejected)",
@@ -237,7 +249,7 @@ const I18N = {
     log_title: "Logs", log_sub: "Requests and engine messages in one timeline, ordered by time",
     log_raw: "Engine log",
     rq_search_ph: "Search IP / model / path / client…", rq_ok: "OK", rq_fail: "Failed",
-    rq_auto: "Auto-refresh", rq_ip: "Caller IP", rq_path: "Path", rq_ua: "Client",
+    rq_auto: "Auto-refresh", rq_follow: "Follow bottom", rq_ip: "Caller IP", rq_path: "Path", rq_ua: "Client",
     rq_count: "Showing {n} of {m}", rq_none: "No matching requests",
     rq_running: "RUN", rq_running_for: "running for",
     claim_auto_off: "Auto-claim is OFF", claim_none_grey: "No claimable activity plan right now",
@@ -258,6 +270,15 @@ const I18N = {
     cl_title: "Version Changelog", cl_sub: "What each version fixed — newest first",
     cl_known_issues: "Known issues and notes",
     nav_intel: "Upstream Intel", intel_title: "Upstream Intel", intel_sub: "Official client releases and gate changes — live feed, newest 15 only", intel_stale: "(cached — fetch failed, showing last known)", intel_none: "No intel entries", intel_fetched: "fetched",
+    nav_apidoc: "API Docs", apidoc_title: "Batch Login API — for AI agents", apidoc_sub: "Let your AI assistant add accounts in bulk. Copy the prompt below into your coding agent — it knows everything it needs.",
+    apidoc_how_title: "How it works (3 steps)",
+    apidoc_how_1: "1. Your AI calls POST /admin/api/accounts/login/batch with { \"count\": N } — the engine opens N login sessions and returns N authorize URLs.",
+    apidoc_how_2: "2. Fully automatic: the AI opens each authorizeUrl with browser automation (Playwright / browser-use etc.), enters that account's email + password, and completes the authorization. A human opening the links manually works just as well. Sessions expire in 5 minutes, so do them promptly.",
+    apidoc_how_3: "3. The AI polls POST /admin/api/accounts/login/batch/status with the sessionIds until every entry reports done:true — the engine registers each account automatically on success.",
+    apidoc_endpoints: "Endpoints",
+    apidoc_auth: "Auth: same admin key / panel session as every other admin API (Cookie session, or Authorization: Bearer for API-key callers; writes need the x-csrf-token header when cookie-authenticated).",
+    apidoc_prompt_title: "Prompt for your AI (click to select all, then copy)",
+    apidoc_copy: "Copy prompt",
     set_zcode_compat: "Compatible ZCode client version: 3.14.4+ (identity fingerprint mimics this release; older versions may trigger upstream 1004 ineligible)",
     intel_link_text: "View on GitHub",
     set_title: "Settings", set_sub: "Some changes need a proxy restart",
@@ -283,10 +304,14 @@ const I18N = {
     set_spacing: "Min spacing per account (ms)", set_spacing_hint: "Shortest gap between two requests on one account — lowers risk-control hits; 0 disables",
     set_proxy: "Outbound proxy", set_proxy_hint: "Route upstream traffic through a proxy. Worth trying against risk control (3012) but not a documented fix — the block follows request shape, not just the address. Applies immediately; loopback always stays direct",
     set_proxy_url: "Proxy URL", set_proxy_url_hint: "e.g. http://127.0.0.1:7890 or socks5://user:pass@host:1080; empty falls back to the HTTPS_PROXY env var",
+    set_proxy_rotate: "Spare egress (3012 rotation)", set_proxy_rotate_hint: "One proxy URL per line. When upstream answers 3012 (IP flagged), the engine switches to the next one automatically — the flagged URL goes to the back of the list. Empty = never rotate",
     set_proxy_node_now: "Current node:",
     set_proxy_noproxy: "Direct hosts", set_proxy_noproxy_hint: "Comma-separated hosts that bypass the proxy",
     set_proxy_save: "Save proxy settings",
     set_proxy_on: "Egress: {h}", set_proxy_off: "Direct connection (no proxy)",
+    set_proxy_rotate_n: "rotation pool of {n} egresses",
+    pg_throttled_hint: "This model is throttled upstream right now; it recovers on its own, or switch to glm-5.3-flash",
+    panel_stale: "The engine was updated — this page runs stale script, please hard-refresh (Ctrl+F5)",
     set_idle: "Panel idle logout", set_idle_hint: "Minutes of inactivity before the panel asks for the key again. Any activity resets the clock; 0 never logs out",
     set_idle_save: "Save timeout", set_idle_stat: "Current idle timeout", min_unit: "min",
     set_idle_never: "Set to never log out", set_idle_bad: "Enter a number of minutes >= 0",
@@ -370,7 +395,55 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
-  { ver: "v4.7.4", date: "2026-10-02", items: {
+  { ver: "v4.7.8", date: "2026-10-03", items: {
+    zh: [
+      "【账号】批量登录 API（AI 全自动开号）：POST /accounts/login/batch 一次开 1-20 个登录会话（串行创建防风控、namePrefix 自动命名），/batch/status 批量查状态（成功自动注册入池），/batch/cancel 一键取消整批",
+      "【账号】全自动链路：引擎返回授权链接后，AI 用浏览器自动化（Playwright / browser-use）打开链接、按账号清单输入邮箱密码完成授权；引擎后台自动轮询注册——全程无需人工",
+      "【面板】新增「API 文档」页：3 步工作流、端点参考、可复制的 AI 提示词（{BASE_URL} 打开时自动替换为当前面板地址），复制给编程 Agent 即可执行",
+      "【调度】过期额度不再参与派发：每日赠款的 expiresAt 过后，缓存里的剩余数字仍为正，调度优先把请求打向该号、收获上游 1005——现在过期 bucket 记为 0 并被显式跳过",
+      "【调度】429 吸收重试：上游并发 429（3009）不再直接甩给客户端——释放并发槽等待 5 秒（可配 ZCODE_429_ABSORB_MS）后同账号原路重发一次，成功即返回；等待期槽位继续服务其他流量",
+      "【调度】403 双义分流：410004=真封禁（进重登流程并注明原因）；810002=high-demand 限流（仅模型级短冷却，账号不再被误伤进重登）",
+      "【调度】3012 出口轮换后立即用新出口重试一次当前请求——新 IP 干净，多数请求直接成功返回，不再干等 30 分钟静默",
+      "【面板】概览余额列表孤儿清扫：搜索/筛选后被过滤的旧卡片残留在列表尾部，现已清理",
+      "【面板】底部标注始创日期（2026-09-19）",
+    ],
+    en: [
+      "Accounts: batch login API for AI-driven onboarding — POST /accounts/login/batch opens 1-20 login sessions (sequential creation, namePrefix auto-naming), /batch/status polls them in bulk (successful sessions auto-register into the pool), /batch/cancel closes a batch",
+      "Accounts: fully-automatic chain — the engine returns authorize URLs, the AI opens each with browser automation (Playwright / browser-use), types that account's email + password, completes authorization; the engine polls and registers in the background — no human required",
+      "Panel: new API Docs page — 3-step workflow, endpoint reference, and a copyable AI prompt ({BASE_URL} auto-stamped to the current panel address)",
+      "Dispatch: expired quota buckets no longer participate — a daily grant past its expiresAt kept a positive remaining figure in cache, so dispatch kept preferring that account into upstream 1005s. Expired buckets now report 0 and are explicitly skipped",
+      "Dispatch: 429 absorb-retry — an upstream concurrency 429 (3009) no longer bounces to the client; the freed slot serves other traffic for 5s (ZCODE_429_ABSORB_MS) then the same account is retried once through the normal dispatch path",
+      "Dispatch: 403 dual-classification — 410004 is a real ban (re-login flow with the reason surfaced); 810002 high-demand is only a short model-scoped cooldown, accounts no longer get benched into re-login for it",
+      "Dispatch: after a 3012 egress rotation the request is retried once on the fresh exit — the new IP is clean, most requests succeed immediately instead of waiting out the silence",
+      "Panel: overview balance list now sweeps orphan cards left behind by search/filter changes",
+      "Panel: footer shows the project's founding date (2026-09-19)",
+    ],
+  }},
+  { ver: "v4.7.6", date: "2026-10-02", items: {
+    zh: [
+      "【面板】修复「登录会话已失效」横幅一直弹 + 概览「日志渲染出错」：概览轮询给未声明的 claimNextAtFetchedAt 赋值，严格模式下抛 ReferenceError 被 catch 误报为会话失效。现已声明变量，误报消失",
+      "【面板】修复更新页自相矛盾：「当前版本 4.7.5 · 已是最新版本 (4.7.4)」——原因是没有建 4.7.5 的 GitHub Release，其他机器也因此检测不到新版。已补发 Release",
+      "【面板】更新日志页补上 4.7.5 条目（3012 出口自动轮换等），面板内 changelog 与实际版本对齐",
+      "【面板】日志页黑框根治：keyed 复用早退分支会把全部行滞留在游离节点里不落 DOM——改 replaceChildren 无条件落盘（不重解析 HTML，防卡顿价值保留）",
+      "【面板】日志「跟随底部」改为开关（默认关）+ 滚动感知：向上翻阅自动取消跟随，滚回底部自动恢复",
+      "【验证码】沙箱噪音静默：WINDOW-ERROR/stall/重复 certifyId 类失败压缩为单行短摘要，同类每分钟最多 1 条，不再淹没日志环",
+      "【面板】Playground 默认模型改为 flash（上游对 glm-5.3 限流严重）；429 后 Send 冷却 8 秒并提示可切换 flash",
+      "【面板】概览 15 秒内重复进入不再重新拉取余额（点「刷新」仍强制拉取）",
+      "【账号】refreshAccounts 单飞守卫：并发触发不再交错渲染，号池大时不再出现卡片缺号/余额区空白",
+    ],
+    en: [
+      "Panel: fixed the constant session-expired banner + overview render error (undeclared variable threw under strict mode)",
+      "Panel: fixed the contradictory update row — the v4.7.5 GitHub Release was missing, so other engines never saw the update. Release published",
+      "Panel: changelog page aligned with the running version",
+      "Panel: logs black-box fixed at the root — the keyed-reuse early-return could strand all rows in a detached fragment; replaceChildren is now unconditional (still no HTML re-parse, so the anti-jank value stays)",
+      "Panel: log follow-bottom is now a checkbox (default off) with scroll-aware auto untick/retick",
+      "Captcha: sandbox noise (WINDOW-ERROR/stall dumps) condensed to one short line per minute, no longer drowning the log ring",
+      "Panel: Playground defaults to flash; 429 puts Send on an 8s cooldown with a switch-to-flash hint",
+      "Panel: overview skips balance refetch within 15s; the Refresh button still forces a real round trip",
+      "Accounts: refreshAccounts is single-flight with a pending rerun — concurrent triggers no longer interleave renders on large pools",
+    ],
+  }},
+  { ver: "v4.7.5", date: "2026-10-02", items: {
     zh: [
       "【内存】流式响应泄漏根治：删除 body.tee() 双读（统计分支无背压，整条流在堆内排队且不可回收——慢客户端×长流 = 数百 MB），改为单流内联统计，上游背压直达客户端。这是 4.7.3 仍剩 ~110MB/h 泄漏与 5.7 小时卡死的根因",
       "【验证码】聊天门禁跟进上游：官方 v3.14.4 已关闭模型请求的验证码校验，聊天路径不再预取 token（403/3007 fallback 保留，上游恢复门禁自动兼容）；默认 appVersion 跟进 3.14.4",
@@ -775,6 +848,16 @@ function showPage(name) {
   if (name === "playground") { pgRestore(); loadPlaygroundAccounts(); }
   if (name === "changelog") renderChangelog();
   if (name === "intel") loadIntel(false);
+  if (name === "apidoc" && !document.getElementById("apidoc-prompt").dataset.filled) {
+    // Stamp the real BASE_URL into the copyable prompt the first time the page
+    // opens, so the agent gets a ready-to-paste address instead of a
+    // placeholder the user must edit by hand.
+    const pre = document.getElementById("apidoc-prompt");
+    pre.textContent = pre.textContent
+      .replaceAll("{BASE_URL}", location.origin)
+      .replaceAll("&lt;", "<").replaceAll("&gt;", ">");
+    pre.dataset.filled = "1";
+  }
   if (name === "accounts") refreshAccounts();
   if (name === "models") loadProbeAccounts();
   if (name === "logs") pollLogs();
@@ -832,21 +915,31 @@ async function refreshOverview() {
   if (refreshOverview._inflight) return; // previous poll still in flight
   refreshOverview._inflight = true;
   try {
-    // Claim countdown data rides along with the overview poll (one tiny extra
-    // request only when the cached nextCheckAt is missing or stale by >5min):
-    // the countdown lives on the OVERVIEW now, and loadSettings — its only
-    // data source — runs at boot and on the settings page, never while the
-    // operator stares at the overview. That was the "主页没有倒计时" report.
-    if (!claimNextAt || Date.now() - (claimNextAtFetchedAt || 0) > 300_000) {
-      try {
-        const cfg = await (await api("/config")).json();
-        claimAuto = !!cfg.claim?.auto;
-        claimNextAt = Number(cfg.claim?.nextCheckAt) || 0;
-        claimNextAtFetchedAt = Date.now();
-      } catch { /* countdown keeps its last value */ }
-    }
     const r = await api("/overview");
     const ov = await r.json();
+    // Claim countdown data rides on the SAME /overview response (field report
+    // v4.7.8: the extra /config poll here surfaced every transient 4xx/403 as
+    // "登录会话已失效" because isSessionLapse treats unknown error shapes as a
+    // lapse and re-gated the UI). One request, no extra auth surface.
+    // claimNextAtFetchedAt/claimAuto/claimNextAt are declared with the other
+    // claim state further down; assigning an UNDECLARED name here would throw
+    // under "use strict" and land in this catch as a fake session lapse
+    // (the reported "日志渲染出错 / 会话失效一直弹").
+    if (ov.claim) {
+      claimAuto = !!ov.claim.auto;
+      claimNextAt = Number(ov.claim.nextCheckAt) || 0;
+      claimNextAtFetchedAt = Date.now();
+      // Keep the Settings toggle in sync with the RUNNING state: this 5s poll
+      // is the freshest source of claim state (fresher than loadSettings,
+      // which runs once), so the button must reflect it or the Settings page
+      // shows a stale On/Off while the engine does the opposite (reported:
+      // "设置里自动领取还是不开着").
+      const sb = document.getElementById("set-claim-auto");
+      if (sb) {
+        sb.textContent = claimAuto ? T("on") : T("off");
+        sb.className = "btn " + (claimAuto ? "" : "ghost");
+      }
+    }
     document.getElementById("ov-total").textContent = ov.accounts.total;
     document.getElementById("ov-eligible").textContent = ov.accounts.eligible;
     renderClaimCountdown();
@@ -994,6 +1087,17 @@ async function loadBalances(knownAccounts, knownQuota) {
   if (loadBalances._inflight) return;
   loadBalances._inflight = true;
   const el = document.getElementById("ov-balances");
+  // Recent-data skip: boot(), showPage("overview") and pool actions all call
+  // this, and every call used to fetch quota + accounts again — entering the
+  // overview repainted the whole list from scratch each time (field report:
+  // "点进去和其他之前一样要每次刷新数据"). If a load completed within the last
+  // 15 seconds (the engine's balance cache changes slower than that), keep the
+  // rendered list and skip the round trips. An explicit refresh button or a
+  // pool action still passes fresh data and always wins.
+  if (Date.now() - (loadBalances._doneAt || 0) < 15_000 && el.dataset.loaded === "1") {
+    loadBalances._inflight = false;
+    return;
+  }
   // Show the placeholder only when nothing has been rendered yet.
   //
   // This used to blank the list on EVERY call, and refreshAccounts() calls it on
@@ -1019,12 +1123,18 @@ async function loadBalances(knownAccounts, knownQuota) {
     // Marks the overview as rendered, so refreshAccounts knows a later pool
     // change has something to update (see refreshOverviewBalances).
     el.dataset.loaded = "1";
+    loadBalances._doneAt = Date.now();
     renderTotals(lastQuota);
     refreshClaimAllDisabled();
     renderBalanceList();
   } catch {
     el.innerHTML = '<span class="sub">—</span>';
     document.getElementById("ov-total-quota").textContent = "—";
+    // Self-heal: a failed load used to leave "—" until an unrelated action
+    // happened to re-run this. Invalidate the rendered flag so the next
+    // periodic load (page switch, pool action) shows the loading state and
+    // retries the fetch instead of trusting a list that never arrived.
+    delete el.dataset.loaded;
   }
 }
 
@@ -1043,11 +1153,18 @@ function renderTotals(list) {
     }
   }
   const chips = document.getElementById("ov-total-chips");
-  chips.innerHTML = "";
   const entries = [...byModel.entries()].sort((x, y) => y[1].remaining - x[1].remaining);
   let grand = 0;
+  for (const [model, v] of entries) grand += v.remaining;
+  // Skip the rebuild when nothing VISIBLE changed: the totals chips used to be
+  // torn down and re-created on every pool sync, which the operator read as
+  // "the whole overview reloads" (and it also killed the chips' own hover).
+  const totalsSig = entries.map(([m, v]) => m + ":" + v.remaining + ":" + v.accounts.size).join("|") +
+    "#" + accountCount + "#" + lang;
+  if (chips.dataset.totalsSig === totalsSig) return;
+  chips.dataset.totalsSig = totalsSig;
+  chips.innerHTML = "";
   for (const [model, v] of entries) {
-    grand += v.remaining;
     const c = document.createElement("div");
     c.className = "tot-chip";
     c.innerHTML = '<div class="c1">' + esc(model) + " · " + v.accounts.size + T("acc_unit") + "</div>" +
@@ -1087,7 +1204,16 @@ function renderBalanceList() {
   const el = document.getElementById("ov-balances");
   const q = (document.getElementById("ov-bal-search").value || "").trim().toLowerCase();
   const f = document.getElementById("ov-bal-filter").value;
-  el.innerHTML = "";
+  // Keyed reuse, same scheme as the accounts page's card diff: a poll that
+  // changed nothing must not throw away every balance card and repaint it —
+  // the repaint was visible as jank each 30s pool sync (buttons lost their
+  // pressed state, the browser re-anchored scroll). Cards are rebuilt only
+  // when their content signature changes.
+  const existing = new Map();
+  for (const c of [...el.querySelectorAll(".bal-acc")]) {
+    if (c.dataset.balId) existing.set(c.dataset.balId, c);
+    else c.remove();
+  }
   const rows = lastQuota.filter(a => {
     const meta = lastAccountMeta.get(a.id);
     if (q && !(a.name || "").toLowerCase().includes(q)) return false;
@@ -1101,7 +1227,6 @@ function renderBalanceList() {
   }
   for (const a of rows) {
     const meta = lastAccountMeta.get(a.id);
-    const box = document.createElement("div");
     // Model-scoped holds, same rule as the accounts page: a held model means the
     // account is degraded, not down. The overview showed only the main status,
     // so a throttled account looked fully healthy here even while requests to
@@ -1110,6 +1235,30 @@ function renderBalanceList() {
     const throttleBadge = holds.length
       ? '<span class="st throttled">' + T("st_throttled") + " · " + holds.length + "</span>"
       : "";
+    // Everything the card renders, in one signature. Only fields that change
+    // the VISIBLE content belong here: the raw balances array also carries
+    // usedUnits/expiresAt, which shift on every billing poll without changing
+    // a single rendered digit — keying on the raw array rebuilt every card on
+    // every 30s pool sync (the reported "数据每次都重新加载" 卡顿). remaining/
+    // total stay because they render; expiresAt/endsAt stay because they move
+    // countdown targets server-side even when the text does not.
+    const balSig = (a.balances || []).map((b) =>
+      [b.showName, b.remainingUnits, b.totalUnits, b.expiresAt].join(":")).join("|");
+    const planSig = (a.activePlans || []).map((p) =>
+      [p.planId, p.pending, p.effectiveAt, p.endsAt].join(":")).join("|");
+    const claimSig = (a.claimablePlans || []).length;
+    const sig = JSON.stringify([
+      a.id, a.name, a.provider, a.plan, balSig, planSig, claimSig,
+      meta && meta.status, holds, lang,
+    ]);
+    let box = existing.get(a.id);
+    if (box && box.dataset.balSig === sig) {
+      el.appendChild(box);
+      continue;
+    }
+    box = box || document.createElement("div");
+    box.dataset.balId = a.id;
+    box.dataset.balSig = sig;
     // The status class drives the card's accent bar, so an unhealthy account is
     // distinguishable at a glance rather than only by reading its badge.
     const accent = meta && meta.status === "ok" && holds.length ? "throttled" : (meta ? meta.status : "");
@@ -1205,6 +1354,14 @@ function renderBalanceList() {
     }
     el.appendChild(box);
   }
+  // Orphan sweep: cards whose account is no longer in the filtered rows (the
+  // search box or filter changed) must leave the DOM. Without this sweep a
+  // filtered view kept stale cards stacked after the live ones — the overview
+  // balance list grew ghosts on every filter change.
+  const liveIds = new Set(rows.map((a) => a.id));
+  for (const [id, c] of existing) {
+    if (!liveIds.has(id)) c.remove();
+  }
 }
 
 /**
@@ -1223,7 +1380,13 @@ function fmtLocalTime(sec) {
 }
 document.getElementById("ov-bal-search").addEventListener("input", renderBalanceList);
 document.getElementById("ov-bal-filter").addEventListener("change", renderBalanceList);
-document.getElementById("ov-refresh").onclick = () => { refreshOverview(); loadBalances(); };
+document.getElementById("ov-refresh").onclick = () => {
+  // The explicit button bypasses the 15s recent-data skip: a human pressing
+  // "刷新" wants a real round trip, not a cached "nothing changed".
+  loadBalances._doneAt = 0;
+  refreshOverview();
+  loadBalances();
+};
 // Jump to the page that owns the request data (see the ov-recent markup note).
 document.getElementById("ov-goto-logs").onclick = () => {
   const btn = [...document.querySelectorAll("#nav button")].find((b) => b.dataset.page === "logs");
@@ -1289,25 +1452,44 @@ let lastAccounts = [];
  * what "the pool changed" should always mean.
  */
 async function refreshAccounts() {
+  // Single-flight: page switches and account actions can fire this faster than
+  // one round completes (three sequential requests). Without the guard two
+  // instances interleave — renderAccounts runs twice against the same cards
+  // while fillAccountBalances from the SLOWER instance lands after the faster
+  // one's render, wiping freshly filled bars — with a large pool that showed
+  // up as "经常不出其他号" (cards visibly missing their balance section, or an
+  // account list that lagged the pool). A call arriving mid-flight records a
+  // pending rerun instead of racing; the loser of the current round re-runs
+  // once with fresh data.
+  if (refreshAccounts._inflight) { refreshAccounts._pending = true; return; }
+  refreshAccounts._inflight = true;
   try {
-    const ov = await (await api("/overview")).json();
-    if (ov.accounts && ov.accounts.total > 0) setEmergencyButtons(ov.accounts.eligible === 0);
-  } catch (e) {}
-  const r = await api("/accounts");
-  const j = await r.json();
-  lastAccounts = j.accounts || [];
-  renderAccounts(lastAccounts);
-  renderStoreProblem(j.storeProblem);  // ONE quota read, shared by both views. Each used to fetch it on its own, so a
-  // single refresh sent two identical /accounts/quota requests — and for an
-  // account the poller has no snapshot for, that endpoint performs a LIVE
-  // billing read rather than answering from cache, so the duplicate was a real
-  // upstream burst doubled, not just a local round trip.
-  let quota = null;
-  try { quota = await api("/accounts/quota").then((x) => x.json()); }
-  catch (e) { /* both consumers fall back to their own handling of "no data" */ }
-  fillAccountBalances(quota);
-  // The overview's own list, kept in sync so a deletion shows up immediately.
-  await refreshOverviewBalances(quota);
+    try {
+      const ov = await (await api("/overview")).json();
+      if (ov.accounts && ov.accounts.total > 0) setEmergencyButtons(ov.accounts.eligible === 0);
+    } catch (e) {}
+    const r = await api("/accounts");
+    const j = await r.json();
+    lastAccounts = j.accounts || [];
+    renderAccounts(lastAccounts);
+    renderStoreProblem(j.storeProblem);  // ONE quota read, shared by both views. Each used to fetch it on its own, so a
+    // single refresh sent two identical /accounts/quota requests — and for an
+    // account the poller has no snapshot for, that endpoint performs a LIVE
+    // billing read rather than answering from cache, so the duplicate was a real
+    // upstream burst doubled, not just a local round trip.
+    let quota = null;
+    try { quota = await api("/accounts/quota").then((x) => x.json()); }
+    catch (e) { /* both consumers fall back to their own handling of "no data" */ }
+    fillAccountBalances(quota);
+    // The overview's own list, kept in sync so a deletion shows up immediately.
+    await refreshOverviewBalances(quota);
+  } finally {
+    refreshAccounts._inflight = false;
+    if (refreshAccounts._pending) {
+      refreshAccounts._pending = false;
+      void refreshAccounts();
+    }
+  }
 }
 
 /**
@@ -1392,49 +1574,7 @@ async function fillAccountBalances(knownQuota) {
     const sig = JSON.stringify(rec ? [rec.balances, rec.activePlans] : null);
     if (el.dataset.sig === sig) return;
     el.dataset.sig = sig;
-    el.innerHTML = "";
-    if (!rec || !(rec.balances || []).length) {
-      el.innerHTML = '<div class="bal-none">' + esc(balanceEmptyText(rec)) + "</div>";
-      return;
-    }
-    for (const b of rec.balances) {
-      const pct = b.totalUnits > 0 ? Math.max(0, Math.min(100, b.remainingUnits / b.totalUnits * 100)) : 0;
-      const row = document.createElement("div");
-      row.className = "bal-row";
-      // Same seconds→ms guard as the overview list: upstream reports `expiresAt`
-      // in seconds, so it must be multiplied before use.
-      const exp = Number(b.expiresAt);
-      const expiry = Number.isFinite(exp) && exp > 0
-        ? '<div class="bal-exp">' + T("bal_expires") + " " +
-          '<span class="cd" data-until="' + (exp * 1000) + '"></span></div>'
-        : "";
-      row.innerHTML = '<div class="bal-top"><span>' + esc(b.showName) + "</span><span>" +
-        fmtNum(b.remainingUnits) + " / " + fmtNum(b.totalUnits) + "</span></div>" +
-        '<div class="bar' + (pct < 20 ? " low" : "") + '"><i style="width:' + pct + '%"></i></div>' +
-        expiry;
-      el.appendChild(row);
-    }
-    // Plan expiry, so the pool page answers "how long does this account's free
-    // allowance last" without switching to the overview. Same rule as there:
-    // only a live (non-pending) plan with an `endsAt` gets a countdown.
-    for (const p of (rec.activePlans || [])) {
-      if (p.pending || !p.endsAt) continue;
-      const line = document.createElement("div");
-      line.className = "plan-exp";
-      line.innerHTML = '<span class="pe-name">' + esc(p.name) + "</span>" +
-        '<span class="pe-tag">' + T("pg_ends") + "</span>" +
-        '<span class="cd" data-until="' + (p.endsAt * 1000) + '" data-fmt="days"></span>';
-      el.appendChild(line);
-    }
-    // The claim state belongs here too: this is the page where an operator
-    // decides which account to use, and "already claimed today" is part of that.
-    const claimed = (rec.claimablePlans || []).length === 0 && (rec.activePlans || []).length > 0;
-    if (claimed) {
-      const done = document.createElement("div");
-      done.className = "bal-none claim-done-line";
-      done.textContent = T("claim_done");
-      el.appendChild(done);
-    }
+    fillOneAccountBalance(el, rec);
   });
 }
 function renderAccounts(list) {
@@ -1595,10 +1735,76 @@ function renderAccounts(list) {
     });
     card.appendChild(actions);
     el.appendChild(card);
+    // A REBUILT card starts with an empty balance section: fillAccountBalances
+    // only runs at the tail of refreshAccounts, so under concurrent traffic —
+    // where inFlight/modelCooldowns change every few seconds and force a
+    // rebuild — the fresh card sat blank ("丢失/不显示") until the next poll's
+    // fill. Fill it immediately from the cached quota snapshot (lastQuota is
+    // the same payload fillAccountBalances uses), so a rebuilt card looks
+    // complete in the same frame it appears.
+    const cachedRec = lastQuota.find((q) => q.id === a.id);
+    if (cachedRec) {
+      const balEl = card.querySelector('.acc-bal[data-acc="' + CSS.escape(a.id) + '"]');
+      if (balEl) {
+        const sig = JSON.stringify(cachedRec ? [cachedRec.balances, cachedRec.activePlans] : null);
+        if (balEl.dataset.sig !== sig) {
+          balEl.dataset.sig = sig;
+          fillOneAccountBalance(balEl, cachedRec);
+        }
+      }
+    }
   }
   // Cards whose account left the filtered list go away; reused ones stay.
   for (const [id, c] of existing) {
     if (!reused.has(id)) c.remove();
+  }
+}
+
+/**
+ * Render one account's balance section into a given container.
+ *
+ * Extracted from fillAccountBalances so renderAccounts can synchronously fill
+ * a freshly rebuilt card from the cached quota snapshot. Same rendering rules
+ * (empty-state reasons, seconds→ms expiry, pending grants, claim-done line).
+ */
+function fillOneAccountBalance(el, rec) {
+  el.innerHTML = "";
+  if (!rec || !(rec.balances || []).length) {
+    el.innerHTML = '<div class="bal-none">' + esc(balanceEmptyText(rec)) + "</div>";
+    return;
+  }
+  for (const b of rec.balances) {
+    const pct = b.totalUnits > 0 ? Math.max(0, Math.min(100, b.remainingUnits / b.totalUnits * 100)) : 0;
+    const row = document.createElement("div");
+    row.className = "bal-row";
+    const exp = Number(b.expiresAt);
+    const expiry = Number.isFinite(exp) && exp > 0
+      ? '<div class="bal-exp">' + T("bal_expires") + " " +
+        '<span class="cd" data-until="' + (exp * 1000) + '"></span></div>'
+      : "";
+    row.innerHTML = '<div class="bal-top"><span>' + esc(b.showName) + "</span><span>" +
+      fmtNum(b.remainingUnits) + " / " + fmtNum(b.totalUnits) + "</span></div>" +
+      '<div class="bar' + (pct < 20 ? " low" : "") + '"><i style="width:' + pct + '%"></i></div>' +
+      expiry;
+    el.appendChild(row);
+  }
+  for (const p of (rec.activePlans || [])) {
+    if (p.pending || !p.endsAt) continue;
+    const line = document.createElement("div");
+    line.className = "plan-exp";
+    const total = (p.entitlements || []).reduce((s, e) => s + (e.grantUnits || 0), 0);
+    line.innerHTML = '<span class="pe-name">' + esc(p.name) + "</span>" +
+      (total ? '<span class="pe-units">' + fmtNum(total) + "</span>" : "") +
+      '<span class="pe-tag">' + T("pg_ends") + "</span>" +
+      '<span class="cd" data-until="' + (p.endsAt * 1000) + '" data-fmt="days"></span>';
+    el.appendChild(line);
+  }
+  const claimed = (rec.claimablePlans || []).length === 0 && (rec.activePlans || []).length > 0;
+  if (claimed) {
+    const done = document.createElement("div");
+    done.className = "bal-none claim-done-line";
+    done.textContent = T("claim_done");
+    el.appendChild(done);
   }
 }
 /**
@@ -1937,6 +2143,9 @@ async function pollLogin(sid) {
  */
 /** The model the transcript's most recent entries were produced with. */
 let pgLastModel = "";
+// Catalog snapshot from the last loadPlaygroundAccounts — the 429 hint looks
+// up the flash variant here instead of re-fetching.
+let lastPgModels = [];
 
 /**
  * The picker selections, kept alongside the conversation.
@@ -2340,17 +2549,27 @@ async function loadPlaygroundAccounts() {
     let models = Array.isArray(probe.union) && probe.union.length ? probe.union : null;
     if (!models) models = (cfg.models && cfg.models.length ? cfg.models : ["glm-5.3-flash"]);
     setPickerOptions("pg-model", models.map(m => ({ value: m, label: m, sub: "" })));
-    // Restore the last choice BEFORE falling back to the first entry, and only
-    // accept it if it is still offered: the model list comes from probe results,
-    // so a stored model can disappear when an account is removed or upstream
-    // stops serving it. A stale value would leave the picker captioned with a
-    // model the pool cannot call.
+    // Remembered for the 429 hint: the error bubble suggests the flash variant
+    // when the throttled model has one in the catalog.
+    lastPgModels = models;
+    // Restore the last choice BEFORE falling back, and only accept it if it is
+    // still offered: the model list comes from probe results, so a stored model
+    // can disappear when an account is removed or upstream stops serving it. A
+    // stale value would leave the picker captioned with a model the pool cannot
+    // call.
+    //
+    // The DEFAULT for a fresh visitor is the flash variant when one exists:
+    // upstream throttles glm-5.3 hard (single-digit success during bursts vs
+    // flash's ~97%), and the playground is where a new operator first tests the
+    // chain — starting them on the model most likely to answer. An explicit
+    // stored choice always wins over this default.
     const sel = pgLoadSelection();
     if (!document.getElementById("pg-model").value && sel.model && models.includes(sel.model)) {
       setPickerValue("pg-model", sel.model);
     }
     if (!document.getElementById("pg-model").value && models.length) {
-      setPickerValue("pg-model", models[0]);
+      const preferred = models.find((m) => /flash/i.test(m));
+      setPickerValue("pg-model", preferred || models[0]);
     }
     // Same for the account, matched against the ids actually in the pool.
     if (!document.getElementById("pg-account").value && sel.account
@@ -2404,7 +2623,23 @@ async function pgSend() {
       const t = await resp.text();
       bot.remove();
       const errText = "HTTP " + resp.status + " · " + t.slice(0, 220);
-      chatBubble("err", errText);
+      // 429 means upstream throttled THIS model (glm-5.3 is the usual victim).
+      // Point at the flash variant right in the error bubble — the operator's
+      // next question is always "what do I use instead" — and put the Send
+      // button on a short cooldown so a double-click cannot fire straight back
+      // into the same limit (field report: three rapid 429s in a row).
+      if (resp.status === 429) {
+        const cur = document.getElementById("pg-model").value;
+        const alt = /flash/i.test(cur) ? null : (lastPgModels || []).find((m) => /flash/i.test(m));
+        chatBubble("err", T("pg_throttled_hint") + (alt ? " → " + alt : ""));
+        const send = document.getElementById("pg-send");
+        if (send) {
+          send.disabled = true;
+          setTimeout(() => { send.disabled = false; }, 8000);
+        }
+      } else {
+        chatBubble("err", errText);
+      }
       // Recorded, not just displayed: the failure text is the evidence of what
       // happened, and it is what the operator looks for after a refresh.
       //
@@ -2420,8 +2655,7 @@ async function pgSend() {
       pgSave();
       return;
     }
-    const reader = resp.body.getReader(), dec = new TextDecoder();
-    let buf = "", think = "", out = "";
+    const reader = resp.body.getReader(), dec = new TextDecoder();    let buf = "", think = "", out = "";
     bot.textContent = "";
     while (true) {
       const { done, value } = await reader.read();
@@ -2595,17 +2829,25 @@ function renderMergedLog(rows, entries, filter, active) {
   }
   // Keyed incremental render (same pattern as the account cards): a full
   // innerHTML rebuild every 3s poll re-created 200+ nodes and re-parsed their
-  // HTML — visible as jank on low-end boxes. Each line now carries a stable
-  // key (its html is deterministic per entry); identical lines are reused,
-  // only genuinely new lines are parsed, and stale ones removed from the tail.
+  // HTML — visible as jank on low-end boxes. Each line is keyed by the FULL
+  // html (deterministic per entry); identical lines are reused, only genuinely
+  // new lines are parsed, and stale ones are dropped.
+  //
+  // The key must NOT include the row's index: rows re-sort as new lines merge
+  // in (a slow request row can finish with an OLDER timestamp than engine
+  // lines around it), and an index in the key shifts every key on such a
+  // re-sort — which both defeated reuse and, worse, let two DIFFERENT rows
+  // with the same length/prefix collide onto one cached node (the reported
+  // "日志渲染一会就不显示了" — the visible list and the data quietly diverged,
+  // and the changed=false early-return below then froze the wrong DOM in
+  // place instead of ever correcting it).
+  const LOGKEY_CACHE_MAX = 4000;
   const nextKeys = [];
   const frag = document.createDocumentFragment();
   const existing = [...box.querySelectorAll(".logline")];
-  const keyOf = (it, i) => i + "|" + it.html.length + "|" + (it.html.slice(0, 120));
-  let reuseIdx = 0;
   let changed = false;
   for (const it of shown) {
-    const key = keyOf(it, nextKeys.length);
+    const key = it.html;
     nextKeys.push(key);
     let node = logKeyCache.get(key);
     if (!node) {
@@ -2614,21 +2856,46 @@ function renderMergedLog(rows, entries, filter, active) {
       node.innerHTML = it.html;
       logKeyCache.set(key, node);
       changed = true;
+      // Bound the cache: identical full-html keys mean true duplicates, so a
+      // flooded cache can only come from runaway growth, never from reuse.
+      if (logKeyCache.size > LOGKEY_CACHE_MAX) logKeyCache.clear();
     }
     frag.appendChild(node);
   }
-  // Drop cache entries and DOM nodes no longer present.
-  for (const [k, node] of [...logKeyCache]) {
-    if (!nextKeys.includes(k)) { logKeyCache.delete(k); changed = true; }
+  // Drop cache entries whose rows are no longer shown.
+  if (logKeyCache.size > shown.length) {
+    const keep = new Set(nextKeys);
+    for (const k of [...logKeyCache.keys()]) {
+      if (!keep.has(k)) logKeyCache.delete(k);
+    }
   }
-  if (changed || existing.length !== shown.length) {
-    box.innerHTML = "";
-    box.appendChild(frag);
-  } else {
-    // Same content: only ensure order/selection — cheap re-append is skipped
-    // entirely when nothing changed.
-  }
-  if (atBottom) box.scrollTop = box.scrollHeight;
+  // Rebuild unconditionally with replaceChildren. The earlier version had an
+  // early-return when "nothing changed", but the check could never fire
+  // correctly: reusing a cached node means appendChild has ALREADY moved it out
+  // of the box into the fragment, so `existing` (queried before the loop) no
+  // longer reflected the live DOM and the equality check passed vacuously —
+  // leaving the box EMPTY with all rows stranded in the detached fragment.
+  // That was the "Logs page opens as a black box, Refresh fixes it" report.
+  // replaceChildren moves already-parsed nodes without re-parsing their HTML,
+  // so the keyed cache keeps its original purpose (no innerHTML re-parse of
+  // 2000 lines per poll) while the DOM can never strand.
+  box.replaceChildren(frag);
+  if (followBottom() && atBottom) box.scrollTop = box.scrollHeight;
+}
+
+/**
+ * Whether the merged log should keep itself pinned to the newest line.
+ *
+ * Follow was UNCONDITIONAL, which made a 2000-line history useless: the first
+ * auto-refresh yanked the view to the bottom the moment the page opened, and
+ * the operator saw a black box ("渲染坏了") instead of the log. Now it is a
+ * checkbox next to auto-refresh; on by default (live tail is what the page is
+ * FOR), and the user who wants to scroll history just unticks it — the view
+ * then stays wherever they put it.
+ */
+function followBottom() {
+  const el = document.getElementById("rq-follow");
+  return !el || el.checked;
 }
 const logKeyCache = new Map();
 
@@ -2670,7 +2937,23 @@ async function pollLogs() {
     // nothing to distinguish "no data" from "the renderer is broken".
     const box = document.getElementById("log-box");
     if (box) box.innerHTML = '<div class="bal-empty">' + esc(T("log_err") + " " + e) + "</div>";
+    // Self-heal: a failed poll must not wedge the incremental cursor. Two
+    // consecutive failures (a real outage, not one blip) reset the cursor and
+    // the local buffer, so the next successful poll re-pulls everything and
+    // the page recovers on its own instead of showing a stale frozen view.
+    // The reset only clears the STREAK on success — handled by the early
+    // return below — never here, or two failures could never accumulate.
+    pollLogs._fails = (pollLogs._fails || 0) + 1;
+    if (pollLogs._fails >= 2) {
+      logSince = 0;
+      logEntries = [];
+    }
+    return;
   }
+  // Success: clear the failure streak (declared on the function object like
+  // the other ._inflight guards so the extracted-function tests stay
+  // standalone).
+  pollLogs._fails = 0;
 }
 
 document.getElementById("rq-search").addEventListener("input", () => pollLogs());
@@ -2687,12 +2970,36 @@ if (bannerClose) bannerClose.onclick = () => {
 };
 try { if (sessionStorage.getItem("zk-upd-banner-dismissed") === "1") { const b = document.getElementById("upd-banner"); if (b) b.style.display = "none"; } } catch (e) {}
 
+// Scroll-aware follow: the checkbox is the operator's stated intent, but a
+// manual scroll speaks louder — scrolling UP unticks follow so refreshes stop
+// yanking the view to the bottom, and scrolling back to the very bottom ticks
+// it again. Both directions update the checkbox so the state stays visible.
+document.getElementById("log-box").addEventListener("scroll", () => {
+  const follow = document.getElementById("rq-follow");
+  if (!follow) return;
+  const box = document.getElementById("log-box");
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  if (!atBottom && follow.checked) follow.checked = false;
+  else if (atBottom && !follow.checked) follow.checked = true;
+});
+
 logTimer = setInterval(() => {
   if (document.getElementById("rq-auto").checked &&
       document.getElementById("page-logs").classList.contains("on")) {
     pollLogs();
   }
-}, 3000);
+}, 2000);
+// Tab re-reveal: the 2s tick may land up to 2s away, which reads as "not live"
+// right after switching back to the tab. Fire one poll immediately (the
+// inflight guard inside pollLogs makes the double-fire harmless), and reset a
+// diverged incremental cursor so the view converges instead of starving.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  if (!zkAuthed) return;
+  if (!document.getElementById("page-logs").classList.contains("on")) return;
+  if (!document.getElementById("rq-auto").checked) return;
+  pollLogs();
+});
 
 
 /**
@@ -3032,6 +3339,7 @@ async function loadSettings() {
       b.textContent = proxyOn ? T("on") : T("off");
       b.className = "btn " + (proxyOn ? "" : "ghost");
       document.getElementById("set-proxy-url").value = cfg.proxy.url || "";
+      document.getElementById("set-proxy-rotate").value = cfg.proxy.rotateUrls || "";
       document.getElementById("set-proxy-noproxy").value = cfg.proxy.noProxy || "";
       renderProxyStat(cfg.proxy);
     }
@@ -3359,6 +3667,12 @@ document.getElementById("set-claim-auto").onclick = async (e) => {
 // and the countdown text rides next to the claim-all button so the operator
 // can see when the next automatic round fires without opening the log.
 let claimNextAt = 0;
+// When claimNextAt was last refreshed from /overview (ms epoch). The countdown
+// label interpolates against fetch time, so a stale fetch does not count down
+// as if it were live. Written by refreshOverview — declared here with the rest
+// of the claim state; an undeclared assignment there throws under "use strict"
+// and surfaces as a fake session-expired banner.
+let claimNextAtFetchedAt = 0;
 let claimCountdownTimer = null;
 let claimHasTargets = false;
 function renderClaimCountdown() {
@@ -3434,12 +3748,17 @@ let proxyOn = false;
 function renderProxyStat(p) {
   const el = document.getElementById("set-proxy-stat");
   if (!el) return;
-  if (p && p.enabled && p.url) {
+  if (p && p.enabled && (p.current || p.url)) {
     // Show the host only: the URL may carry credentials, and the panel is
-    // frequently screenshotted when asking for help.
-    let host = p.url;
-    try { const u = new URL(p.url); host = u.protocol + "//" + u.host; } catch {}
-    el.textContent = T("set_proxy_on").replace("{h}", host);
+    // frequently screenshotted when asking for help. `current` is the LIVE
+    // egress — it moves when a 3012 rotation switches exits — while `url` is
+    // the configured primary; showing current is the point.
+    let host = p.current || p.url;
+    try { const u = new URL(host); host = u.protocol + "//" + u.host; } catch {}
+    const rot = p.rotationSize > 1
+      ? " · " + T("set_proxy_rotate_n").replace("{n}", String(p.rotationSize))
+      : "";
+    el.textContent = T("set_proxy_on").replace("{h}", host) + rot;
     el.style.color = "var(--blue)";
   } else {
     el.textContent = T("set_proxy_off");
@@ -3462,6 +3781,7 @@ document.getElementById("set-proxy-save").onclick = async (e) => {
       body: JSON.stringify({
         enabled: proxyOn,
         url: document.getElementById("set-proxy-url").value.trim(),
+        rotateUrls: document.getElementById("set-proxy-rotate").value.trim(),
         noProxy: document.getElementById("set-proxy-noproxy").value.trim(),
       }),
     });
@@ -3773,6 +4093,67 @@ async function resumeSession() {
   }
 }
 
+// ── Self-healing guards (before boot) ──────────────────────────────────────
+// Two field-reported failure shapes share one property: the page LOOKS alive
+// but its JS is wedged, and nothing on screen says so.
+//
+//  1. A thrown error inside a poll's try/catch can leave module state half-
+//     updated (log cursor, claim flag). The poll keeps "running" every 3-5s
+//     but the page never recovers, because the catch hides the break.
+//  2. A tab restored from bfcache (or a stale tab kept open across an engine
+//     upgrade) runs the OLD script against the NEW engine: old handlers
+//     reference DOM/fields that changed, every poll 401s or throws, and the
+//     operator sees "渲染出错 / 会话失效 / 发送无回答" until a hard refresh.
+//
+// The guards: surface the FIRST uncaught error once (so the page says what
+// broke instead of silently misbehaving), and on tab-reveal revalidate the
+// session plus the script version — a bfcache restore re-runs these, and a
+// version mismatch means the tab is stale, which is told explicitly.
+let zkSelfHealArmed = false;
+function armSelfHeal() {
+  if (zkSelfHealArmed) return;
+  zkSelfHealArmed = true;
+  // Engine build marker: /overview carries it; compare on every tab reveal.
+  let engineVersionAtLoad = "";
+  addEventListener("unhandledrejection", (ev) => {
+    console.warn("[panel] unhandled rejection:", ev.reason);
+  });
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState !== "visible" || !zkAuthed) return;
+    // bfcache restore: timers resume but nothing revalidated the session.
+    // Probe cheaply; a 401 re-gates through the normal api() path on the
+    // next poll anyway, but doing it here removes the dead window.
+    try {
+      const ov = await (await api("/overview")).json();
+      if (ov.version) {
+        if (!engineVersionAtLoad) engineVersionAtLoad = ov.version;
+        else if (engineVersionAtLoad !== ov.version) {
+          // The engine was upgraded under this tab: the running script no
+          // longer matches. Say so once, and offer the (only) fix.
+          if (!document.body.querySelector("#zk-stale-script")) {
+            const b = document.createElement("div");
+            b.id = "zk-stale-script";
+            b.style.cssText = "position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:96;padding:10px 16px;border-radius:10px;background:rgba(110,168,254,.16);border:1px solid rgba(110,168,254,.45);color:#cfe2ff;font-size:13px";
+            b.textContent = T("panel_stale") + " (" + engineVersionAtLoad + " → " + ov.version + ") — Ctrl+F5";
+            document.body.appendChild(b);
+          }
+        }
+        // The claim toggle rides this response too: refresh the Settings
+        // button so a stale tab converges instead of showing a dead value.
+        if (ov.claim) {
+          claimAuto = !!ov.claim.auto;
+          const sb = document.getElementById("set-claim-auto");
+          if (sb) {
+            sb.textContent = claimAuto ? T("on") : T("off");
+            sb.className = "btn " + (claimAuto ? "" : "ghost");
+          }
+        }
+      }
+    } catch { /* offline/401: the next poll's own path handles re-gating */ }
+  });
+  // i18n: panel_stale is a static dictionary entry (see set_proxy_rotate_n).
+}
+
 async function boot() {
   // The markup already carries `gated`, so the panel is hidden before this runs.
   // Kept here as well because boot() re-enters after a failed login attempt, and
@@ -3813,6 +4194,36 @@ async function boot() {
     // Poll only while the Overview is actually visible: a hidden page's fetch
     // + full re-render every 5s was the reported "某个模块加载很久" stall.
     if (document.getElementById("page-overview").classList.contains("on")) refreshOverview();
+    // Same for the Accounts page: concurrent requests change inFlight /
+    // cooldown badges mid-flight, and the page had NO timer — those changes
+    // only appeared after a manual refresh (field report: "并发请求时账号池
+    // 不出现对应请求的账户"). refreshAccounts is single-flight with a pending
+    // rerun, so a 5s tick cannot stack rounds; and renderAccounts reuses cards
+    // whose diffKey is unchanged, so a no-change poll costs one fetch and no
+    // repaint.
+    if (document.getElementById("page-accounts").classList.contains("on")) refreshAccounts();
   }, 5000);
 }
+// ── API Docs page: copy-prompt button ──────────────────────────────────────
+// Selects the whole prompt block and copies it; textContent (not innerHTML)
+// is what gets copied so the agent receives clean text without entities.
+document.getElementById("apidoc-copy").onclick = async () => {
+  const pre = document.getElementById("apidoc-prompt");
+  const text = pre.textContent || "";
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(T("copied"));
+  } catch {
+    // Clipboard API can be denied (http origins, permissions) — fall back to
+    // the classic select-all so the user can Ctrl+C manually.
+    const range = document.createRange();
+    range.selectNodeContents(pre);
+    const sel = getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    toast(T("copy_manual"));
+  }
+};
+
+armSelfHeal();
 boot();

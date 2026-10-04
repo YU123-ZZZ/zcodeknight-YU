@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.4
+ * 版本 Version: v4.7.8
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -162,7 +162,7 @@ export class ClaimScheduler {
     // backoff, and reset the error ladder — yesterday's network failures say
     // nothing about today's reachability.
     //
-    // DAILY-JITTER (field report v4.7.4: "只要号多就有很多领不到"): every
+    // DAILY-JITTER (field report v4.7.8: "只要号多就有很多领不到"): every
     // account's previous grant ends at nearly the SAME second, so without
     // spreading, all schedulers hit 00:00, clear their hold simultaneously and
     // fire their claim bursts together — a single IP answering dozens of
@@ -240,14 +240,22 @@ export class ClaimScheduler {
     try {
       captcha = await this.deps.getCaptcha();
     } catch (err) {
-      return this.errorBackoff(`captcha token failed: ${(err as Error).message}`);
+      // The failure message can embed the happy-dom XHR dump and guestErrors
+      // ring — hundreds of chars of sandbox noise per claim round (field
+      // report: WINDOW-ERROR lines drowning the log ring). Keep the reason,
+      // drop the noise tail, cap the length.
+      const raw = (err as Error).message || "unknown";
+      const brief = raw.split("| guestErrors")[0].slice(0, 160);
+      return this.errorBackoff(`captcha token failed: ${brief}`);
     }
 
     let outcome: ClaimOutcome;
     try {
       outcome = await client.claim(target.planId, captcha);
     } catch (err) {
-      return this.errorBackoff(`claim request failed: ${(err as Error).message}`);
+      const raw = (err as Error).message || "unknown";
+      const brief = raw.split("| guestErrors")[0].slice(0, 200);
+      return this.errorBackoff(`claim request failed: ${brief}`);
     }
 
     if (outcome.ok) {
@@ -288,18 +296,33 @@ export class ClaimScheduler {
     // retry interval instead of retrying at a fixed cadence: when the egress
     // cannot reach zcode.z.ai at all, four accounts × every 10 minutes is a
     // log flood that carries no new information per line.
+    //
+    // RISK-SHAPED failures (3012 unusual activity, per-IP/per-account grant
+    // caps) escalate the same way but with a 30-minute FLOOR — the field
+    // report (2026-10-03) showed a 19-account pool on a fixed 600s retry
+    // re-hitting upstream's 3012 window exactly as it was about to expire,
+    // continuously RENEWING the risk-control block. A risk-shaped failure
+    // needs hours, not minutes, before the next touch.
     const networkish = /ETIMEDOUT|ECONNRESET|EAI_AGAIN|getaddrinfo|aborted|network|timeout|socket/i.test(message);
-    if (networkish) {
+    const riskish = /\b3012\b|unusual activity|exceed quota|名额已领完|今日名额|名额用完/i.test(message);
+    if (networkish || riskish) {
       this.consecutiveErrors += 1;
     } else {
       this.consecutiveErrors = 0;
     }
     const escal = Math.min(this.consecutiveErrors, 6);
-    const holdMs = networkish && this.consecutiveErrors > 1
-      ? Math.min(this.deps.config.cooldownMs * 2 ** (escal - 1), 6 * 60 * 60_000)
-      : this.deps.config.cooldownMs;
+    let holdMs = this.deps.config.cooldownMs;
+    if (networkish && this.consecutiveErrors > 1) {
+      holdMs = Math.min(this.deps.config.cooldownMs * 2 ** (escal - 1), 6 * 60 * 60_000);
+    } else if (riskish) {
+      holdMs = Math.min(
+        Math.max(30 * 60_000, this.deps.config.cooldownMs) * (this.consecutiveErrors > 1 ? 2 ** (escal - 1) : 1),
+        6 * 60 * 60_000,
+      );
+    }
     this.holdUntil = this.now() + holdMs;
-    const label = networkish && this.consecutiveErrors > 1 ? `(network ${this.consecutiveErrors}x) ` : "";
+    const label = networkish && this.consecutiveErrors > 1 ? `(network ${this.consecutiveErrors}x) `
+      : riskish && this.consecutiveErrors > 1 ? `(risk ${this.consecutiveErrors}x) ` : "";
     this.log(`claim: ${label}${message}; retry in ${Math.round(holdMs / 1000)}s`);
     return { action: "error", message, holdMs };
   }

@@ -61,18 +61,29 @@ export interface IntelFeed {
   error?: string;
 }
 
-const INTEL_TTL_MS = 30 * 60_000;
+const INTEL_TTL_MS = 10 * 60_000;
 const INTEL_MAX_ENTRIES = 15;
-// Endpoint ladder, first success wins (mirrors update/updater.ts): the primary
-// API is unreachable on many mainland networks, so read-only mirrors follow.
-// ZCODE_INTEL_MIRRORS overrides with comma-separated base URLs that proxy the
-// GitHub API path shape (gh-proxy style: https://mirror.example/https://api.github.com).
+// Endpoint ladder, first success wins. The GitHub REST API is RATE-LIMITED
+// (60 req/h per IP unauthenticated) — a busy server IP gets 403 on EVERY call
+// and the feed goes permanently stale (live failure 2026-10-04). The
+// releases ATOM feed carries no such limit and always works, so it is
+// primary; the API remains as fallback in case the atom shape ever changes.
+// ZCODE_INTEL_MIRRORS overrides with comma-separated base URLs that proxy
+// both path shapes (gh-proxy style: https://mirror.example/https://github.com).
+const INTEL_ATOM = "https://github.com/zai-org/ZCode/releases.atom";
 const INTEL_PRIMARY = "https://api.github.com/repos/zai-org/ZCode/releases?per_page=15";
 const INTEL_MIRRORS = (process.env.ZCODE_INTEL_MIRRORS ?? "")
   .split(",").map((m) => m.trim().replace(/\/+$/, "")).filter(Boolean);
 
-function intelEndpoints(): string[] {
-  return [INTEL_PRIMARY, ...INTEL_MIRRORS.map((m) => `${m}${INTEL_PRIMARY.replace("https://api.github.com", "")}`)];
+function intelEndpoints(): Array<{ url: string; kind: "atom" | "api" }> {
+  const stripAtom = INTEL_ATOM.replace("https://github.com", "");
+  const stripApi = INTEL_PRIMARY.replace("https://api.github.com", "");
+  return [
+    { url: INTEL_ATOM, kind: "atom" },
+    ...INTEL_MIRRORS.map((m) => ({ url: `${m}${stripAtom}`, kind: "atom" as const })),
+    { url: INTEL_PRIMARY, kind: "api" },
+    ...INTEL_MIRRORS.map((m) => ({ url: `${m}${stripApi}`, kind: "api" as const })),
+  ];
 }
 
 let cache: { at: number; feed: IntelFeed } | null = null;
@@ -92,33 +103,59 @@ function plainNotes(body: string): string {
     .slice(0, 1200);
 }
 
+/** Decode XML entities and strip HTML tags from an atom content blob. */
+function atomContentToPlain(content: string): string {
+  let s = String(content ?? "")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/<[^>]+>/g, "\n");
+  // content may be double-encoded by the feed — decode a second pass
+  s = s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  return s.split("\n").map((l) => l.trim()).filter(Boolean).join("\n");
+}
+
+/** Parse the releases.atom XML into IntelEntry[]. Tolerant: bad entries skipped. */
+function parseAtomFeed(xml: string): IntelEntry[] {
+  const entries: IntelEntry[] = [];
+  const blocks = xml.split(/<entry>/).slice(1);
+  for (const block of blocks) {
+    const tag = (m: RegExp) => m.exec(block)?.[1]?.trim() ?? "";
+    const version = tag(/<title>([\s\S]*?)<\/title>/) || tag(/Repository\/[\d]+\/([^<]+)<\/id>/);
+    const date = tag(/<updated>([\s\S]*?)<\/updated>/).slice(0, 10);
+    const url = tag(/<link[^>]*href="([^"]+)"/);
+    const notes = plainNotes(atomContentToPlain(tag(/<content[^>]*>([\s\S]*?)<\/content>/)));
+    if (version && version !== "?") {
+      entries.push({ version, date, notes, url: url || "https://github.com/zai-org/ZCode/releases" });
+    }
+  }
+  return entries.slice(0, INTEL_MAX_ENTRIES);
+}
+
 async function fetchIntel(): Promise<IntelFeed> {
   let lastError = "";
-  for (const url of intelEndpoints()) {
+  for (const ep of intelEndpoints()) {
     try {
-      const resp = await fetch(url, {
+      const resp = await fetch(ep.url, {
         headers: {
           "user-agent": "ZcodeKnight-intel-feed",
-          accept: "application/vnd.github+json",
+          accept: ep.kind === "atom" ? "application/atom+xml, application/xml" : "application/vnd.github+json",
         },
         signal: AbortSignal.timeout(8_000),
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const releases = (await resp.json()) as Array<{
-        tag_name?: string;
-        name?: string;
-        published_at?: string;
-        body?: string;
-        html_url?: string;
-      }>;
-      const entries: IntelEntry[] = (Array.isArray(releases) ? releases : [])
-        .slice(0, INTEL_MAX_ENTRIES)
-        .map((r) => ({
-          version: String(r.tag_name ?? r.name ?? "?").trim(),
-          date: String(r.published_at ?? "").slice(0, 10),
-          notes: plainNotes(r.body ?? ""),
-          url: String(r.html_url ?? "https://github.com/zai-org/ZCode/releases"),
-        }));
+      const entries: IntelEntry[] = ep.kind === "atom"
+        ? parseAtomFeed(await resp.text())
+        : (() => {
+            const releases = JSON.parse(await resp.text()) as Array<{
+              tag_name?: string; name?: string; published_at?: string; body?: string; html_url?: string;
+            }>;
+            return (Array.isArray(releases) ? releases : []).slice(0, INTEL_MAX_ENTRIES).map((r) => ({
+              version: String(r.tag_name ?? r.name ?? "?").trim(),
+              date: String(r.published_at ?? "").slice(0, 10),
+              notes: plainNotes(r.body ?? ""),
+              url: String(r.html_url ?? "https://github.com/zai-org/ZCode/releases"),
+            }));
+          })();
+      if (entries.length === 0) throw new Error("feed parsed to zero entries");
       const feed: IntelFeed = { fresh: true, fetchedAt: Date.now(), entries };
       cache = { at: Date.now(), feed };
       return feed;

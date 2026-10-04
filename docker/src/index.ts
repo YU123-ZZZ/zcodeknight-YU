@@ -1,10 +1,11 @@
 /**
  * ZcodeKnight — Black Knight Gateway
  * 作者 Author: YU123-ZZZ — https://github.com/YU123-ZZZ
+ * 项目始创 Project started: 2026-09-19
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.4
+ * 版本 Version: v4.7.8
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -43,12 +44,12 @@ import { openBrowser } from "./runtime/open-browser.js";
 import { pasteLoginInstructions, readPastedLine, boldIfTTY } from "./runtime/paste-login.js";
 import { buildServerOptions } from "./server/server-options.js";
 import { readFileSync, existsSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { ensureNodeFetchNoTimeouts } from "./runtime/node-fetch-compat.js";
 
-export const VERSION = "4.7.4";
+export const VERSION = "4.7.8";
 
 if (require.main === module) main();
 
@@ -189,7 +190,13 @@ Examples:
 }
 
 async function serve(configPath: string | undefined, debug: boolean): Promise<void> {
-  const path = configPath ?? process.env.ZCODE_PROXY_CONFIG ?? "config.yaml";
+  // Resolve to an ABSOLUTE path: the panel's config writers (proxy / claim-auto
+  // / panel-timeout / pool saves) persist to this exact file. A relative path
+  // here is interpreted against whatever cwd the process happens to have —
+  // under systemd that is not necessarily the deploy root, so panel saves
+  // would land in a stray config.yaml and silently vanish on restart (live
+  // failure: "exit proxy did not survive an engine restart", 2026-10-04).
+  const path = resolve(configPath ?? process.env.ZCODE_PROXY_CONFIG ?? "config.yaml");
   if (ensureConfigFile(path)) {
     ensureDeviceMidInConfig(path);
     console.log(`Created ${path} from bundled template.`);
@@ -333,6 +340,14 @@ async function serve(configPath: string | undefined, debug: boolean): Promise<vo
       })
       .catch((err) => console.error(`[probe] scheduler failed to start: ${(err as Error).message}`));
   }
+  // Engine-level memory watchdog (2026-10-03 field report: pure proxy traffic
+  // never triggered the captcha-pool RSS guard, RSS climbed 88→728MB, swap
+  // filled, D-state, 502s). Warn tier force-GCs; two consecutive readings over
+  // the exit line exit(1) for a clean systemd respawn. Thresholds via
+  // ZCODE_MEMORY_WARN_MB (400) / ZCODE_MEMORY_EXIT_MB (700), 0 disables a tier.
+  void import("./monitor/memory-watch.js")
+    .then((m) => m.startMemoryWatch())
+    .catch((err) => console.error(`[memory] watchdog failed to start: ${(err as Error).message}`));
   console.log(`  provider: ${config.provider}`);
   if (config.proxy.enabled && config.proxy.url) {
     // Printed so the operator can see at a glance whether their traffic is

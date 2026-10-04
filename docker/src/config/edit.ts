@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.4
+ * 版本 Version: v4.7.8
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -56,7 +56,7 @@ export function updateConfigYaml(
  *
  * The panel's auto toggle used to change RUNTIME STATE ONLY — a restart read
  * `claim.auto` back from config.yaml and silently reverted the operator's
- * choice (field report v4.7.4: "自动就给关闭了"). Same document-model approach
+ * choice (field report v4.7.8: "自动就给关闭了"). Same document-model approach
  * as the pool saver so the surrounding comments survive.
  */
 export function updateClaimAutoYaml(path: string, auto: boolean): void {
@@ -76,11 +76,21 @@ export function updateClaimAutoYaml(path: string, auto: boolean): void {
  */
 export function updateProxyConfigYaml(
   path: string,
-  fields: { enabled: boolean; url: string; noProxy: string },
+  fields: { enabled: boolean; url: string; rotateUrls?: string; noProxy: string },
 ): void {
   const doc = parseDocument(existsSync(path) ? readFileSync(path, "utf-8") : "");
   doc.setIn(["proxy", "enabled"], fields.enabled);
   doc.setIn(["proxy", "url"], fields.url);
+  // Spare egress list for 3012 rotation. Written as a YAML list (one URL per
+  // entry) when set; removed when empty so an unused field does not linger in
+  // the file suggesting a feature that is off. Optional in the caller's shape
+  // because the existing test helpers construct the old three-field form.
+  if (fields.rotateUrls && fields.rotateUrls.trim()) {
+    const items = fields.rotateUrls.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean);
+    doc.setIn(["proxy", "rotateUrls"], items);
+  } else {
+    doc.deleteIn(["proxy", "rotateUrls"]);
+  }
   doc.setIn(["proxy", "noProxy"], fields.noProxy);
   writeFileSync(path, String(doc), "utf-8");
 }

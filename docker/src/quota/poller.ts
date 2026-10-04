@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.4
+ * 版本 Version: v4.7.8
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -126,12 +126,32 @@ export function remainingQuota(accountId: string, model?: string): number | null
   const norm = (s: string): string => s.toLowerCase().replace(/[\s_.-]/g, "");
   const want = model ? norm(model) : "";
 
-  const buckets = want
+  // EXPIRED buckets must not count as usable allowance: a daily grant whose
+  // expiresAt has passed still carries a positive remainingUnits in the cached
+  // snapshot, and dispatching on it earns upstream 1005 "exceed quota limit"
+  // (measured 2026-10-03: the only GLM-5.3 bucket in the pool expired at
+  // 08:00 and kept being selected until the account burned 1005s). An expired
+  // bucket reports 0 — the account's quota for that model is genuinely gone
+  // until upstream issues a fresh grant.
+  const nowSec = Math.floor(Date.now() / 1000);
+  const notExpired = (b: { expiresAt?: number }): boolean =>
+    !(Number.isFinite(b.expiresAt) && (b.expiresAt as number) > 0 && (b.expiresAt as number) <= nowSec);
+
+  const buckets = (want
     ? snap.balances.filter((b) => norm(b.showName) === want)
-    : snap.balances;
-  // No bucket for this model: unknown, not zero. Some models are served without
-  // a per-model grant and must not be treated as exhausted.
-  if (!buckets.length) return null;
+    : snap.balances
+  ).filter(notExpired);
+  // No LIVE bucket for this model: unknown, not zero. Some models are served
+  // without a per-model grant and must not be treated as exhausted. (An
+  // EXPIRED bucket is not "no bucket" — it means the account HAD a grant that
+  // ran out, but reporting null here would let the rotation fall through to
+  // accounts with no grant at all; 0 is the honest state.)
+  if (!buckets.length) {
+    const hadAny = want
+      ? snap.balances.some((b) => norm(b.showName) === want)
+      : false;
+    return hadAny ? 0 : null;
+  }
 
   const remaining = buckets.map((b) => b.remainingUnits).filter((n) => Number.isFinite(n));
   if (!remaining.length) return null;

@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.4
+ * 版本 Version: v4.7.8
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -261,4 +261,68 @@ describe("ClaimScheduler lifecycle", () => {
     h.scheduler.stop();
     expect(h.captchaCalls).toBeGreaterThan(0);
   });
+
+  it("daily reset spreads the midnight round by a per-day jitter (DAILY-JITTER)", async () => {
+    // Field report v4.7.8: every account's grant ends at the same instant, so
+    // all schedulers woke at that instant, cleared their holds and fired their
+    // claim bursts together — a single IP running dozens of rounds in one
+    // minute is the shape risk control flags. Each scheduler now draws a
+    // per-day jitter (0-10 min) and holds it before its daily round.
+    const midnight = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); })();
+    const h = makeHarness({ planId: "weekend-1" });
+    h.nowMs = midnight - 1_000; // day 1, 1s before the grant expiry
+    h.claimOutcome = { ok: true, planId: "weekend-1", endsAt: Math.floor(midnight / 1000) };
+    await h.scheduler.tick();
+    expect(h.claimCalls.length).toBe(1);
+    expect(h.scheduler.nextTickAt()).toBe(midnight); // held until the grant ends
+
+    // Half a second past expiry: the daily reset fires, a jitter is drawn and
+    // the scheduler holds instead of claiming.
+    h.nowMs = midnight + 500;
+    const r2 = await h.scheduler.tick();
+    expect(r2.action).toBe("skipped_hold");
+    expect(h.logs.some((l) => l.includes("daily reset"))).toBe(true);
+
+    // Past the jitter (max 10 min): the daily round runs and claims.
+    h.nowMs += 11 * 60_000;
+    expect((await h.scheduler.tick()).action).toBe("claimed");
+  });
+
+  it("rand can be injected so the jitter is deterministic (DAILY-JITTER)", async () => {
+    const midnight = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); })();
+    const h = makeHarness({ planId: "weekend-1" });
+    // Day 1: claim ends exactly at the local grant expiry (midnight).
+    h.nowMs = midnight - 1_000;
+    h.claimOutcome = { ok: true, planId: "weekend-1", endsAt: Math.floor(midnight / 1000) };
+    await h.scheduler.tick();
+    // Day 2, just past expiry: the injected-rand scheduler (rand=0.5 → 5min)
+    // draws its jitter anchored at its wake instant.
+    h.nowMs = midnight + 500;
+    const deps2 = {
+      getJwt: () => Promise.resolve(h.jwt),
+      createClient: () => ({
+        getPreviews: () => Promise.resolve(h.plans),
+        claim: (planId, captcha) => { h.claimCalls.push({ planId, captcha }); return Promise.resolve(h.claimOutcome); },
+      }),
+      getCaptcha: () => { h.captchaCalls++; return Promise.resolve(h.captchaResult); },
+      config: h.config,
+      now: () => h.nowMs,
+      rand: () => 0.5,
+    };
+    const s2 = new ClaimScheduler(deps2);
+    // Prime the scheduler on day 1 (lastRoundDate must be set for the daily
+    // reset to fire on the next tick — an empty lastRoundDate claims at once).
+    h.nowMs = midnight - 500;
+    await s2.tick();
+    h.nowMs = midnight + 500;
+    const r = await s2.tick();
+    expect(r.action).toBe("skipped_hold");
+    // +4:59 still inside the 5-min jitter.
+    h.nowMs += 299_000;
+    expect((await s2.tick()).action).toBe("skipped_hold");
+    // +5:01 the jitter passed — daily round claims.
+    h.nowMs += 2_000;
+    expect((await s2.tick()).action).toBe("claimed");
+  });
+
 });

@@ -174,6 +174,15 @@ export async function applyNetworkProxy(cfg: NetworkProxyConfig): Promise<void> 
  *     openSocket there.
  */
 async function applyEgress(url: string, bypass: string): Promise<void> {
+  // A different egress invalidates every risk-hold: the 3012 silences describe
+  // the OLD exit IP, and carrying them over benches models that are fine on
+  // the new one (see clearRiskHolds in risk-hold.ts). Dynamic import —
+  // routes-admin sits at the other end of this module's import chain, so a
+  // static import here would close a dependency cycle.
+  try {
+    const { clearRiskHolds } = await import("./risk-hold.js");
+    clearRiskHolds();
+  } catch { /* test graph without risk-hold — holds are best-effort */ }
   const isSocks = /^socks/i.test(url);
   if (isSocks) {
     // Env vars stay SET with the socks URL: the panel reports "proxied" from

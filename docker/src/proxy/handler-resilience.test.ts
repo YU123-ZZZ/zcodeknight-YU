@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.4
+ * 版本 Version: v4.7.8
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -39,6 +39,10 @@
  * `mock.module("./captcha.js")` (same technique as captcha-pool.test.ts).
  */
 import { describe, it, expect, mock, beforeEach } from "bun:test";
+// Must be set BEFORE handler.js loads: the 3009 absorb wait reads this at
+// module scope. This suite asserts on the immediate 429 explanation, not on
+// the real-world 5s same-account retry.
+process.env.ZCODE_429_ABSORB_MS = "0";
 import { proxyRequest } from "./handler.js";
 import { clearRiskHolds } from "./risk-hold.js";
 import type { ProxyConfig, ProxyIdentity } from "../config/types.js";

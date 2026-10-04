@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.4
+ * 版本 Version: v4.7.8
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -41,6 +41,25 @@
  * parallel (they are independent upstream identities, so there is no shared
  * rate limit to respect), but models within one account are serialized with a
  * gap, because a burst from a single credential is what upstream throttles.
+ *
+ * WHY A PROBE DOES NOT CONSUME ALLOWANCE ("无损探测")
+ * ------------------------------------------------
+ * A probe costs quota only if upstream counts it as usage, and the two ways
+ * that happens are both absent here:
+ *   1. `max_tokens: 16` — billing counts OUTPUT tokens; the model is cut off
+ *      before it can produce more than a handful, so even a successful probe
+ *      draws a negligible fraction of a daily grant (16 tokens against
+ *      allowances measured in the hundreds of millions).
+ *   2. No captcha token — model requests no longer require one (upstream
+ *      client v3.14.4 removed the gate, see below), and a request WITHOUT a
+ *      captcha token that upstream later re-validates is answered 3007. A
+ *      3007 is classified `captcha rejected`, the verdict is inconclusive,
+ *      and the bounded carry-forward keeps the previous result: nothing was
+ *      billed because nothing ran.
+ * The remaining upstream responses (3012 block, 3006 not-in-plan, 3008/3009
+ * concurrency) are refusals, not generations — none of them consume balance.
+ * So the probe's worst case is "a few tokens", and its usual case is "a
+ * refusal that measured the model for free".
  */
 import type { ProxyConfig } from "../config/types.js";
 import type { ProxyIdentity } from "../config/types.js";

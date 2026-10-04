@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.4
+ * 版本 Version: v4.7.8
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -153,7 +153,56 @@ export function recordRequest(rec: RequestRecord): void {
   perModel.set(mkey, m);
   recent.push(rec);
   if (recent.length > RECENT_CAP) recent.splice(0, recent.length - RECENT_CAP);
+  // This record also finalizes the request's in-flight entry, if it had one.
+  inFlight.delete(rec.reqId);
   persist();
+}
+
+// ── In-flight requests (the "正在请求" panel line) ─────────────────────────
+// A request used to become visible ONLY when it finished (recordRequest runs in
+// printRow at response end), so a 10-minute stream showed nothing anywhere
+// until it died. beginRequest marks it the moment dispatch starts; the finish
+// is implicit — recordRequest removes the entry by reqId, so every exit path
+// that logs a row also clears the marker. A path that exits without logging
+// (should be none) is swept by the age guard in beginRequest instead of
+// leaking.
+
+export interface ActiveRequest {
+  reqId: string;
+  started: number;
+  model: string;
+  stream: boolean;
+  accountName: string;
+  ip: string;
+}
+
+const inFlight = new Map<string, ActiveRequest>();
+/** Anything still marked after this long is a lost marker, not a live request. */
+const INFLIGHT_MAX_AGE_MS = 60 * 60_000;
+
+export function beginRequest(reqId: string, info: { model: string; stream: boolean; accountName?: string; ip?: string }): void {
+  inFlight.set(reqId, {
+    reqId,
+    started: Date.now(),
+    model: info.model || "(unspecified)",
+    stream: info.stream === true,
+    accountName: info.accountName ?? "",
+    ip: info.ip ?? "",
+  });
+  // Lazy sweep: an hour-old marker is a lost one, not a live request.
+  if (inFlight.size > 1) {
+    const cutoff = Date.now() - INFLIGHT_MAX_AGE_MS;
+    for (const [id, a] of inFlight) if (a.started < cutoff) inFlight.delete(id);
+  }
+}
+
+export function updateActiveAccount(reqId: string, accountName: string): void {
+  const a = inFlight.get(reqId);
+  if (a) a.accountName = accountName;
+}
+
+export function activeRequests(): ActiveRequest[] {
+  return [...inFlight.values()].sort((a, b) => a.started - b.started);
 }
 
 export interface ModelStat {

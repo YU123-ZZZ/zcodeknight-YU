@@ -25,12 +25,32 @@ import { adminPanelCss, adminPanelSource } from "./panel-html.js";
 
 const html = adminPanelSource();
 
-/** Evaluate one function declaration from the panel and hand it back. */
+/**
+ * Evaluate one function declaration from the panel and hand it back.
+ *
+ * Extraction is BRACE-BALANCED, not a lazy `[\s\S]*?\n}` regex: the panel now
+ * contains functions whose bodies nest braces in ways the old regex could
+ * mis-close (an intel feed with an inner `if (...) {` left open across lines),
+ * and a mis-closed capture executed foreign code (`api is not defined`). Count
+ * braces from the function head to its matching close — order- and
+ * nesting-proof.
+ */
 function liftFunction<T>(name: string): T {
-  const src = new RegExp(`(?:async )?function ${name}\\([\\s\\S]*?\\n\\}`).exec(html);
-  if (!src) throw new Error(`${name} not found in the panel`);
+  const head = new RegExp(`(?:async )?function ${name}\\(`).exec(html);
+  if (!head) throw new Error(`${name} not found in the panel`);
+  let i = head.index;
+  let depth = 0;
+  let started = false;
+  for (; i < html.length; i++) {
+    if (html[i] === "{") { depth++; started = true; }
+    else if (html[i] === "}") {
+      depth--;
+      if (started && depth === 0) { i++; break; }
+    }
+  }
+  const captured = html.slice(head.index, i);
   // eslint-disable-next-line no-new-func
-  return new Function(`${src[0]}\nreturn ${name};`)() as T;
+  return new Function(`${captured}\nreturn ${name};`)() as T;
 }
 
 describe("a 403 from the proxy is not a lapsed panel session", () => {
@@ -547,11 +567,18 @@ describe("the picker choices survive a refresh", () => {
     // The model list comes from probe results, so a stored model can vanish when
     // an account is removed. Restoring it blindly would caption the picker with
     // a model the pool cannot call.
-    const restore = /const sel = pgLoadSelection\(\);[\s\S]*?setPickerValue\("pg-model", models\[0\]\);/.exec(html);
+    const restore = /const sel = pgLoadSelection\(\);[\s\S]*?setPickerValue\("pg-model", preferred \|\| models\[0\]\);/.exec(html);
     expect(restore).not.toBeNull();
     expect(restore![0]).toContain("models.includes(sel.model)");
     // And the account is matched against the ids actually in the pool.
     expect(html).toContain("acc.some((a) => a.id === sel.account)");
+  });
+
+  it("a fresh visitor defaults to the flash variant when the catalog has one", () => {
+    // glm-5.3 gets throttled upstream hard; the playground is where a new
+    // operator first tests the chain, so the default model is the one most
+    // likely to answer. An explicit stored choice still wins (tested above).
+    expect(html).toMatch(/const preferred = models\.find\(\(m\) => \/flash\/i\.test\(m\)\);/);
   });
 
   it("saving the conversation also saves the selection", () => {

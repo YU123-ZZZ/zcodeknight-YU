@@ -4,7 +4,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.4
+ * 版本 Version: v4.7.8
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -59,6 +59,7 @@ import { isCaptchaChallenged, retryOnCaptchaChallenge } from "./captcha-retry.js
 import { type ClientSessionResult } from "./client-session.js";
 import { resolveSessionContext } from "./session-context.js";
 import { listRiskHolds, markRiskHold, riskHoldRemaining } from "./risk-hold.js";
+import { proxyActive, proxyUrl, markExitFailure } from "./network-proxy.js";
 import { gzipSync } from "node:zlib";
 
 // captcha.ts is loaded lazily inside the `startPlan` branch (only path that
@@ -449,6 +450,10 @@ export async function proxyRequest(
   } catch (err) {
     if (debug) debugError(reqId, "upstream_unreachable", (err as Error).message);
     engineError("upstream", `${reqId} unreachable: ${(err as Error).message}`);
+    // Feed the egress health tracker: a full dispatch round of connect
+    // failures is a strong dead-proxy signal (the probe loop independently
+    // confirms or clears it within a minute). Direct egress is untracked.
+    if (proxyActive()) markExitFailure(proxyUrl());
     printRow(reqId, format, meta, 502, started, Date.now(), 0, 0, 0);
     reportOutcomeToPool(auth, accountId, { kind: "error", message: (err as Error).message });
     releaseLeaseFor(auth, cred);
@@ -592,12 +597,72 @@ export async function proxyRequest(
         const holds = listRiskHolds();
         const held = holds.find((h) => h.model === meta.model);
         const unlockClock = held ? new Date(held.unlockAt).toLocaleTimeString() : "";
+        const rotated = await maybeRotateEgress(meta.model || "");
+        // One retry on the FRESH egress (peer-gateway pattern, 2026-10): a
+        // rotated exit has a clean IP-side reputation, so a single immediate
+        // re-dispatch often succeeds where the flagged one failed. The model
+        // hold is NOT cleared for the retry — if the fresh egress also fails,
+        // the silence still applies engine-wide and the evidence feed stops.
+        if (rotated && !clientReq.signal.aborted) {
+          try {
+            const retried = await dispatch(
+              buildUpstreamRequest(clientReq, upstreamFormat, provider2, cred, transformedBody, effectiveIdentity, effectivePlan, captchaHeaders, clientSession),
+              buildUpstreamHeaderPairs(clientReq, upstreamFormat, cred, effectiveIdentity, effectivePlan, captchaHeaders, clientSession),
+            );
+            if (retried.ok) {
+              releaseLeaseFor(auth, cred);
+              printRow(reqId, format, meta, 200, started, Date.now(), 0, 0, 0, "", true);
+              reportOutcomeToPool(auth, accountId, { kind: "success" });
+              adminLog.push(`[proxy] 3012 — 出口轮换后重试成功（${accountName} · ${meta.model}）`, "ok");
+              return retried;
+            }
+          } catch (retryErr) {
+            if (debug) debugError(reqId, "retry_after_rotate", String(retryErr));
+          }
+        }
         reportOutcomeToPool(auth, accountId, {
           kind: "concurrency_rejected",
           note: `上游风控 3012 unusual activity — 出口 IP 被标记；${meta.model || "该模型"} 进入 30 分钟静默期${unlockClock ? `（至 ${unlockClock}）` : ""}，期间不再请求上游，自动恢复`,
         });
       }
       releaseLeaseFor(auth, cred);
+      // Retry-After absorb (2026-10-03): a 429 is an UPSTREAM capacity signal,
+      // not the account's fault — the pool already cools only the model for
+      // `modelCooldownMs`, never the account. When upstream says how long to
+      // wait (the known 3009 cadence), absorb the wait here and re-dispatch on
+      // the SAME account once: the request survives instead of bouncing to the
+      // client, and no healthy account is wasted. The wait happens AFTER the
+      // lease release, so the freed slot serves other traffic while this
+      // request sleeps. Capped and retried once — beyond that the condition is
+      // not a blip and the client must hear about it.
+      if (isConcurrency && !clientReq.signal.aborted && absorb429Ms() > 0) {
+        await new Promise((r) => setTimeout(r, absorb429Ms()));
+        if (!clientReq.signal.aborted) {
+          try {
+            cred = await auth.getCredential({ accountId: opts.testAccountId || accountId, model: meta.model });
+            ({ id: accountId, name: accountName } = leasedAccount(cred));
+            meta.accountName = accountName;
+            updateActiveAccount(reqId, accountName);
+            if (debug) debugLine(reqId, `3009 absorbed — re-dispatching on ${accountName}`);
+            // Re-dispatch through the SAME dispatch path as the original
+            // attempt (endpoint routing, client signing, ordered transport all
+            // apply). The new credential is mounted on `cred`, and
+            // buildUpstreamRequest refreshes the upstream headers from it.
+            const retried = await dispatch(
+              buildUpstreamRequest(clientReq, upstreamFormat, provider2, cred, transformedBody, effectiveIdentity, effectivePlan, captchaHeaders, clientSession),
+              buildUpstreamHeaderPairs(clientReq, upstreamFormat, cred, effectiveIdentity, effectivePlan, captchaHeaders, clientSession),
+            );
+            if (retried.ok) {
+              releaseLeaseFor(auth, cred);
+              printRow(reqId, format, meta, 200, started, Date.now(), 0, 0, 0, "", true);
+              reportOutcomeToPool(auth, accountId, { kind: "success" });
+              return retried;
+            }
+          } catch (retryErr) {
+            if (debug) debugError(reqId, "retry_absorb", String(retryErr));
+          }
+        }
+      }
       // HTTP 429, NOT 403. Clients treat a 403 as fatal (retryable=false) and
       // tear the whole turn down mid-stream — the reported "glm-5.3 断一下就
       // 直接切断" came from exactly this. 429 is the semantically correct
@@ -659,7 +724,22 @@ export async function proxyRequest(
       // risk-hold still applies — that is the mechanism that actually stops
       // the retry storm (risk-hold.ts).
       markRiskHold(failedModel);
+      await maybeRotateEgress(failedModel || "");
       outcome = { kind: "concurrency_rejected" };
+    } else if (upstreamResp.status === 403) {
+      // 403 is TWO different conditions wearing the same status (peer-gateway
+      // research, 2026-10): a body biz code of 410004 is a REAL credential
+      // ban — the account needs a human; 810002 "high demand" is free-tier
+      // capacity throttling wearing a 403 — the credential is fine and a
+      // short model-scoped cooldown is the right response. Treating both as
+      // auth_rejected benched healthy accounts and demanded pointless
+      // re-logins.
+      if (/\b810002\b|high demand/i.test(bodyText)) {
+        outcome = { kind: "concurrency_rejected", ...(failedModel ? { model: failedModel } : {}) };
+      } else if (/\b410004\b/i.test(bodyText)) {
+        outcome = { kind: "auth_rejected", note: "credential banned by upstream (410004) — re-login required" };
+      }
+      // Unknown 403 bodies keep the conservative auth_rejected default.
     }
   }
   /**
@@ -786,7 +866,7 @@ interface StreamTap {
  * wired explicitly: `pipeThrough` alone skips `flush` on abort, so the
  * returned stream's own `cancel` closes the tap and cancels the upstream.
  */
-// Hard kill-switch for a single streamed response (field report v4.7.4: the
+// Hard kill-switch for a single streamed response (field report v4.7.8: the
 // 951s slow-client stream was the RSS climb's carrier). 512MB of forwarded
 // bytes on ONE response is far beyond any legitimate GLM answer; past this the
 // stream is closed with an error instead of letting any queueing path take the
@@ -807,7 +887,7 @@ function tappedStream(
   // PULL-driven: upstream is read ONLY when the client's queue has room.
   // The previous rewrite used a start()-driven loop that read unconditionally
   // and controller.enqueue()d every chunk — an unbounded pump again (field
-  // report v4.7.4: ~470MB/h over a 951s slow-client stream, 68min to D-state).
+  // report v4.7.8: ~470MB/h over a 951s slow-client stream, 68min to D-state).
   // With pull, one chunk is in flight per client read; a slow client now
   // throttles the upstream socket itself.
   let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
@@ -994,6 +1074,17 @@ export const MAX_CONNECT_ATTEMPTS = 3;
 const QUEUE_BUDGET_MS = Number(process.env.ZCODE_QUEUE_BUDGET_MS ?? 0);
 /** Poll interval while queued. Small enough to feel immediate, large enough not to spin. */
 const QUEUE_POLL_MS = 250;
+/**
+ * How long a 3009 concurrency 429 is absorbed in-process before the client
+ * sees it: the freed slot serves other traffic while this request sleeps, then
+ * the SAME account is retried once (a 429 is upstream capacity, not the
+ * account's fault — cooling the account would only bench a healthy worker).
+ * 0 disables absorption. Read at CALL time (not module load) so tests can set
+ * the env before their first request regardless of import hoisting.
+ */
+function absorb429Ms(): number {
+  return Number(process.env.ZCODE_429_ABSORB_MS ?? 5_000);
+}
 
 /**
  * Connect-level retry ladder shared by the chat hot path and /v1/responses.
@@ -1420,6 +1511,48 @@ function peekBody(body: string | undefined): RequestMeta {
   } catch {
     return { model: "-", stream: false, caller: { ...NO_CALLER } };
   }
+}
+
+/**
+ * Rotate the egress proxy after a 3012, when spare egresses are configured.
+ *
+ * 3012 is counted per EGRESS IP; risk-hold stops the evidence feed but the
+ * block itself clears on upstream's clock (hours). With a spare list the
+ * engine can move to a clean egress immediately instead of serving 429s until
+ * then. The flagged URL goes to the BACK of the rotation, so it is retried
+ * only after every spare has been flagged too.
+ *
+ * Two deliberate properties:
+ *  - One mark per model per hold window: `markRiskHold` refreshes an existing
+ *    hold, but rotation must happen only on the FIRST 3012 of a window, or
+ *    every forwarded request during a hold would cycle the whole list while
+ *    the block is actually on upstream's side, not ours. The guard below
+ *    rotates only when the hold is NEW.
+ *  - Best-effort: `rotateProxyEgress` resolves to the same URL when there is
+ *    nothing to rotate to (no spares / proxy off). It must never throw into
+ *    the 3012 handling path — the client has already been answered.
+ */
+async function maybeRotateEgress(model: string): Promise<boolean> {
+  try {
+    const { riskHoldRemaining, RISK_HOLD_MS } = await import("./risk-hold.js");
+    const { rotateProxyEgress, proxyRotationAvailable } = await import("./network-proxy.js");
+    // Only the first 3012 of a hold window rotates: a remaining time close to
+    // the full window means the hold was just placed by THIS request.
+    if (riskHoldRemaining(model) < RISK_HOLD_MS - 5_000) return false;
+    if (!proxyRotationAvailable()) return false;
+    const next = await rotateProxyEgress();
+    if (next) {
+      let host = next;
+      try { host = new URL(next).host; } catch { /* keep the raw string */ }
+      console.warn(`[proxy] 3012 risk control — egress rotated to ${host}`);
+      adminLog.push(`[proxy] 3012 风控触发 — 出口已轮换到 ${host}`, "warn");
+      return true;
+    }
+  } catch {
+    // Rotation is an optimisation on top of the hold; never let it break
+    // request handling.
+  }
+  return false;
 }
 
 let reqCounter = 0;

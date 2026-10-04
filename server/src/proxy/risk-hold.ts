@@ -84,7 +84,14 @@ export function listRiskHolds(now = Date.now()): Array<{ model: string; unlockAt
   return out;
 }
 
-/** Test hook — forget every hold. */
+/**
+ * Forget every hold. Called on egress change: a 3012 hold is a statement about
+ * the EXIT IP upstream flagged, so when the operator switches proxy (or turns
+ * it off) the old holds describe an IP that is no longer in use — keeping them
+ * silenced models that are actually fine on the new egress (live failure:
+ * "switched proxy, everything unusable; disabled proxy, glm-5.3 still reported
+ * throttled while a pinned single-account test passed", 2026-10-04).
+ */
 export function clearRiskHolds(): void {
   holds.clear();
 }
