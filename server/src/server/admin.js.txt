@@ -395,6 +395,20 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
+  { ver: "v4.7.9", date: "2026-10-04", items: {
+    zh: [
+      "【情报】官方实时情报修复（不再 stale）：GitHub REST API 未认证限流 60 次/时/IP，服务器 IP 超额后情报页永远 403（实测复现）——主源换成 releases.atom（无此限制，实测可用），REST API 降为备源；TTL 30→10 分钟；解析出 0 条按失败继续走梯子",
+      "【代理】切换代理后全部不可用修复：3012 风控静默（risk-hold）描述的是旧出口 IP 的封锁，任何出口变更（面板保存代理 / 自动轮换 / 死出口切换）现在自动清空全部 hold——切完代理不再被旧 IP 的 30 分钟静默卡死，关代理后 glm-5.3 的限流误报同步消失",
+      "【配置】面板保存持久化修复（出口代理重启丢失根因）：config 路径在 serve() 入口解析为绝对路径——此前相对路径按进程 cwd 解释，systemd 启动时面板保存会写进错误位置的 config.yaml，重启即丢",
+      "【工程】docker/src 镜像树按官方流程重同步（此前落后 server/src 168 个文件），全套测试 1230/1230 绿",
+    ],
+    en: [
+      "Intel: feed un-staled — GitHub REST API is rate-limited 60/h per IP, so a busy server got 403 on every call and the page went permanently stale (reproduced live). releases.atom (no such limit, verified) is the new primary, REST demoted to fallback; TTL 30->10 min; a zero-entry parse counts as failure and the ladder keeps trying",
+      "Proxy: switching exits now clears all 3012 risk holds — they describe the OLD egress IP, and carrying them over benched models that work on the new one (live: proxy switch made everything unusable; proxy off still reported glm-5.3 throttled). Covers settings save, auto-rotation and dead-exit failover",
+      "Config: config path resolved to ABSOLUTE at serve() entry — panel saves (proxy / claim-auto / panel-timeout / pool) under a non-deploy cwd (systemd) were landing in a stray config.yaml and silently lost on restart",
+      "Engineering: docker/src mirror tree rebuilt via scripts/prepare-docker.ts (was 168 files stale); full suite 1230/1230 green",
+    ],
+  } },
   { ver: "v4.7.8", date: "2026-10-03", items: {
     zh: [
       "【账号】批量登录 API（AI 全自动开号）：POST /accounts/login/batch 一次开 1-20 个登录会话（串行创建防风控、namePrefix 自动命名），/batch/status 批量查状态（成功自动注册入池），/batch/cancel 一键取消整批",

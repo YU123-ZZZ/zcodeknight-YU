@@ -144,7 +144,7 @@ async function fetchIntel(): Promise<IntelFeed> {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const entries: IntelEntry[] = ep.kind === "atom"
         ? parseAtomFeed(await resp.text())
-        : (() => {
+        : await (async () => {
             const releases = JSON.parse(await resp.text()) as Array<{
               tag_name?: string; name?: string; published_at?: string; body?: string; html_url?: string;
             }>;
