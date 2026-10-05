@@ -317,14 +317,17 @@ describe("CaptchaTokenPool deep idle", () => {
       noteMintFailure: (r: string) => void;
       noteMintSuccess: () => void;
     };
-    // 7 failures: below threshold — no fire.
-    for (let i = 0; i < 7; i++) p.noteMintFailure("captcha solve stall pe=x.js");
+    // 5 failures: below both thresholds — no fire.
+    for (let i = 0; i < 5; i++) p.noteMintFailure("captcha solve stall pe=x.js");
     expect(fired.length).toBe(0);
-    // 8th failure crosses the threshold with zero successes — fires.
+    // 6th failure trips the CONSECUTIVE-failure breaker (2026-10-05 live storm:
+    // the 5-min window needed 8 failures while the RSS hit the 700MB exit line
+    // first — consecutive counting trips at 6, escalates and persists).
     p.noteMintFailure("captcha solve stall pe=x.js");
     expect(fired.length).toBe(1);
-    expect(fired[0]).toContain("mint storm");
-    // Cooldown: more failures do not re-fire immediately.
+    expect(fired[0]).toContain("consecutive mint failures");
+    // Further failures do not re-fire while the hold is live (the breaker
+    // escalates only after the hold expires — 10min → 20 → 40 → 2h cap).
     for (let i = 0; i < 5; i++) p.noteMintFailure("captcha solve stall pe=x.js");
     expect(fired.length).toBe(1);
 
@@ -347,7 +350,17 @@ describe("CaptchaTokenPool deep idle", () => {
       noteMintSuccess: () => void;
     };
     p2.noteMintSuccess();
+    // 9 failures: below the consecutive trip (6) is irrelevant here — a SUCCESS
+    // zeroes consecFails, so 9 in a row trips it at 6. What the success really
+    // suppresses is the 5-min WINDOW trigger (needs 8 fails AND 0 succ/3min).
+    // The consecutive breaker firing here is by design: 9 straight failures is
+    // a storm however you slice it. Assert the single strike, not zero.
     for (let i = 0; i < 10; i++) p2.noteMintFailure("stall");
-    expect(fired2.length).toBe(0);
+    expect(fired2.length).toBe(1);
+    expect(fired2[0]).toContain("consecutive mint failures");
+    // A real success resets the breaker — after it, a fresh storm is required.
+    p2.noteMintSuccess();
+    for (let i = 0; i < 5; i++) p2.noteMintFailure("stall");
+    expect(fired2.length).toBe(1);
   });
 });

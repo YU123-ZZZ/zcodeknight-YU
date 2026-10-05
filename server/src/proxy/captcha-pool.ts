@@ -37,6 +37,29 @@ import {
   shutdownCaptchaSolver,
 } from "./captcha-solver.js";
 import { isCaptchaDuplicateError, isCaptchaIpBlockError, parseCertifyId } from "./captcha-token.js";
+import { dataFile } from "../paths.js";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
+
+// ── Storm breaker persistence (2026-10-05 live storm) ──────────────────────
+// The memory watchdog exits at 700MB, systemd restarts the engine, and a fresh
+// process with an in-memory-only breaker re-entered the storm within 5 minutes:
+// 17 minutes per crash cycle until a human set claim.auto=false. Persisting the
+// breaker across restarts is what actually breaks the loop.
+const STORM_STATE_FILE = ["captcha-storm.json"];
+const CONSEC_FAIL_TRIP = 6;
+
+function persistStormState(holdUntil: number, strikes: number): void {
+  try {
+    const f = dataFile(...STORM_STATE_FILE);
+    if (holdUntil <= Date.now() && strikes === 0) {
+      if (existsSync(f)) {
+        try { require("node:fs").rmSync(f); } catch { /* deleted */ }
+      }
+      return;
+    }
+    writeFileSync(f, JSON.stringify({ holdUntil, strikes, savedAt: Date.now() }), "utf-8");
+  } catch { /* best-effort: a lost state file only means one extra retry round */ }
+}
 
 export interface CaptchaPoolOptions {
   /** @deprecated Use poolSizeMax — kept as max cap alias. */
@@ -193,6 +216,8 @@ export class CaptchaTokenPool {
   private stormStrikes = 0;
   private mintSuccesses: number[] = [];
   private lastStormResetAt = 0;
+  /** Consecutive mint failures with zero successes between (breaker trips at 6). */
+  private consecFails = 0;
 
   constructor(opts: CaptchaPoolOptions = {}) {
     // The module-level singleton constructs with no opts before config load;
@@ -209,6 +234,23 @@ export class CaptchaTokenPool {
     this.certifyIds = new CertifyIdRegistry(this.opts.tokenTtlMs);
     this.initGovernor(opts);
     setCaptchaSolverConcurrency(this.opts.solveConcurrency);
+    // Restore a storm breaker persisted by a previous process. After a 700MB
+    // watchdog exit this is what stops the fresh engine from re-entering the
+    // storm in 5 minutes (2026-10-05: 17min crash cycle until a human set
+    // claim.auto=false). The hold counts down from where it left off; a live
+    // claim/balance read still works — only captcha minting pauses.
+    try {
+      const f = dataFile(...STORM_STATE_FILE);
+      if (existsSync(f)) {
+        const state = JSON.parse(readFileSync(f, "utf-8")) as { holdUntil?: number; strikes?: number };
+        if (typeof state.holdUntil === "number" && state.holdUntil > Date.now()) {
+          this.mintHoldUntil = state.holdUntil;
+          this.stormStrikes = Math.max(1, state.strikes ?? 1);
+          const mins = Math.round((state.holdUntil - Date.now()) / 60_000);
+          engineError("captcha", `storm breaker restored from data/: mint paused ${mins} more min (strike ${this.stormStrikes}) — upstream risk control outlived the previous process`, "warn");
+        }
+      }
+    } catch { /* torn file — ignore, fresh breaker */ }
   }
 
   configure(opts: CaptchaPoolOptions): void {
@@ -592,12 +634,49 @@ export class CaptchaTokenPool {
     const cutoff = now - 360_000;
     this.mintFailures = this.mintFailures.filter((t) => t > cutoff);
     this.maybeFireMintStormReset(reason);
+    // Consecutive-failure breaker (2026-10-05 live storm): the 5-min window in
+    // maybeFireMintStormReset needs 8 failures to accumulate, but claim
+    // schedulers fire staggered — the RSS hit the 700MB exit line BEFORE the
+    // window filled and the engine self-restarted with a clean breaker. Count
+    // CONSECUTIVE failures instead: 6 in a row with zero successes trips
+    // immediately, and the hold now survives restarts via data/.
+    this.consecFails += 1;
+    if (this.consecFails >= CONSEC_FAIL_TRIP && Date.now() < this.mintHoldUntil) return; // already tripped, don't re-escalate on the same hold
+    if (this.consecFails >= CONSEC_FAIL_TRIP) {
+      this.stormStrikes += 1;
+      // Share the dedupe window with the 5-min storm trigger below — both
+      // request the same IP reset, and one storm must fire it once.
+      this.lastStormResetAt = Date.now();
+      // Escalate hard: 10min → 20 → 40 → capped 2h. Upstream risk-control on a
+      // datacenter IP lasts hours; a 30min cap meant re-entering the storm
+      // every half hour and re-leaking ~150MB per failed window.
+      const holdMs = Math.min(10 * 60_000 * 2 ** (this.stormStrikes - 1), 120 * 60_000);
+      this.mintHoldUntil = now + holdMs;
+      persistStormState(this.mintHoldUntil, this.stormStrikes);
+      engineError(
+        "captcha",
+        `consecutive-failure breaker: ${this.consecFails} mints failed in a row (0 success) -> mint paused ${Math.round(holdMs / 1000)}s (strike ${this.stormStrikes}, survives restart)`,
+        "warn",
+      );
+      try {
+        discardCaptchaSandbox();
+      } catch { /* best-effort */ }
+      try {
+        this.opts.onCaptchaIpBlock?.(`consecutive mint failures: ${this.consecFails}`);
+      } catch { /* best-effort */ }
+    }
   }
 
   private noteMintSuccess(): void {
     const now = Date.now();
     // A success means the endpoint is alive again: clear the storm backoff.
-    if (this.mintHoldUntil > 0) { this.mintHoldUntil = 0; this.stormStrikes = 0; }
+    if (this.mintHoldUntil > 0) {
+      this.mintHoldUntil = 0;
+      this.stormStrikes = 0;
+      this.consecFails = 0;
+      persistStormState(0, 0);
+    }
+    this.consecFails = 0;
     this.mintSuccesses.push(now);
     const cutoff = now - 360_000;
     this.mintSuccesses = this.mintSuccesses.filter((t) => t > cutoff);

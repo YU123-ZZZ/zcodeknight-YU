@@ -252,6 +252,13 @@ upstream (api.z.ai / open.bigmodel.cn)
 小内存主机（2G）建议：CAPTCHA_WINDOW_REUSE=0 关闭窗口复用是最快的第一步隔离手段；
 配合 systemd MemoryMax 观察是否触顶。日志 CSV 导出现在包含全量引擎历史，可用于回溯。
 
+v4.7.10（2026-10-05）：
+
+1. **验证码风暴断根（10-05 事件）**——连续 6 次 mint 失败且 0 成功立即熔断，
+   退避 10min→20→40→2h；熔断状态持久化 data/captcha-storm.json，看门狗重启
+   后新进程读回继续熔断，17 分钟崩溃循环不再重演；触发即销毁复用沙箱回收
+   150MB/窗泄漏；详见 panel CHANGELOG。
+
 v4.7.9（2026-10-04）：
 
 1. **官方实时情报修复（不再 stale）**——GitHub REST API 未认证限流 60 次/时/IP，

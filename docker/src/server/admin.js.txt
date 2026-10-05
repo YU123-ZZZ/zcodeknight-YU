@@ -395,6 +395,18 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
+  { ver: "v4.7.10", date: "2026-10-05", items: {
+    zh: [
+      "【风暴】验证码连续全灭自动熔断：claim 调度错开触发，5 分钟窗口攒不满 8 次失败、内存先爆（10-05 实测 17 分钟一个崩溃周期）。新增连续失败计数——6 连败且 0 成功立即熔断，退避 10min→20→40→封顶 2h（原 30min 封顶会让每半小时重演一轮）",
+      "【风暴】熔断状态持久化到 data/captcha-storm.json：700MB 看门狗自杀重启后，新进程读回 holdUntil 继续熔断——不再 5 分钟重演风暴。一次成功自动清零删档",
+      "【风暴】熔断触发即强制销毁复用沙箱（150MB/窗泄漏的存量立即回收）；与 5 分钟窗口触发共享去重窗口，同一风暴只发一次 IP 重置",
+    ],
+    en: [
+      "Storm: consecutive-failure breaker for captcha mints — claim schedulers fire staggered, so the 5-min window never reached 8 fails before RSS hit the 700MB exit line (10-05: a crash cycle every 17 minutes). 6 straight failures with zero successes now trip immediately, escalating 10min->20->40->capped 2h",
+      "Storm: breaker state persists in data/captcha-storm.json — after a 700MB watchdog exit the fresh engine reads the hold back in instead of re-entering the storm. One success clears it",
+      "Storm: tripping the breaker force-discards the reuse sandbox (reclaims the ~150MB/window leak) and shares the dedupe window with the 5-min trigger so one storm fires the IP reset once",
+    ],
+  } },
   { ver: "v4.7.9", date: "2026-10-04", items: {
     zh: [
       "【情报】官方实时情报修复（不再 stale）：GitHub REST API 未认证限流 60 次/时/IP，服务器 IP 超额后情报页永远 403（实测复现）——主源换成 releases.atom（无此限制，实测可用），REST API 降为备源；TTL 30→10 分钟；解析出 0 条按失败继续走梯子",
