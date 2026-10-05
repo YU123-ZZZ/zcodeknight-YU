@@ -51,9 +51,19 @@ const holds = new Map<string, number>();
  * Put a model into the silent window. Empty/placeholder models are ignored —
  * a 3012 without a model on the request cannot be scoped, and a global hold
  * would bench models that still pass (measured: flash kept working).
+ *
+ * IDEMPOTENT by design (2026-10-05 live incident): a hold ALREADY in force is
+ * NOT extended. The window-pinned probe bypasses the local check, hits the
+ * upstream 429, and re-marked the model on every test — each probe pushed the
+ * unlock clock 30 minutes further out, so flash looked locked "until 13:18"
+ * while upstream's real window rolls in minutes. First 429 sets the window;
+ * probes during it report but do not extend; a NEW 429 after expiry opens a
+ * fresh one.
  */
 export function markRiskHold(model: string | undefined, now = Date.now()): void {
   if (!model || model === "(未指定)") return;
+  const existing = holds.get(model);
+  if (existing !== undefined && existing > now) return;
   holds.set(model, now + RISK_HOLD_MS);
 }
 

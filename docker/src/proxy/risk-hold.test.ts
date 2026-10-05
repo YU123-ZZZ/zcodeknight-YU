@@ -45,6 +45,18 @@ describe("risk-hold", () => {
     expect(riskHoldRemaining("glm-5.3", now + 60_000)).toBe(RISK_HOLD_MS - 60_000);
   });
 
+  it("does NOT extend a live hold — pinned probes re-marked and pushed the unlock clock out (2026-10-05: flash locked 'until 13:18' while upstream rolls in minutes)", () => {
+    const now = 1_000_000;
+    markRiskHold("glm-5.3", now);
+    // A probe during the window hits upstream 429 and re-marks — must not move.
+    markRiskHold("glm-5.3", now + 5 * 60_000);
+    expect(riskHoldRemaining("glm-5.3", now + 6 * 60_000)).toBe(RISK_HOLD_MS - 6 * 60_000);
+    // After expiry a NEW 429 opens a fresh window.
+    const later = now + RISK_HOLD_MS + 60_000;
+    markRiskHold("glm-5.3", later);
+    expect(riskHoldRemaining("glm-5.3", later + 1)).toBe(RISK_HOLD_MS - 1);
+  });
+
   it("expires on its own", () => {
     const now = 1_000_000;
     markRiskHold("glm-5.3", now);

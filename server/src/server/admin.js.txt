@@ -395,6 +395,16 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
+  { ver: "v4.7.11", date: "2026-10-05", items: {
+    zh: [
+      "【保护期】risk-hold 幂等化：保护期内的再标记不再延长窗口——此前单号 pin 探测绕过本地检查真出网、收到上游 429 又把解锁时刻推 30 分钟（10-05 实测 flash 锁到 13:18，越测越锁）。首个 429 定窗；窗口内探测只报告不续期；过期后新 429 开新窗",
+      "【风暴】v4.7.10 的连续失败熔断、2h 退避、data/ 持久化保持不变",
+    ],
+    en: [
+      "Hold: markRiskHold is now idempotent — a live hold is never extended. Pinned probes bypass the local check, hit upstream 429 and re-marked on every test, pushing the unlock clock 30 min per probe (10-05: flash locked until 13:18). First 429 sets the window; in-window probes report only; a post-expiry 429 opens a fresh one",
+      "Storm: v4.7.10 consecutive-failure breaker, 2h escalation and data/ persistence unchanged",
+    ],
+  } },
   { ver: "v4.7.10", date: "2026-10-05", items: {
     zh: [
       "【风暴】验证码连续全灭自动熔断：claim 调度错开触发，5 分钟窗口攒不满 8 次失败、内存先爆（10-05 实测 17 分钟一个崩溃周期）。新增连续失败计数——6 连败且 0 成功立即熔断，退避 10min→20→40→封顶 2h（原 30min 封顶会让每半小时重演一轮）",
