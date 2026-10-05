@@ -558,6 +558,12 @@ export class CaptchaTokenPool {
     }
 
     if (this.refillInFlight || Date.now() < this.pausedUntil) return;
+    // Storm hold gates the REFILL too: the breaker only stops takeToken, but
+    // the background refill timer kept minting into a dead endpoint every
+    // tick — each failed window leaks and logs a scary "captcha failed after
+    // 4 attempts" row in the panel (2026-10-05: 121 ERROR rows on a healthy
+    // machine). The refill is never worth more than the tokens it replaces.
+    if (Date.now() < this.mintHoldUntil) return;
 
     this.applyGovernorCaps();
 
