@@ -273,7 +273,7 @@
     <div class="card" style="margin-top:14px">
       <div class="lbl" data-i18n="apidoc_endpoints">Endpoints</div>
       <div class="sub" style="margin-top:6px;font-family:var(--mono);font-size:11.5px;line-height:1.9">
-        POST /admin/api/accounts/login/batch &nbsp; { "count": 5, "provider": "zai", "namePrefix": "farm" }<br>
+        POST /admin/api/accounts/login/batch &nbsp; { "count": 5, "provider": "zai" } &nbsp;（namePrefix 可选：不传=账号名默认用邮箱；自定义名字才传）<br>
         POST /admin/api/accounts/login/batch/status &nbsp; { "sessionIds": ["…","…"] }<br>
         POST /admin/api/accounts/login/batch/cancel &nbsp; { "sessionIds": ["…"] }
       </div>
@@ -291,7 +291,7 @@ Account credentials: I will provide the list (email + password per line) when yo
 Do this:
 1. POST {BASE_URL}/admin/api/accounts/login/batch
    Headers: Authorization: Bearer &lt;admin key&gt;, content-type: application/json
-   Body: {"count": N, "provider": "zai", "namePrefix": "&lt;short prefix&gt;"}
+   Body: {"count": N, "provider": "zai"}   (namePrefix OPTIONAL — omit it; accounts default to their email. Pass it only if the user explicitly asks for custom names)
    Save every sessionId + authorizeUrl from the response.
 2. For each authorizeUrl, open it with your browser automation (Playwright or
    browser-use), sign in with THAT account's email + password, and complete
