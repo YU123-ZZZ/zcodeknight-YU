@@ -1142,7 +1142,11 @@ async function loadBalances(knownAccounts, knownQuota) {
   // hitch seen on the overview after touching the accounts page, and it bought
   // nothing: the data was about to arrive either way.
   if (el.dataset.loaded !== "1") {
-    el.innerHTML = '<span class="sub">' + T("loading") + "</span>";
+    // Preserve any already-rendered cards: renderBalanceList uses keyed reuse
+    // (appends by balId), so the Loading span would otherwise stay in the DOM
+    // ABOVE the finished cards forever — the list read "Loading… + 13 cards"
+    // with the spinner never going away (live: overview showed both, 2026-10-05).
+    el.innerHTML = '<span class="sub" data-loading="1">' + T("loading") + "</span>";
   }
   try {
     // `knownAccounts` / `knownQuota`: the caller already holds them (see
@@ -1238,6 +1242,10 @@ function balanceEmptyText(rec) {
 /** Per-account balance list, honouring the search box + filter dropdown. */
 function renderBalanceList() {
   const el = document.getElementById("ov-balances");
+  // The Loading placeholder must go away the moment real cards render — the
+  // keyed-reuse loop below appends cards but never removed the span, so the
+  // list showed "Loading…" stacked above 13 finished cards forever.
+  el.querySelector('[data-loading="1"]')?.remove();
   const q = (document.getElementById("ov-bal-search").value || "").trim().toLowerCase();
   const f = document.getElementById("ov-bal-filter").value;
   // Keyed reuse, same scheme as the accounts page's card diff: a poll that
