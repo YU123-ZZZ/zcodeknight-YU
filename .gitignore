@@ -33,6 +33,7 @@ runtime.exe.bak
 *.exe
 *.exe.bak
 ZcodeKnight.exe
+ZcodeKnight.dat
 ZcodeKnight-YU.exe
 # 热替换时被改名让位的引擎副本（`ZcodeKnight.exe.old`、
 # `ZcodeKnight.exe.<时间戳>`，各 89MB）。`*.exe` 匹配不到它们 —— 扩展名变成了

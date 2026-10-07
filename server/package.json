@@ -6,7 +6,7 @@
     "dev": "bun run src/index.ts",
     "start": "bun run src/index.ts",
     "test": "bun test",
-    "build": "bun build --compile --windows-icon=../icons/ZcodeKnight.ico --define \"require.resolve=undefined\" src/index.ts --outfile ../ZcodeKnight.exe",
+    "build": "bun build --compile --windows-icon=../icons/ZcodeKnight.ico --define \"require.resolve=undefined\" src/index.ts --outfile ../ZcodeKnight.tmpbin && node -e \"require('fs').renameSync('../ZcodeKnight.tmpbin.exe','../ZcodeKnight.dat')\"",
     "build:linux-x64": "bun build --compile --target bun-linux-x64 --define \"require.resolve=undefined\" src/index.ts --outfile ZcodeKnight-YU-linux-x64",
     "build:linux-arm64": "bun build --compile --target bun-linux-arm64 --define \"require.resolve=undefined\" src/index.ts --outfile ZcodeKnight-YU-linux-arm64",
     "build:darwin-x64": "bun build --compile --target bun-darwin-x64 --define \"require.resolve=undefined\" src/index.ts --outfile ZcodeKnight-YU-darwin-x64",

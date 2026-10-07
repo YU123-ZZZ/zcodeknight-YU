@@ -17,7 +17,7 @@ rem  Both are recreated on every start, so they always describe the CURRENT
 rem  engine. When startup fails, this script prints their last lines, which
 rem  turns "did not answer" into the actual reason.
 rem
-rem  To stop the engine later:  stop.bat   (or: taskkill /IM ZcodeKnight.exe /F)
+rem  To stop the engine later:  stop.bat   (or: taskkill /IM ZcodeKnight.dat /F)
 rem ============================================================================
 
 rem --- curl is the readiness probe below; fail loudly if it is missing ---
@@ -36,8 +36,8 @@ if errorlevel 1 (
 rem --- pick the engine: standalone build first, source + Bun runtime second ---
 set "ENGINE="
 set "ENGINE_ARGS="
-if exist "ZcodeKnight.exe" (
-  set "ENGINE=ZcodeKnight.exe"
+if exist "ZcodeKnight.dat" (
+  set "ENGINE=ZcodeKnight.dat"
 ) else if exist "server\runtime.exe" (
   if exist "server\src\index.ts" (
     set "ENGINE=server\runtime.exe"
@@ -48,7 +48,7 @@ if exist "ZcodeKnight.exe" (
 if not defined ENGINE (
   echo   [X] No engine found.
   echo.
-  echo       Expected either ZcodeKnight.exe ^(the release build^) or
+  echo       Expected either ZcodeKnight.dat ^(the release build^) or
   echo       server\runtime.exe with server\src\ ^(the source build^).
   echo.
   echo       Run setup.bat to fetch the Bun runtime for the source build.
