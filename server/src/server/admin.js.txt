@@ -1633,7 +1633,13 @@ function renderAccounts(list) {
     if (c.dataset.accId) existing.set(c.dataset.accId, c);
     else c.remove();
   }
-  el.innerHTML = "";
+  // NO el.innerHTML = "" here. That wipe detached every existing card at the
+  // top of the render — and because the per-card loop below only appends
+  // cards whose diffKey CHANGED, unchanged cards were re-attached one by one
+  // across ~3s of layout work, so a pause/resume visibly removed the toggled
+  // account for the whole window ("账户消失，刷新后又显示", 2026-10-05). With
+  // keyed reuse the stale cards stay mounted until their turn in the loop,
+  // and the orphan sweep at the end removes exactly the ones that left.
   if (!list.length) {
     el.innerHTML = '<div class="card empty" style="grid-column:1/-1"><img class="big" src="/admin/api/logo.svg" width="46" height="46" alt=""><div>' +
       T("no_accounts") + '</div><div class="sub">' + T("no_accounts_sub") + "</div></div>";
