@@ -1877,6 +1877,25 @@ async function act(path, id, paused, extra) {
   // Refresh only on success. Repainting the unchanged card after a failure is
   // what made a rejected click indistinguishable from a dead button.
   if (!(await okOrToast(r))) return;
+  // Optimistic in-place patch (2026-10-05 live bug): the full refresh is a
+  // three-request chain (~3-4s). During it renderAccounts kept the OLD
+  // snapshot — a pause/resume made the card vanish for that whole window
+  // ("账户消失，刷新后又显示"). Patch the live card's status + swap its
+  // Pause/Enable button NOW, so the operator sees the result immediately and
+  // the chain only fills in the rest (balances, cooldowns).
+  const a = (lastAccounts || []).find((x) => x.id === id);
+  if (a && paused !== undefined && path === "/accounts/pause") {
+    a.status = paused ? "paused" : "ok";
+    const card = document.querySelector(`#page-accounts [data-acc-id="${id}"]`);
+    if (card) {
+      const st = card.querySelector(".st");
+      if (st) { st.className = "st " + a.status; st.textContent = T("st_" + a.status); }
+      const btn = [...card.querySelectorAll("button")].find((b) => /pause|enable/i.test(b.textContent.trim()));
+      if (btn) btn.textContent = paused ? T("act_resume") : T("act_pause");
+      // Keep lastAccounts consistent: every later render uses this status.
+      lastAccounts = lastAccounts.map((x) => (x.id === id ? { ...x, status: a.status } : x));
+    }
+  }
   refreshAccounts();
 }
 
