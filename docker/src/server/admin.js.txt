@@ -92,7 +92,7 @@ const I18N = {
     apidoc_auth: "鉴权：与其他管理 API 相同（面板 Cookie 会话，或 API Key 调用走 Authorization: Bearer；Cookie 方式的写请求需带 x-csrf-token 头）。",
     apidoc_prompt_title: "给你 AI 的提示词（点击选中，然后复制）",
     apidoc_copy: "复制提示词",
-    set_title: "设置", set_sub: "修改后部分项需重启代理生效",
+    set_title: "设置", set_sub: "修改后部分项需重启代理生效", set_load_fail: "设置加载失败——请刷新页面；此时点保存会写入空值", set_load_fail_hint: "设置加载失败，禁止保存（防止空值覆盖）",
     set_zcode_compat: "适配 ZCode 客户端版本：3.14.4+（身份指纹按此版本伪装；低于此版本可能触发上游 1004 ineligible）",
     intel_link_text: "在 GitHub 查看",
     set_api: "接口地址（OpenAI 格式）", set_api_hint: "填到你的编程工具里",
@@ -124,6 +124,7 @@ const I18N = {
     set_proxy_on: "当前出口：{h}", set_proxy_off: "当前直连（未走代理）",
     set_proxy_rotate_n: "轮换池 {n} 个出口",
     pg_throttled_hint: "该模型当前被上游限流，稍候自动恢复；或改用 glm-5.3-flash（不限流）",
+    pg_flash_throttled_hint: "glm-5.3-flash 当前被上游限流，请稍候自动恢复。",
     panel_stale: "引擎已更新，本页脚本已过期，请强制刷新（Ctrl+F5）",
     set_idle: "面板空闲登出", set_idle_hint: "多少分钟不操作后重新要求输入密钥。任何操作都会重置计时；0 表示永不登出",
     set_idle_save: "保存超时", set_idle_stat: "当前空闲超时", min_unit: "分钟",
@@ -281,7 +282,7 @@ const I18N = {
     apidoc_copy: "Copy prompt",
     set_zcode_compat: "Compatible ZCode client version: 3.14.4+ (identity fingerprint mimics this release; older versions may trigger upstream 1004 ineligible)",
     intel_link_text: "View on GitHub",
-    set_title: "Settings", set_sub: "Some changes need a proxy restart",
+    set_title: "Settings", set_sub: "Some changes need a proxy restart", set_load_fail: "Settings failed to load — refresh the page; saving now would write blanks", set_load_fail_hint: "Load failed, saving disabled (blank-overwrite guard)",
     set_api: "Endpoint (OpenAI format)", set_api_hint: "Paste into your coding tools",
     set_key: "API Key", set_key_hint: "Paste into your coding tools (copy on the right); empty disables client auth", save_pool: "Save pool settings", copy: "Copy",
     set_key_regen: "Generate", set_key_save: "Save key",
@@ -311,6 +312,7 @@ const I18N = {
     set_proxy_on: "Egress: {h}", set_proxy_off: "Direct connection (no proxy)",
     set_proxy_rotate_n: "rotation pool of {n} egresses",
     pg_throttled_hint: "This model is throttled upstream right now; it recovers on its own, or switch to glm-5.3-flash",
+    pg_flash_throttled_hint: "glm-5.3-flash is throttled upstream right now; please wait for it to recover.",
     panel_stale: "The engine was updated — this page runs stale script, please hard-refresh (Ctrl+F5)",
     set_idle: "Panel idle logout", set_idle_hint: "Minutes of inactivity before the panel asks for the key again. Any activity resets the clock; 0 never logs out",
     set_idle_save: "Save timeout", set_idle_stat: "Current idle timeout", min_unit: "min",
@@ -395,6 +397,26 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
+  { ver: "v4.7.12", date: "2026-10-08", items: {
+    zh: [
+      "【代理】修复三个实测缺陷：备用出口为空不再删字段（表单加载失败时空保存不再清空出口池）；设置加载失败会提示并禁用保存；保存新主出口立即生效（旧出口在备用列表中也不再粘住）",
+      "【风控】3012 静默改按出口隔离：A 出口被标记不影响 B 出口；轮换/切出口只切换作用域并保留历史；单账号 pin 不再绕过静默（Playground 与外部 /v1 判定一致）",
+      "【面板】已在用 glm-5.3-flash 时不再提示“改用 flash”，换为专用文案",
+      "【验证码】claim.auto 关闭时同步停止后台验证码补充（此前关自动领取后 captcha 仍在硬拉/漏内存）；重新开启自动恢复预热",
+      "【上游】coding-plan 同样识别上游 405/429 风控（不再落到 502 translation_failed）",
+      "【账号池】坏档/解密失败时不再按残缺文档对账删除账号（面板不再“某账号时有时无”）；存储写失败自动重试，失败原因显式提示",
+      "【性能】启动预热上游情报缓存，首屏不再等 GitHub 拉取",
+    ],
+    en: [
+      "Proxy: three field-reported fixes — empty spare list no longer deletes rotateUrls (a failed form load + save wiped the pool); load failures now warn and disable saving; a newly saved primary takes effect immediately even when the old exit is still listed as a spare",
+      "Risk: 3012 holds are scoped per egress (one flagged exit no longer benches models on another); switching/rotating changes the scope and keeps per-exit history; account pinning no longer bypasses the hold (Playground and external /v1 agree)",
+      "Panel: no more remove-flash advice when already on glm-5.3-flash (dedicated copy)",
+      "Captcha: claim.auto off now stops the background refill too (it kept minting into a flagged endpoint); re-enabling restores warmup",
+      "Upstream: coding-plan accounts classify 405/429 risk control like start-plan (no more 502 translation_failed)",
+      "Accounts: a partial/undecryptable store read no longer reconciles accounts away (the sometimes-here-sometimes-gone pool); failed store writes retry with an explicit message",
+      "Perf: upstream-intel cache is warmed at boot so the first panel open does not wait on GitHub",
+    ],
+  } },
   { ver: "v4.7.11", date: "2026-10-05", items: {
     zh: [
       "【保护期】risk-hold 幂等化：保护期内的再标记不再延长窗口——此前单号 pin 探测绕过本地检查真出网、收到上游 429 又把解锁时刻推 30 分钟（10-05 实测 flash 锁到 13:18，越测越锁）。首个 429 定窗；窗口内探测只报告不续期；过期后新 429 开新窗",
@@ -1142,7 +1164,11 @@ async function loadBalances(knownAccounts, knownQuota) {
   // hitch seen on the overview after touching the accounts page, and it bought
   // nothing: the data was about to arrive either way.
   if (el.dataset.loaded !== "1") {
-    el.innerHTML = '<span class="sub">' + T("loading") + "</span>";
+    // Preserve any already-rendered cards: renderBalanceList uses keyed reuse
+    // (appends by balId), so the Loading span would otherwise stay in the DOM
+    // ABOVE the finished cards forever — the list read "Loading… + 13 cards"
+    // with the spinner never going away (live: overview showed both, 2026-10-05).
+    el.innerHTML = '<span class="sub" data-loading="1">' + T("loading") + "</span>";
   }
   try {
     // `knownAccounts` / `knownQuota`: the caller already holds them (see
@@ -1238,6 +1264,10 @@ function balanceEmptyText(rec) {
 /** Per-account balance list, honouring the search box + filter dropdown. */
 function renderBalanceList() {
   const el = document.getElementById("ov-balances");
+  // The Loading placeholder must go away the moment real cards render — the
+  // keyed-reuse loop below appends cards but never removed the span, so the
+  // list showed "Loading…" stacked above 13 finished cards forever.
+  el.querySelector('[data-loading="1"]')?.remove();
   const q = (document.getElementById("ov-bal-search").value || "").trim().toLowerCase();
   const f = document.getElementById("ov-bal-filter").value;
   // Keyed reuse, same scheme as the accounts page's card diff: a poll that
@@ -1625,7 +1655,13 @@ function renderAccounts(list) {
     if (c.dataset.accId) existing.set(c.dataset.accId, c);
     else c.remove();
   }
-  el.innerHTML = "";
+  // NO el.innerHTML = "" here. That wipe detached every existing card at the
+  // top of the render — and because the per-card loop below only appends
+  // cards whose diffKey CHANGED, unchanged cards were re-attached one by one
+  // across ~3s of layout work, so a pause/resume visibly removed the toggled
+  // account for the whole window ("账户消失，刷新后又显示", 2026-10-05). With
+  // keyed reuse the stale cards stay mounted until their turn in the loop,
+  // and the orphan sweep at the end removes exactly the ones that left.
   if (!list.length) {
     el.innerHTML = '<div class="card empty" style="grid-column:1/-1"><img class="big" src="/admin/api/logo.svg" width="46" height="46" alt=""><div>' +
       T("no_accounts") + '</div><div class="sub">' + T("no_accounts_sub") + "</div></div>";
@@ -1869,6 +1905,25 @@ async function act(path, id, paused, extra) {
   // Refresh only on success. Repainting the unchanged card after a failure is
   // what made a rejected click indistinguishable from a dead button.
   if (!(await okOrToast(r))) return;
+  // Optimistic in-place patch (2026-10-05 live bug): the full refresh is a
+  // three-request chain (~3-4s). During it renderAccounts kept the OLD
+  // snapshot — a pause/resume made the card vanish for that whole window
+  // ("账户消失，刷新后又显示"). Patch the live card's status + swap its
+  // Pause/Enable button NOW, so the operator sees the result immediately and
+  // the chain only fills in the rest (balances, cooldowns).
+  const a = (lastAccounts || []).find((x) => x.id === id);
+  if (a && paused !== undefined && path === "/accounts/pause") {
+    a.status = paused ? "paused" : "ok";
+    const card = document.querySelector(`#page-accounts [data-acc-id="${id}"]`);
+    if (card) {
+      const st = card.querySelector(".st");
+      if (st) { st.className = "st " + a.status; st.textContent = T("st_" + a.status); }
+      const btn = [...card.querySelectorAll("button")].find((b) => /pause|enable/i.test(b.textContent.trim()));
+      if (btn) btn.textContent = paused ? T("act_resume") : T("act_pause");
+      // Keep lastAccounts consistent: every later render uses this status.
+      lastAccounts = lastAccounts.map((x) => (x.id === id ? { ...x, status: a.status } : x));
+    }
+  }
   refreshAccounts();
 }
 
@@ -2667,7 +2722,11 @@ async function pgSend() {
       if (resp.status === 429) {
         const cur = document.getElementById("pg-model").value;
         const alt = /flash/i.test(cur) ? null : (lastPgModels || []).find((m) => /flash/i.test(m));
-        chatBubble("err", T("pg_throttled_hint") + (alt ? " → " + alt : ""));
+        // B4 (field report): the generic hint hardcodes "or switch to flash",
+        // which contradicts itself when the caller is ALREADY on flash. Two
+        // dedicated strings instead of regex-trimming a translated sentence.
+        const hint = /flash/i.test(cur) ? T("pg_flash_throttled_hint") : T("pg_throttled_hint");
+        chatBubble("err", hint + (alt ? " → " + alt : ""));
         const send = document.getElementById("pg-send");
         if (send) {
           send.disabled = true;
@@ -3342,6 +3401,10 @@ async function loadSettings() {
     // button sat there looking actionable, and pressing it asked to confirm a
     // write of the value that was already stored.
     markKeyDirty(false);
+    // A previous /config load may have failed; re-enable saves only AFTER the
+    // complete config response has populated all fields.
+    const proxySave = document.getElementById("set-proxy-save");
+    if (proxySave) { proxySave.disabled = false; proxySave.title = ""; }
     if (cfg.pool) {
       document.getElementById("set-gate").value = cfg.pool.maxConcurrentPerAccount;
       document.getElementById("set-cooldown").value = Math.round(cfg.pool.cooldownMs / 1000);
@@ -3383,7 +3446,15 @@ async function loadSettings() {
       document.getElementById("set-idle").value = cfg.panel.idleTimeoutMinutes;
       renderIdleStat(cfg.panel.idleTimeoutMinutes);
     }
-  } catch {}
+  } catch (e) {
+    // NOT silent (field report A2): a failed load used to leave the form
+    // EMPTY, and saving that empty form wiped the stored proxy config
+    // (spare-egress pool included). Tell the operator the load failed and
+    // that saving now would write blanks — the proxy block specifically.
+    toast(T("set_load_fail") + " (" + String(e).slice(0, 80) + ")");
+    const saveBtn = document.getElementById("set-proxy-save");
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.title = T("set_load_fail_hint"); }
+  }
   // Current build version for the update row (the overview endpoint carries it).
   try {
     const ov = await (await api("/overview")).json();

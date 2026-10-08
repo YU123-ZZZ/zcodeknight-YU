@@ -134,4 +134,46 @@ describe("an account store that cannot be decrypted", () => {
     // And the refusal is reported rather than swallowed.
     expect(accountStoreLoadProblem()?.kind).toBe("undecryptable_locked");
   });
+
+  it("E3: a transient write failure does not lose the account — a later write lands both records", async () => {
+    // Field report E3: a single failed write was swallowed with a console.warn,
+    // so a just-registered account lived ONLY in memory and vanished on the
+    // next restart/cache reset. Contract now: the write retries (backoff
+    // injectable), and once the obstruction clears the full in-memory doc —
+    // including the already-added account — reaches disk.
+    process.env.ZCODE_STORE_RETRY_MS = "0,0";
+    try {
+      mkdirSync(tmp, { recursive: true });
+      await loadAccounts();
+      const target = accountStoreFile();
+      // A directory where the store file must be written: a portable,
+      // permission-independent write failure.
+      rmSync(target, { force: true });
+      mkdirSync(target, { recursive: true });
+      await addAccount({
+        credential: { apiKey: "sk-retry-1", provider: "zai" },
+        name: "retry-1",
+        deviceMid: "0000000d-1111-2222-3333-444444444444",
+      });
+      // Clear the obstruction; the next mutation persists the WHOLE doc, so the
+      // account from the failed round is written too (not just the new one).
+      rmSync(target, { recursive: true, force: true });
+      await addAccount({
+        credential: { apiKey: "sk-retry-2", provider: "zai" },
+        name: "retry-2",
+        deviceMid: "0000000e-1111-2222-3333-444444444444",
+      });
+      const onDisk = readFileSync(target, "utf-8");
+      // The store is encrypted — assert on the DECRYPTED doc, re-read from
+      // disk with a fresh cache (the same path a restart takes).
+      expect(onDisk).toContain("encrypted");
+      resetAccountStoreCacheForTest();
+      const reloaded = await loadAccounts();
+      const names = reloaded.accounts.map((a) => a.name).join(",");
+      expect(names).toContain("retry-1");
+      expect(names).toContain("retry-2");
+    } finally {
+      delete process.env.ZCODE_STORE_RETRY_MS;
+    }
+  });
 });

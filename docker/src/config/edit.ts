@@ -88,9 +88,10 @@ export function updateProxyConfigYaml(
   if (fields.rotateUrls && fields.rotateUrls.trim()) {
     const items = fields.rotateUrls.split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean);
     doc.setIn(["proxy", "rotateUrls"], items);
-  } else {
-    doc.deleteIn(["proxy", "rotateUrls"]);
   }
+  // An EMPTY value keeps the existing rotateUrls: wiping the spare pool must
+  // be an explicit act, never an accident of an empty textarea on a form that
+  // failed to load (field report A1).
   doc.setIn(["proxy", "noProxy"], fields.noProxy);
   writeFileSync(path, String(doc), "utf-8");
 }

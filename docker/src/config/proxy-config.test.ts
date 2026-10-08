@@ -207,6 +207,35 @@ describe("proxy installation", () => {
     expect(await rotateProxyEgress()).toBe("http://a:1");
   });
 
+  it("rotation: changing primary takes effect immediately even when the old primary remains in spares (A3)", async () => {
+    await applyNetworkProxy({
+      enabled: true, url: "http://a:1",
+      rotateUrls: "http://b:2\nhttp://c:3", noProxy: "",
+    });
+    await rotateProxyEgress(); // live is b; configured primary remains a
+    await applyNetworkProxy({
+      enabled: true, url: "http://d:4",
+      rotateUrls: "http://a:1\nhttp://b:2\nhttp://c:3", noProxy: "",
+    });
+    // New primary d must be live immediately. Old live b is still a spare,
+    // but that must not make the stale rotated exit stick.
+    expect(proxyUrl()).toBe("http://d:4");
+    expect(process.env.HTTPS_PROXY).toBe("http://d:4");
+  });
+
+  it("rotation: changing primary to an existing spare makes it live immediately", async () => {
+    await applyNetworkProxy({
+      enabled: true, url: "http://a:1",
+      rotateUrls: "http://b:2\nhttp://c:3", noProxy: "",
+    });
+    await applyNetworkProxy({
+      enabled: true, url: "http://b:2",
+      rotateUrls: "http://a:1\nhttp://c:3", noProxy: "",
+    });
+    expect(proxyUrl()).toBe("http://b:2");
+    expect(process.env.HTTPS_PROXY).toBe("http://b:2");
+  });
+
   it("rotation: rebuilding the queue keeps the live egress in front", async () => {
     await applyNetworkProxy({
       enabled: true, url: "http://a:1",

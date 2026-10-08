@@ -181,14 +181,12 @@ export async function proxyRequest(
   // effective plan/provider/device identity come from the ACCOUNT record, not
   // the global config — each account is its own upstream client.
   //
-  // Risk-control silence comes FIRST: a model inside its post-3012 window is
-  // answered here, without leasing an account or touching upstream. Every
-  // forwarded request during an IP block is evidence against the egress, and
-  // the whole point of the hold is to stop feeding it (see risk-hold.ts).
-  // Pinned test dispatches bypass the hold — the operator explicitly asked for
-  // that account/model, usually to check whether the block has lifted.
+  // Risk-control silence is per active egress + model (risk-hold.ts). All
+  // callers, including pinned playground/probe requests, share this gate:
+  // pinning changes the credential, NOT the exit IP, so bypassing would keep
+  // feeding the IP block that this hold is designed to silence.
   const riskLeftMs = riskHoldRemaining(meta.model);
-  if (riskLeftMs > 0 && !opts.testAccountId) {
+  if (riskLeftMs > 0) {
     const unlockClock = new Date(Date.now() + riskLeftMs).toLocaleTimeString();
     if (debug) debugError(reqId, "risk_hold", `${meta.model} silenced, ${Math.ceil(riskLeftMs / 1000)}s left (3012 backoff)`);
     printRow(reqId, format, meta, 429, started, Date.now(), 0, 0, 0, "", true);
@@ -553,7 +551,12 @@ export async function proxyRequest(
    * Telling the user "not a concurrency problem" for a 3009 was wrong and cost a
    * long diagnosis: glm-5.3 IS usable, it just cannot run two requests at once.
    */
-  if (startPlan && (upstreamResp.status === 405 || upstreamResp.status === 429)) {
+  // D1 (field report): the startPlan gate here sent coding-plan 405s straight
+  // to the translation fallback — clients saw
+  // "502 translation_failed: upstream returned 405: <aliyun risk-control HTML>".
+  // Upstream risk control does not care which plan the account is on; the
+  // 3009/3012 classification must run for both.
+  if (upstreamResp.status === 405 || upstreamResp.status === 429) {
     const probe = upstreamResp.clone();
     const bodyText = await probe.text().catch(() => "");
     if (/\b(3012|3009)\b|unusual activity|concurrency limit/i.test(bodyText)) {
@@ -1546,6 +1549,14 @@ async function maybeRotateEgress(model: string): Promise<boolean> {
       try { host = new URL(next).host; } catch { /* keep the raw string */ }
       console.warn(`[proxy] 3012 risk control — egress rotated to ${host}`);
       adminLog.push(`[proxy] 3012 风控触发 — 出口已轮换到 ${host}`, "warn");
+      // Rotation clears holds and re-scopes future marks to the new egress
+      // (see rotateProxyEgress). Re-mark THIS model there — otherwise the
+      // just-placed hold is wiped by our own rotation and the very next
+      // request walks straight back into the flagged upstream.
+      try {
+        const { markRiskHold } = await import("./risk-hold.js");
+        markRiskHold(model);
+      } catch { /* best-effort */ }
       return true;
     }
   } catch {

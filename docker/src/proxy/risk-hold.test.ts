@@ -34,6 +34,7 @@ import {
   listRiskHolds,
   markRiskHold,
   riskHoldRemaining,
+  setRiskHoldEgress,
 } from "./risk-hold.js";
 
 describe("risk-hold", () => {
@@ -59,9 +60,10 @@ describe("risk-hold", () => {
 
   it("expires on its own", () => {
     const now = 1_000_000;
+    setRiskHoldEgress("direct");
     markRiskHold("glm-5.3", now);
     expect(riskHoldRemaining("glm-5.3", now + RISK_HOLD_MS + 1)).toBe(0);
-    // and the dead entry is gone
+    // riskHoldRemaining removed the current egress key; list prunes no residue.
     expect(listRiskHolds(now + RISK_HOLD_MS + 1)).toEqual([]);
   });
 
@@ -70,6 +72,31 @@ describe("risk-hold", () => {
     markRiskHold("");
     markRiskHold("(未指定)");
     expect(listRiskHolds()).toEqual([]);
+  });
+
+  it("isolates holds by egress: A is blocked, B works, rotating back to A restores A's hold", () => {
+    const now = 1_000_000;
+    setRiskHoldEgress("http://proxy-a:7890/");
+    markRiskHold("glm-5.3", now);
+    expect(riskHoldRemaining("glm-5.3", now + 1)).toBe(RISK_HOLD_MS - 1);
+
+    setRiskHoldEgress("http://proxy-b:7890");
+    expect(riskHoldRemaining("glm-5.3", now + 2)).toBe(0); // B is clean
+    markRiskHold("glm-5.3-flash", now + 2);
+
+    setRiskHoldEgress("http://proxy-a:7890");
+    expect(riskHoldRemaining("glm-5.3", now + 3)).toBe(RISK_HOLD_MS - 3); // A's old hold remains
+    expect(riskHoldRemaining("glm-5.3-flash", now + 3)).toBe(0); // flash wasn't held on A
+    setRiskHoldEgress("http://proxy-b:7890/");
+    expect(riskHoldRemaining("glm-5.3-flash", now + 4)).toBe(RISK_HOLD_MS - 2); // normalized same B URL
+  });
+
+  it("expires and deletes the egress-keyed entry", () => {
+    const now = 1_000_000;
+    setRiskHoldEgress("direct");
+    markRiskHold("glm-5.3", now);
+    expect(riskHoldRemaining("glm-5.3", now + RISK_HOLD_MS + 1)).toBe(0);
+    expect(listRiskHolds(now + RISK_HOLD_MS + 1)).toEqual([]);
   });
 
   it("lists only live holds with unlock times", () => {

@@ -45,7 +45,25 @@
 /** One silent window. 30 min matches the observed recovery timescale. */
 export const RISK_HOLD_MS = 30 * 60_000;
 
+// Holds are scoped per EGRESS (field report B1): upstream flags the exit IP,
+// not every account/model globally. Keys use the normalized active egress and
+// model so a block on one proxy does not bench accounts routed through another.
 const holds = new Map<string, number>();
+let currentEgress = "direct";
+
+export function setRiskHoldEgress(egress: string): void {
+  if (!egress) { currentEgress = "direct"; return; }
+  try {
+    const u = new URL(egress);
+    currentEgress = `${u.protocol}//${u.host.toLowerCase()}`;
+  } catch {
+    currentEgress = egress.trim().toLowerCase() || "direct";
+  }
+}
+
+function holdKey(model: string, egress = currentEgress): string {
+  return `${egress}|${model}`;
+}
 
 /**
  * Put a model into the silent window. Empty/placeholder models are ignored —
@@ -62,34 +80,42 @@ const holds = new Map<string, number>();
  */
 export function markRiskHold(model: string | undefined, now = Date.now()): void {
   if (!model || model === "(未指定)") return;
-  const existing = holds.get(model);
+  const key = holdKey(model);
+  const existing = holds.get(key);
   if (existing !== undefined && existing > now) return;
-  holds.set(model, now + RISK_HOLD_MS);
+  holds.set(key, now + RISK_HOLD_MS);
 }
 
 /** Remaining ms a model is locally held; 0 = not held. */
 export function riskHoldRemaining(model: string | undefined, now = Date.now()): number {
   if (!model) return 0;
-  const until = holds.get(model);
+  const key = holdKey(model);
+  const until = holds.get(key);
   if (until === undefined) return 0;
   const left = until - now;
   if (left <= 0) {
-    holds.delete(model);
+    holds.delete(key);
     return 0;
   }
   return left;
 }
 
-/** All live holds with unlock times — the panel and tests read this. */
-export function listRiskHolds(now = Date.now()): Array<{ model: string; unlockAt: number; remainingMs: number }> {
-  const out: Array<{ model: string; unlockAt: number; remainingMs: number }> = [];
-  for (const [model, until] of [...holds.entries()]) {
+export interface RiskHoldEntry { model: string; unlockAt: number; remainingMs: number; egress: string; }
+
+/** All live holds with unlock times — include egress so identical model holds
+ *  on two exit IPs are not merged by the panel's model-only lookup. */
+export function listRiskHolds(now = Date.now()): RiskHoldEntry[] {
+  const out: RiskHoldEntry[] = [];
+  for (const [key, until] of [...holds.entries()]) {
+    const sep = key.lastIndexOf("|");
+    const egress = sep >= 0 ? key.slice(0, sep) : "direct";
+    const model = sep >= 0 ? key.slice(sep + 1) : key;
     const remainingMs = until - now;
     if (remainingMs <= 0) {
-      holds.delete(model);
+      holds.delete(key);
       continue;
     }
-    out.push({ model, unlockAt: until, remainingMs });
+    out.push({ model, unlockAt: until, remainingMs, egress });
   }
   return out;
 }

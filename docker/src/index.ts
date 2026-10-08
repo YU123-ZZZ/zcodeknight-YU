@@ -5,7 +5,7 @@
  * 吾爱破解 52pojie: https://www.52pojie.cn/home.php?mod=space&uid=2394304
  * 交流群: 1091692024 — https://qm.qq.com/q/sUAFJgC3Fm
  *
- * 版本 Version: v4.7.11
+ * 版本 Version: v4.7.12
  * 本项目完全开源，不存在收费，收费的一律是骗子！
  * 请以作者发布的最终版本为准。本项目传承开源精神，在遵守适用法律、原作者声明及相关第三方
  * 许可的前提下，欢迎下载、学习、修改和二次开发；二次分发时请保留代码与页面中已有的原作者
@@ -49,7 +49,7 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { ensureNodeFetchNoTimeouts } from "./runtime/node-fetch-compat.js";
 
-export const VERSION = "4.7.11";
+export const VERSION = "4.7.12";
 
 if (require.main === module) main();
 
@@ -290,6 +290,13 @@ async function serve(configPath: string | undefined, debug: boolean): Promise<vo
   }
   const url = `http://${server.hostname}:${server.port}`;
   console.log(`ZcodeKnight-YU listening on ${url}`);
+  // Warm the upstream-intel cache off the critical path (F1: the first panel
+  // open paid ~510ms for the GitHub fetch). Non-blocking and failure-tolerant:
+  // a blocked network leaves the cache empty and the page shows its stale/error
+  // state exactly as before.
+  import("./server/upstream-intel.js")
+    .then((m) => m.upstreamIntel())
+    .catch(() => { /* first page load retries */ });
   if (config.plan === "start-plan") {
     // Pre-solve the captcha token pool in the background so first requests
     // don't pay the full solve latency (in-process happy-dom backend).

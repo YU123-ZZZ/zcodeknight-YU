@@ -129,3 +129,8 @@ export function configureCaptchaSolving(opts: Parameters<typeof configureCaptcha
 }
 
 export const RETRY_HEADERS = { PARAM: CAPTCHA_HEADER, REGION: REGION_HEADER };
+
+/** Resume the pool after a claim.auto pause: same as boot warmup. */
+export async function warmupCaptchaPool(appVersion: string): Promise<void> {
+  await startCaptchaPool(appVersion);
+}

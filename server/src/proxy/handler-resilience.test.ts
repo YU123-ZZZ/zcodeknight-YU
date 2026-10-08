@@ -196,6 +196,34 @@ describe("proxyRequest — start-plan resilience (PR #34 review P1/P3)", () => {
     expect(body.choices[0].message.content).toBe("resilience reply");
   });
 
+  it("D1: coding-plan 405 risk-control bodies are classified, not translated to 502", async () => {
+    // Field report D1: the 405/429 classifier was gated behind `startPlan`, so
+    // a coding-plan account hitting upstream risk control (405 + Aliyun HTML
+    // or 3012 JSON) fell through to the translation fallback and the client
+    // saw `502 translation_failed: upstream returned 405: <html…>`. The
+    // classification is about the EGRESS, not the plan.
+    const codingPlanConfig: ProxyConfig = { ...TEST_CONFIG, plan: "coding-plan" };
+    const fetchMock = mock(async (): Promise<Response> => {
+      return new Response(
+        JSON.stringify({ code: 3012, msg: "request has been blocked due to unusual activity." }),
+        { status: 405, headers: { "content-type": "application/json" } },
+      );
+    });
+    const auth = new AuthManager();
+    auth.setOAuthCredential({ apiKey: "key-mock", provider: "zai", jwt: "jwt-mock" });
+    const clientReq = new Request("http://localhost:8080/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: '{"model":"glm-5.3","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}',
+    });
+    const resp = await proxyRequest(clientReq, "anthropic", { config: codingPlanConfig, auth, fetchImpl: fetchMock as any });
+    expect(resp.status).toBe(429);
+    const body = await resp.json();
+    expect(body.error.type).toBe("rate_limited");
+    expect(JSON.stringify(body)).not.toContain("translation_failed");
+    expect(resp.headers.get("retry-after")).toBe("30");
+  });
+
   it("explains a 3012 as egress-wide risk control, without promising another model works", async () => {
     // This test used to assert the opposite, and that assertion WAS the bug.
     //

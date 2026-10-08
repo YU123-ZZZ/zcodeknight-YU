@@ -391,10 +391,14 @@ async function persistDoc(doc: AccountStoreDoc): Promise<void> {
   // keeps the file intact so the operator can fix the key or re-import — the
   // failure surfaces as a failed write, which every caller already handles.
   if (lastLoadProblem?.kind === "undecryptable_locked") {
-    throw new Error(
+    const err = new Error(
       `refusing to overwrite an unreadable account store at ${lastLoadProblem.file} — ` +
       `fix the encryption key (ZCODE_KNIGHT_CREDENTIAL_SECRET) or move the file aside, then restart`,
     );
+    // Deterministic state, NOT a transient I/O blip: retrying cannot help and
+    // must not delay the failure being reported (or hang tests).
+    (err as { deterministic?: boolean }).deterministic = true;
+    throw err;
   }
   const encrypted = await encryptWith(getEncryptionKey(), JSON.stringify(doc));
   atomicWrite(JSON.stringify({ encrypted } satisfies AccountStoreFile));
@@ -420,10 +424,28 @@ async function mutateDoc(fn: (doc: AccountStoreDoc) => void): Promise<AccountSto
   const task = writeChain.then(async () => {
     if (!cachedDoc) cachedDoc = await loadDocUncached();
     fn(cachedDoc);
-    try {
-      await persistDoc(cachedDoc);
-    } catch (e) {
-      console.warn(`[accounts] store write failed (kept in memory): ${(e as Error).message}`);
+    // E3 (field report): a single failed write used to be swallowed with a
+    // console.warn — the mutation lived only in memory, and a restart/ cache
+    // reset silently deleted it ("注册成功的号重启后没了"). Retry with backoff;
+    // the write chain serializes retries like any other mutation. The backoff
+    // is env-overridable so tests can inject failures without waiting 40s.
+    const retries = (process.env.ZCODE_STORE_RETRY_MS ?? "10000,30000")
+      .split(",").map((v) => Number(v.trim())).filter((v) => Number.isFinite(v) && v >= 0);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await persistDoc(cachedDoc);
+        break;
+      } catch (e) {
+        // A deterministic refusal (locked/unreadable store) is an operator
+        // problem retrying cannot fix — report it now, no backoff.
+        const deterministic = (e as { deterministic?: boolean }).deterministic === true;
+        if (deterministic || attempt >= retries.length) {
+          console.warn(`[accounts] store write FAILED${deterministic ? "" : ` after ${retries.length + 1} attempts`} (kept in memory ONLY — a restart loses this change): ${(e as Error).message}`);
+          break;
+        }
+        console.warn(`[accounts] store write failed (attempt ${attempt + 1}, retrying in ${retries[attempt] / 1000}s): ${(e as Error).message}`);
+        if (retries[attempt] > 0) await new Promise((r) => setTimeout(r, retries[attempt]));
+      }
     }
     return cachedDoc;
   });

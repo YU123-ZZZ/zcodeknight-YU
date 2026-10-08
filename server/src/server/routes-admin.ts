@@ -694,9 +694,28 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
     if (body?.on === false) {
       stopMultiClaim();
       adminLog.push("[claim] auto claim disabled from panel");
+      // C2 (field report): claim.auto=false stopped the schedulers but the
+      // captcha POOL kept its background refill — minting tokens nothing would
+      // consume, straight into a flagged endpoint (the RSS climb that survived
+      // the operators emergency stop). The schedulers are the only background
+      // mint consumer; without them the refill is pure leak. Manual claims
+      // still work: takeToken mints on demand regardless of the timer.
+      try {
+        const { stopCaptchaPool } = await import("../proxy/captcha.js");
+        stopCaptchaPool();
+        adminLog.push("[captcha] pool refill paused (claim.auto=false — nothing consumes background mints)", "warn");
+      } catch (e) {
+        adminLog.push(`[captcha] could not pause pool refill: ${(e as Error).message}`, "warn");
+      }
     } else {
       startMultiClaim(config);
       adminLog.push("[claim] auto claim enabled from panel");
+      // Resuming auto means the schedulers will need tokens again — restart
+      // the refill that pausing stopped.
+      try {
+        const { warmupCaptchaPool } = await import("../proxy/captcha.js");
+        void warmupCaptchaPool(config.identity.appVersion);
+      } catch { /* warmup is best-effort; takes still mint on demand */ }
     }
     // Persist the choice — runtime state alone meant every restart silently
     // reverted the toggle to config.yaml's stale value (field report v4.7.8:

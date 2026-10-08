@@ -527,9 +527,24 @@ export class AccountPool {
         });
       }
     }
-    // Drop runtimes whose account was deleted.
-    for (const id of [...this.accounts.keys()]) {
-      if (!seen.has(id)) this.accounts.delete(id);
+    // Drop runtimes whose account was deleted — but ONLY when the store load
+    // was CLEAN. A failed decrypt/parse returns a partial doc (field report
+    // E1/E2): reconciling against it ejected live accounts, and the next good
+    // load brought them back — "某账号有时有有时没有". When a problem is
+    // recorded, keep every runtime and surface the problem via statusNote so
+    // the panel shows why instead of silently flapping the pool.
+    const { accountStoreLoadProblem } = await import("./account-store.js");
+    const loadProblem = accountStoreLoadProblem();
+    if (loadProblem) {
+      for (const rt of this.accounts.values()) {
+        if (seen.has(rt.record.id)) continue;
+        rt.statusNote = "账号库加载异常（未删：等待恢复）— " + loadProblem.message.slice(0, 80);
+      }
+      console.warn(`[accounts] store load problem (${loadProblem.kind}) — reconciliation SKIPPED, ${this.accounts.size} runtimes kept`);
+    } else {
+      for (const id of [...this.accounts.keys()]) {
+        if (!seen.has(id)) this.accounts.delete(id);
+      }
     }
     return this.accounts.size;
   }

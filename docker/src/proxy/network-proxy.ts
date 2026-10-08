@@ -59,6 +59,8 @@ const PROXY_ENV_KEYS = ["HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"
 const NO_PROXY_ENV_KEYS = ["NO_PROXY", "no_proxy"] as const;
 
 let installed = "";
+/** Last configured primary URL, distinct from the rotated live `installed` URL. */
+let configuredPrimary = "";
 /** The noProxy list in force — the Bun socks fetch patch re-checks it per request. */
 let lastBypass = "";
 
@@ -128,24 +130,26 @@ export async function applyNetworkProxy(cfg: NetworkProxyConfig): Promise<void> 
     // Explicitly empty, never deleted — deleting leaves Bun on a cached proxy.
     for (const k of PROXY_ENV_KEYS) process.env[k] = "";
     installed = "";
+    configuredPrimary = "";
     queue = [];
     uninstallBunSocksFetch();
     await installDispatcher(null);
     stopExitProbeTimer();
     return;
   }
-  // Rebuild the rotation queue. The configured primary leads; the spares
-  // follow in listed order. When the config changes while a ROTATED URL is in
-  // force, that URL stays in front — rotation state must survive an unrelated
-  // settings save, or traffic would be sent straight back into the egress
-  // upstream just flagged — but a URL that was removed from the config is
-  // dropped from the queue and the configured primary takes over again.
+  // Rebuild the rotation queue. Preserve the current rotated live URL ONLY
+  // when the configured primary is unchanged. A newly saved primary must take
+  // effect immediately even if the old live URL also appears in the spare list
+  // (field report A3: the previous `spares.includes(installed)` heuristic kept
+  // the old exit when it was still listed as a spare).
   const spares = (cfg.rotateUrls || "")
     .split(/[\n,;]+/)
     .map((s) => s.trim())
     .filter(Boolean)
     .filter((u) => u !== want);
-  const live = installed && installed !== want && spares.includes(installed) ? installed : want;
+  const primaryChanged = configuredPrimary !== "" && configuredPrimary !== want;
+  const live = installed && !primaryChanged && spares.includes(installed) ? installed : want;
+  configuredPrimary = want;
   queue = [live, ...spares.filter((u) => u !== live)];
   for (const k of PROXY_ENV_KEYS) process.env[k] = live;
   for (const k of NO_PROXY_ENV_KEYS) process.env[k] = bypass;
@@ -174,15 +178,13 @@ export async function applyNetworkProxy(cfg: NetworkProxyConfig): Promise<void> 
  *     openSocket there.
  */
 async function applyEgress(url: string, bypass: string): Promise<void> {
-  // A different egress invalidates every risk-hold: the 3012 silences describe
-  // the OLD exit IP, and carrying them over benches models that are fine on
-  // the new one (see clearRiskHolds in risk-hold.ts). Dynamic import —
-  // routes-admin sits at the other end of this module's import chain, so a
-  // static import here would close a dependency cycle.
+  // Switch the active scope, but retain holds for other exits. A 3012 hold
+  // belongs to the IP that was flagged: moving to B makes A's hold irrelevant
+  // for now, while rotating back to A must restore it (B1/B2).
   try {
-    const { clearRiskHolds } = await import("./risk-hold.js");
-    clearRiskHolds();
-  } catch { /* test graph without risk-hold — holds are best-effort */ }
+    const rh = await import("./risk-hold.js");
+    rh.setRiskHoldEgress(url);
+  } catch { /* test graph without risk-hold — best-effort */ }
   const isSocks = /^socks/i.test(url);
   if (isSocks) {
     // Env vars stay SET with the socks URL: the panel reports "proxied" from
@@ -304,6 +306,12 @@ export async function rotateProxyEgress(): Promise<string> {
   const next = queue[0] ?? "";
   for (const k of PROXY_ENV_KEYS) process.env[k] = next;
   installed = next;
+  // The current scope changes to the new exit; historical holds remain keyed
+  // by their old egress so rotating back to a still-blocked IP stays silent.
+  try {
+    const rh = await import("./risk-hold.js");
+    rh.setRiskHoldEgress(next);
+  } catch { /* best-effort */ }
   await installDispatcher(next);
   return next;
 }
