@@ -310,4 +310,34 @@ describe("proxy persistence", () => {
     expect(cfg.proxy.url).toBe("socks5://u:p@h:1080");
     expect(cfg.proxy.noProxy).toBe("localhost,10.0.0.0/8");
   });
+
+  it("round-trips the spare egress pool: panel save must survive a reload (v4.7.12)", () => {
+    // The field bug this pins: `updateProxyConfigYaml` writes `rotateUrls` as a
+    // YAML LIST while the loader only accepted a STRING, so after one panel
+    // save the next startup read "" and the whole spare pool silently vanished
+    // (runtime reported rotationSize=1 while the file still held all 36 URLs).
+    // The old round-trip test above pressed save with rotateUrls ABSENT, which
+    // is exactly why it never caught this.
+    const spares = Array.from({ length: 36 }, (_, i) => `http://127.0.0.1:${38001 + i}`).join("\n");
+    writeConfig();
+    updateProxyConfigYaml(cfgPath, { enabled: true, url: spares.split("\n")[0], rotateUrls: spares, noProxy: "localhost" });
+
+    // The saver really did pick the list form — otherwise this test would pass
+    // for the wrong reason and stop guarding the format mismatch.
+    const written = readFileSync(cfgPath, "utf-8");
+    expect(written).toMatch(/rotateUrls:\s*\n\s*-\s*http/);
+
+    const cfg = loadConfig(cfgPath);
+    expect(cfg.proxy.rotateUrls.split(/\n/).filter(Boolean)).toHaveLength(36);
+    expect(cfg.proxy.rotateUrls).toContain("http://127.0.0.1:38036");
+  });
+
+  it("also loads a rotateUrls YAML list written by hand", () => {
+    // Hand-edited configs and older releases used the block-string form; both
+    // spellings of a list must keep working, since either can be on disk when
+    // the operator upgrades.
+    writeConfig("proxy:\n  enabled: true\n  url: http://a:1\n  rotateUrls:\n    - http://a:1\n    - http://b:2\n");
+    const cfg = loadConfig(cfgPath);
+    expect(cfg.proxy.rotateUrls.split("\n")).toEqual(["http://a:1", "http://b:2"]);
+  });
 });

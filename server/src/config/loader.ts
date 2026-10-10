@@ -623,7 +623,15 @@ function resolveProxyConfig(raw: unknown): NetworkProxyConfig {
   // validated like the primary URL because a malformed spare must fail at
   // startup too — discovering a typo only when 3012 fires and the engine tries
   // to rotate would turn the recovery path into the outage.
-  const rotateUrls = (typeof obj.rotateUrls === "string" ? obj.rotateUrls : "")
+  //
+  // The panel's proxy saver (`updateProxyConfigYaml`) writes this field as a
+  // YAML LIST (one URL per entry), while the template ships it as a block
+  // string. Both are valid YAML for this field and both must load: reading
+  // only the string form silently discarded the whole spare pool after the
+  // first panel save + restart (field report v4.7.12 — runtime said
+  // rotationSize=1 while the file still held all 36 entries).
+  const rawRotate = obj.rotateUrls;
+  const rotateUrls = (Array.isArray(rawRotate) ? rawRotate.join("\n") : typeof rawRotate === "string" ? rawRotate : "")
     .split(/[\n,;]+/)
     .map((s) => s.trim())
     .filter(Boolean);

@@ -397,6 +397,18 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
+  { ver: "v4.7.13", date: "2026-10-10", items: {
+    zh: [
+      "【上游】529/1305（模型过载）不再落成 502：归为模型级冷却 + 同请求内自动换账号重试一次，重试成功客户端无感；仍过载时返回 429+retry-after（可重试），不再透传上游原始报文",
+      "【上游】400/3006（model not allowed）单独分类：模型级长冷却（重试永远无意义）+ 客户端拿到 400「该模型不在当前套餐内」，不再 502 translation_failed",
+      "【代理】修复备用出口池在面板保存后重启丢失：写盘为 YAML 列表、读盘只认字符串的读写错配，保存过一次代理设置后重启备用出口全部静默消失（实测 36 个出口剩 1 个）；加载器现同时接受两种形式",
+    ],
+    en: [
+      "Upstream: 529/1305 model overload is no longer surfaced as 502 — model-scoped cooldown plus one automatic retry on a different account within the same request; if the spare is overloaded too the client gets 429 + retry-after instead of a raw upstream envelope",
+      "Upstream: 400/3006 model-not-allowed gets its own classification — a long model-scoped hold (retrying can never help) and a 400 naming the model, instead of 502 translation_failed",
+      "Proxy: fixed the spare-egress pool silently vanishing after a panel proxy save + restart (YAML list written, string expected — 36 spares collapsed to 1); the loader now accepts both forms",
+    ],
+  } },
   { ver: "v4.7.12", date: "2026-10-08", items: {
     zh: [
       "【代理】修复三个实测缺陷：备用出口为空不再删字段（表单加载失败时空保存不再清空出口池）；设置加载失败会提示并禁用保存；保存新主出口立即生效（旧出口在备用列表中也不再粘住）",

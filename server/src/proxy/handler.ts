@@ -529,7 +529,12 @@ export async function proxyRequest(
     upstreamResp = outcome.resp;
   }
 
-  const isSSE = upstreamResp.headers.get("content-type")?.includes("text/event-stream") ?? false;
+  // `let`, not `const`: the 529/1305 retry below may replace `upstreamResp`
+  // with the retried response, and the streaming decision must follow the
+  // response actually being served. A rejected request answers with a JSON
+  // error envelope even on a `stream:true` request, so a stale `false` would
+  // send a succeeded SSE retry down the batch path.
+  let isSSE = upstreamResp.headers.get("content-type")?.includes("text/event-stream") ?? false;
 
   /**
    * Explain a throttled/blocked request instead of passing the raw code through.
@@ -707,6 +712,107 @@ export async function proxyRequest(
       outcome = { kind: "quota_exhausted" };
     }
   }
+  /**
+   * Two upstream refusals that are NOT the client's fault and must not reach it
+   * as `502 translation_failed` with the raw upstream envelope pasted inside.
+   *
+   *   529 / 1305 `overloaded_error` — upstream MODEL capacity. The account is
+   *        healthy and the next account's request is often served right now, so
+   *        this is a model-scoped cooldown plus ONE retry on a fresh credential,
+   *        the same recovery shape the 3009/3012 paths use. Left unclassified it
+   *        fell into the generic `error` kind: no cooldown, no account switch,
+   *        no retry — the client ate a 502 and had to retry itself (field report
+   *        v4.7.12: glm-5.3 returned 502 on 3 of 5 calls).
+   *
+   *   400 / 3006 `model not allowed` — a PLAN permission answer, not a fault.
+   *        Retrying the same account can never help, so the model gets the long
+   *        `model_not_allowed` hold and the client gets a 400 naming the model,
+   *        instead of a 502 that hides why (glm-4.7 failed on EVERY call).
+   */
+  let refusal: "overloaded" | "model_not_allowed" | null = null;
+  // The 529 path reports the model cooldown BEFORE re-acquiring (that cooldown
+  // is what makes the pool pick a different account), so the generic report
+  // below must not run a second time for the same attempt.
+  let outcomeAlreadyReported = false;
+  if (!upstreamResp.ok) {
+    const probe = upstreamResp.clone();
+    const refusalText = await probe.text().catch(() => "");
+    // 1305/overloaded_error also arrive as a 529; accept either spelling.
+    if (upstreamResp.status === 529 || /\b1305\b|overloaded_error/i.test(refusalText)) {
+      refusal = "overloaded";
+      outcome = {
+        kind: "concurrency_rejected",
+        ...(failedModel ? { model: failedModel } : {}),
+        note: `${failedModel || "model"}: 上游模型过载 (529/1305) — 该模型在本账号短暂冷却，换账号重试一次`,
+      };
+      // Report FIRST, then re-acquire: the model cooldown is not just
+      // bookkeeping here, it is the mechanism of the account switch — acquire
+      // skips a model inside its cooldown, so the retry lands elsewhere.
+      reportOutcomeToPool(auth, accountId, outcome);
+      outcomeAlreadyReported = true;
+      releaseLeaseFor(auth, cred);
+      if (!clientReq.signal.aborted) {
+        try {
+          cred = await auth.getCredential({ accountId: opts.testAccountId, model: meta.model });
+          ({ id: accountId, name: accountName } = leasedAccount(cred));
+          meta.accountName = accountName;
+          updateActiveAccount(reqId, accountName);
+          if (debug) debugLine(reqId, `529/1305 overloaded — retrying on ${accountName}`);
+          const retried = await dispatch(
+            buildUpstreamRequest(clientReq, upstreamFormat, provider2, cred, transformedBody, effectiveIdentity, effectivePlan, captchaHeaders, clientSession),
+            buildUpstreamHeaderPairs(clientReq, upstreamFormat, cred, effectiveIdentity, effectivePlan, captchaHeaders, clientSession),
+          );
+          // Always adopt the retry's response: on success it is served through
+          // the normal translation tail (returning it raw here would hand an
+          // OpenAI client Anthropic JSON), on failure the client sees the
+          // LATEST upstream answer rather than the stale 529.
+          upstreamResp = retried;
+          isSSE = retried.headers.get("content-type")?.includes("text/event-stream") ?? false;
+          if (retried.ok) {
+            refusal = null;
+            outcome = { kind: "success" };
+            outcomeAlreadyReported = false;
+          } else {
+            // The spare account failed too. Classify ITS failure (the pooled
+            // account we are now leasing) so the attempt is still accounted
+            // for, then suppress the generic report.
+            const retriedText = await retried.clone().text().catch(() => "");
+            let retriedOutcome: DispatchOutcome;
+            if (/\b1305\b|overloaded_error/i.test(retriedText)) {
+              retriedOutcome = { kind: "concurrency_rejected", ...(failedModel ? { model: failedModel } : {}) };
+            } else if (/\b3006\b|model not allowed/i.test(retriedText)) {
+              // The spare ALSO refuses this model on plan grounds. Report the
+              // permission refusal (long model hold, not a few-second cooldown)
+              // and switch the client-facing answer to the 400 below — a 429
+              // "try again shortly" would be a lie for a model the plan never
+              // allows.
+              retriedOutcome = {
+                kind: "model_not_allowed",
+                ...(failedModel ? { model: failedModel } : {}),
+                note: `${failedModel || "model"}: not in this account's plan (3006 model not allowed)`,
+              };
+              refusal = "model_not_allowed";
+            } else {
+              retriedOutcome = classifyUpstreamOutcome(retried.status, failedModel);
+            }
+            reportOutcomeToPool(auth, accountId, retriedOutcome);
+          }
+        } catch (retryErr) {
+          // No spare account (pool busy/emptied) or a connect error: keep the
+          // original refusal so the client still gets a real explanation.
+          if (debug) debugError(reqId, "retry_overloaded", String(retryErr));
+        }
+      }
+    } else if (/\b3006\b|model not allowed/i.test(refusalText)) {
+      refusal = "model_not_allowed";
+      outcome = {
+        kind: "model_not_allowed",
+        ...(failedModel ? { model: failedModel } : {}),
+        note: `${failedModel || "model"}: not in this account's plan (3006 model not allowed)`,
+      };
+      // The generic report below records it — no early report needed.
+    }
+  }
   // `3009 model concurrency limit exceeded` arrives as an HTTP 400 with a JSON
   // body, not a 429 — so the status alone classifies it as a generic error and
   // the pool never backs off. Observed against glm-5.3: repeated 3009s with no
@@ -755,7 +861,10 @@ export async function proxyRequest(
    * account — and the model, when upstream scoped the refusal to it — so the
    * pool falls back to its conservative gates at once.
    */
-  if (upstreamResp.status >= 400 && leaseIsOverflow(cred)) {
+  // An overflow bet that lost still downgrades — but never over a 3006: the
+  // model is not in the plan, so "concurrency" would be a false explanation and
+  // the long model hold it already has is the correct state.
+  if (upstreamResp.status >= 400 && leaseIsOverflow(cred) && refusal !== "model_not_allowed") {
     outcome = {
       kind: "concurrency_rejected",
       ...(failedModel ? { model: failedModel } : {}),
@@ -769,11 +878,37 @@ export async function proxyRequest(
   const releaseLease = accountId
     ? () => releaseLeaseFor(auth, cred)
     : null;
-  if (accountId) {
+  if (accountId && !outcomeAlreadyReported) {
     reportOutcomeToPool(auth, accountId, outcome);
     if (outcome.kind === "success") auth.touch?.(accountId);
   }
   const notOk = !upstreamResp.ok;
+
+  // Client-facing mapping for the two refusals above. A 3006 must name the
+  // model and be 400 (a permanent "you cannot call this", not a retryable
+  // gateway fault); a 529 that survived its one retry is 429 with Retry-After,
+  // the status every client already backs off on. Neither may be reported as
+  // `502 translation_failed`, which pasted the raw upstream envelope at the user
+  // and read as a gateway bug.
+  if (notOk && refusal === "model_not_allowed") {
+    releaseLease?.();
+    printRow(reqId, format, meta, 400, started, headersAt, 0, 0, 0);
+    return errorResponse(
+      400,
+      "model_not_allowed",
+      `模型「${failedModel || "未知"}」不在当前套餐内（上游 3006 model not allowed），请改用套餐内模型。`,
+    );
+  }
+  if (notOk && refusal === "overloaded") {
+    releaseLease?.();
+    printRow(reqId, format, meta, 429, started, headersAt, 0, 0, 0, "", true);
+    return errorResponse(
+      429,
+      "rate_limited",
+      `模型「${failedModel || "未知"}」上游访问量过大（529），已自动换账号重试仍未成功，请稍后重试。`,
+      { "retry-after": "5" },
+    );
+  }
 
   if (translateOpenAIToAnthropic) {
     if (notOk) {
@@ -831,6 +966,12 @@ export async function proxyRequest(
 export function classifyUpstreamOutcome(status: number, model?: string): DispatchOutcome {
   if (status >= 200 && status < 400) return { kind: "success" };
   if (status === 429) return { kind: "concurrency_rejected", ...(model ? { model } : {}) };
+  // 529 is upstream's "overloaded" — model capacity, not the credential. It is a
+  // retryable capacity signal, so it must cool the MODEL briefly and let the
+  // pool pick another account, exactly like a 429. Body-carrying paths refine it
+  // further via the 1305/overloaded_error text; this status-only mapping covers
+  // callers that never parse the body (/v1/responses).
+  if (status === 529) return { kind: "concurrency_rejected", ...(model ? { model } : {}) };
   if (status === 402) return { kind: "quota_exhausted" };
   if (status === 401 || status === 403) return { kind: "auth_rejected" };
   return { kind: "error", message: `upstream ${status}` };

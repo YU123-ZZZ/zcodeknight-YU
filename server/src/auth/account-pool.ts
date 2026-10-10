@@ -317,13 +317,35 @@ export const DEFAULT_POOL_OPTIONS: AccountPoolOptions = {
  */
 const ERROR_STICKY_MS = 2 * 60_000;
 
+/**
+ * How long a 3006 `model not allowed` holds ONE model on ONE account.
+ *
+ * Deliberately far longer than `modelCooldownMs`: a 3006 is a plan-permission
+ * answer, not a capacity blip. The same account retrying the same model a few
+ * seconds later gets the same refusal, so a short cooldown would just repeat
+ * the doomed request every few seconds forever (field report v4.7.12:
+ * `glm-4.7` returned 502 on every single call). Ten minutes is long enough that
+ * one failed attempt per account per model is enough to stop the waste, and
+ * short enough that a plan change (a renewed grant) is picked up without a
+ * restart. Success clears it like any other cooldown.
+ */
+const MODEL_NOT_ALLOWED_MS = 10 * 60_000;
+
 /** Result classification fed back into the pool after each upstream attempt. */
 export type DispatchOutcome =
   | { kind: "success" }
-  /** 429 / 3008 / 3009 — short cooldown. `model` scopes the hold to one model. */
+  /** 429 / 3008 / 3009 / 529 — short cooldown. `model` scopes the hold to one model. */
   | { kind: "concurrency_rejected"; model?: string; note?: string }
   | { kind: "quota_exhausted"; note?: string }        // 402 / balance signals — long hold
   | { kind: "auth_rejected"; note?: string }          // 401/403 — needs re-login (note may distinguish ban vs expired JWT)
+  /**
+   * 3006 `model not allowed` — the model is not in this account's plan.
+   * Reported with a model, so only that model is benched; the account keeps
+   * serving everything else. Not `error`: an error is a fault worth a red badge,
+   * while this is a stable permission fact, and every account on the plan says
+   * the same thing.
+   */
+  | { kind: "model_not_allowed"; model?: string; note?: string }
   | { kind: "captcha_rejected" }       // 3007 — captcha layer retries internally
   | { kind: "error"; message?: string };
 
@@ -889,6 +911,21 @@ export class AccountPool {
         rt.cooldownUntil = Math.max(rt.cooldownUntil, now + 30 * 60_000);
         rt.status = "exhausted";
         rt.statusNote = outcome.note ?? "quota exhausted (402/balance) — held 30min, refresh balance to clear";
+        break;
+      case "model_not_allowed":
+        // Plan-permission refusal (3006). A long MODEL-scoped hold, not an
+        // account cooldown: the account is healthy and serves its other models;
+        // only this model is provably not in its plan. Without a model to blame
+        // there is nothing to scope — fall back to a short account cooldown so
+        // the pool at least stops hammering, and keep the note honest.
+        if (outcome.model) {
+          rt.modelCooldownUntil.set(outcome.model, now + MODEL_NOT_ALLOWED_MS);
+          rt.statusNote = outcome.note ?? `${outcome.model}: not in this account's plan (3006)`;
+        } else {
+          rt.cooldownUntil = Math.max(rt.cooldownUntil, now + this.opts.cooldownMs);
+          rt.status = "cooldown";
+          rt.statusNote = outcome.note ?? "upstream 3006 model not allowed (model unspecified)";
+        }
         break;
       case "auth_rejected":
         this.markRelogin(rt, now, outcome.note);
