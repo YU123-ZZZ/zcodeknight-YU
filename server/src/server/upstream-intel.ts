@@ -40,14 +40,25 @@
  */
 
 export interface IntelEntry {
-  /** Upstream release tag, e.g. "v3.14.4". */
+  /** Upstream release tag, e.g. "v3.15.1". */
   version: string;
   /** ISO date of the release. */
   date: string;
-  /** Release notes body (markdown-ish plain text, already stripped). */
+  /** Release notes body (markdown-ish plain text, already stripped). "" = none. */
   notes: string;
   /** Release page URL. */
   url: string;
+  /**
+   * Where the body came from and whether it is complete.
+   *
+   * Shown next to the version so an entry with no text is EXPLAINED instead of
+   * looking broken: the official v3.15.1 GitHub release carries no body at all
+   * (field report 2026-10-13: "为啥 3.15.1 不显示介绍了"), and the honest answer is
+   * "the release exists, this source has no notes — open the release page".
+   */
+  notesSource?: "atom" | "api" | "changelog";
+  /** "ok" = full text, "partial" = truncated by the source, "empty" = no text. */
+  notesStatus?: "ok" | "partial" | "empty";
 }
 
 export interface IntelFeed {
@@ -122,12 +133,110 @@ function parseAtomFeed(xml: string): IntelEntry[] {
     const version = tag(/<title>([\s\S]*?)<\/title>/) || tag(/Repository\/[\d]+\/([^<]+)<\/id>/);
     const date = tag(/<updated>([\s\S]*?)<\/updated>/).slice(0, 10);
     const url = tag(/<link[^>]*href="([^"]+)"/);
-    const notes = plainNotes(atomContentToPlain(tag(/<content[^>]*>([\s\S]*?)<\/content>/)));
+    // Body fallback chain. The atom `<content>` is empty for releases published
+    // without notes (v3.15.1 is exactly that case), so an empty content must NOT
+    // end the search: `<summary>` often still carries a one-line description,
+    // and the panel renders an explicit "no notes" line when both are empty
+    // rather than a blank card.
+    const contentText = plainNotes(atomContentToPlain(tag(/<content[^>]*>([\s\S]*?)<\/content>/)));
+    const summaryText = plainNotes(atomContentToPlain(tag(/<summary[^>]*>([\s\S]*?)<\/summary>/)));
+    const notes = contentText || summaryText;
     if (version && version !== "?") {
-      entries.push({ version, date, notes, url: url || "https://github.com/zai-org/ZCode/releases" });
+      entries.push({
+        version, date, notes,
+        url: url || "https://github.com/zai-org/ZCode/releases",
+        notesSource: "atom",
+        notesStatus: notes ? "ok" : "empty",
+      });
     }
   }
   return entries.slice(0, INTEL_MAX_ENTRIES);
+}
+
+/**
+ * Fill in notes for entries the release feed left empty, from the official
+ * changelog page.
+ *
+ * The GitHub release for v3.15.1 has no body, but the official changelog page
+ * (zcode.z.ai) describes it — that page is the product's own announcement, so
+ * using it keeps the feed honest (it is official text, quoted, not invented).
+ * Best-effort and bounded: one request, a short timeout, and a failure leaves
+ * the entries exactly as they were.
+ */
+async function supplementFromChangelog(entries: IntelEntry[]): Promise<void> {
+  const missing = entries.filter((e) => !e.notes);
+  if (!missing.length) return;
+  const CHANGELOG_URLS = [
+    "https://zcode.z.ai/cn/changelog",
+    "https://zcode.z.ai/en/changelog",
+  ];
+  for (const url of CHANGELOG_URLS) {
+    try {
+      const resp = await fetch(url, {
+        headers: { "user-agent": "ZcodeKnight-intel-feed", accept: "text/html" },
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!resp.ok) continue;
+      const html = await resp.text();
+      let filled = 0;
+      for (const entry of missing) {
+        const text = changelogSectionFor(html, entry.version);
+        if (!text) continue;
+        entry.notes = text;
+        entry.notesSource = "changelog";
+        entry.notesStatus = "ok";
+        filled++;
+      }
+      if (filled > 0) return;      // one source was enough
+    } catch {
+      // Try the next locale; a total failure leaves the empty status in place.
+    }
+  }
+}
+
+/**
+ * Extract one version's section text from the official changelog HTML.
+ *
+ * The page renders each release as a block: a version chip, "发布于 <date>", a
+ * download menu, then the notes themselves. Tag-stripping alone therefore puts
+ * that chrome BETWEEN the version and the text — an early version of this
+ * function returned just "发布于 2026年10月12日 / 下载 / Release" (26 chars) for
+ * v3.15.1 and looked like it had found nothing. The chrome lines are skipped
+ * explicitly, and the section ends at the next version token.
+ *
+ * Deliberately tolerant: a layout change yields "" (and the entry keeps its
+ * explicit "no notes" state) rather than text attributed to the wrong version.
+ */
+export function changelogSectionFor(html: string, version: string): string {
+  const plain = String(html ?? "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, "\n");
+  const text = plain
+    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .split("\n").map((l) => l.trim()).filter(Boolean).join("\n");
+  // Match "v3.15.1" / "3.15.1" as a standalone token in a heading-ish line.
+  const v = version.replace(/^v/i, "");
+  const re = new RegExp(`(?:^|\\n)\\s*v?${v.replace(/\./g, "\\.")}\\s*(?:\\n|$)`, "i");
+  const at = re.exec(text);
+  if (!at) return "";
+  const rest = text.slice(at.index + at[0].length);
+  // Drop the release-block chrome FIRST, then cut at the next version.
+  //
+  // Order matters: the chrome includes the caption "Release v3.15.1", which
+  // itself contains a version token. Cutting before filtering therefore matched
+  // that caption and returned a 15-char "section" consisting of the date line
+  // alone — which looked exactly like "this release has no notes" even though
+  // the page carried a full 24-line entry right below it.
+  const CHROME = /^(发布于.*|发布日期.*|下载|Release(\s+v?[\d.]+)?|Download|Copy|复制|更新日志|Changelog|版本更新)$/i;
+  const all = rest.split("\n").map((l) => l.trim()).filter(Boolean);
+  let body = all;
+  while (body.length && CHROME.test(body[0]!)) body = body.slice(1);
+  // The next release starts with a bare version token line.
+  const nextAt = body.findIndex((l) => /^v?\d+\.\d+(?:\.\d+)?$/.test(l));
+  const lines = (nextAt >= 0 ? body.slice(0, nextAt) : body).filter((l) => !CHROME.test(l));
+  return lines.slice(0, 12).join("\n").slice(0, 1200);
 }
 
 async function fetchIntel(): Promise<IntelFeed> {
@@ -148,14 +257,22 @@ async function fetchIntel(): Promise<IntelFeed> {
             const releases = JSON.parse(await resp.text()) as Array<{
               tag_name?: string; name?: string; published_at?: string; body?: string; html_url?: string;
             }>;
-            return (Array.isArray(releases) ? releases : []).slice(0, INTEL_MAX_ENTRIES).map((r) => ({
-              version: String(r.tag_name ?? r.name ?? "?").trim(),
-              date: String(r.published_at ?? "").slice(0, 10),
-              notes: plainNotes(r.body ?? ""),
-              url: String(r.html_url ?? "https://github.com/zai-org/ZCode/releases"),
-            }));
+            return (Array.isArray(releases) ? releases : []).slice(0, INTEL_MAX_ENTRIES).map((r) => {
+              const notes = plainNotes(r.body ?? "");
+              return {
+                version: String(r.tag_name ?? r.name ?? "?").trim(),
+                date: String(r.published_at ?? "").slice(0, 10),
+                notes,
+                url: String(r.html_url ?? "https://github.com/zai-org/ZCode/releases"),
+                notesSource: "api" as const,
+                notesStatus: notes ? ("ok" as const) : ("empty" as const),
+              };
+            });
           })();
       if (entries.length === 0) throw new Error("feed parsed to zero entries");
+      // Entries the release feed published without a body (v3.15.1) get their
+      // text from the official changelog; failures leave them explicitly empty.
+      await supplementFromChangelog(entries);
       const feed: IntelFeed = { fresh: true, fetchedAt: Date.now(), entries };
       cache = { at: Date.now(), feed };
       return feed;

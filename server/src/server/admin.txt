@@ -238,12 +238,102 @@
   </div>
 
   <div class="page" id="page-invite">
-    <h2 data-i18n="inv_title">Invite Friends</h2>
-    <div class="sub" data-i18n="inv_sub">Coming soon</div>
-    <div id="invite-body">
-      <div class="card">
-        <p class="sub" data-i18n="inv_placeholder">This feature is not available yet. Invitations will be handled by this proxy once it goes live, so there is nothing to configure here for now.</p>
+    <h2 data-i18n="inv_title">Invite Management</h2>
+    <div class="sub" data-i18n="inv_sub">Per-account invite registry — codes, owners and manual/round-robin assignment</div>
+    <!-- LOCAL ONLY. The registry below is this gateway's own bookkeeping: an
+         assignment is a local reservation, never proof that the provider
+         accepted or credited anything. Cards say so explicitly rather than
+         implying a successful upstream redemption. -->
+    <div class="inv-scope" data-i18n="inv_local_note">Local registry only — assignments are reservations made by this panel and do not redeem anything upstream.</div>
+
+    <div class="grid g4" style="margin-top:14px">
+      <div class="card kv"><div class="k" data-i18n="inv_stat_total">Total</div><div class="v" id="inv-st-total">—</div></div>
+      <div class="card kv"><div class="k" data-i18n="inv_stat_active">Active</div><div class="v" id="inv-st-active">—</div></div>
+      <div class="card kv"><div class="k" data-i18n="inv_stat_paused">Paused</div><div class="v" id="inv-st-paused">—</div></div>
+      <div class="card kv"><div class="k" data-i18n="inv_stat_expired">Expired</div><div class="v" id="inv-st-expired">—</div></div>
+      <div class="card kv"><div class="k" data-i18n="inv_stat_exhausted">Exhausted</div><div class="v" id="inv-st-exhausted">—</div></div>
+      <div class="card kv"><div class="k" data-i18n="inv_stat_assigned">Assigned accounts</div><div class="v" id="inv-st-assigned">—</div></div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="bal-head">
+        <b data-i18n="inv_add_title">Add an invite (manual)</b>
+        <button class="btn ghost sm" id="inv-set-save" data-i18n="inv_save_settings">Save default strategy</button>
       </div>
+      <div class="sub" style="margin-top:6px" data-i18n="inv_add_hint">Paste a code or a full invite URL you already hold. Only manually entered records are created here — the gateway never mints or redeems codes upstream.</div>
+      <div class="inv-form">
+        <input id="inv-f-code" data-i18n-ph="inv_ph_code" placeholder="Invite code or URL">
+        <input id="inv-f-label" data-i18n-ph="inv_ph_label" placeholder="Label (optional)">
+        <input id="inv-f-category" data-i18n-ph="inv_ph_category" placeholder="Category (optional)">
+        <input id="inv-f-tags" data-i18n-ph="inv_ph_tags" placeholder="tags, comma separated">
+        <input id="inv-f-campaign" data-i18n-ph="inv_ph_campaign" placeholder="Campaign id (optional)">
+        <input id="inv-f-max" type="number" min="0" data-i18n-ph="inv_ph_max" placeholder="Max uses (blank = ∞)">
+        <input id="inv-f-expires" type="text" data-i18n-ph="inv_ph_expires" placeholder="Expires (YYYY-MM-DD, optional)">
+        <button class="btn sm" id="inv-add" data-i18n="inv_add">Add invite</button>
+      </div>
+      <input id="inv-f-note" class="mini-search" style="margin-top:8px;width:100%" data-i18n-ph="inv_ph_note" placeholder="Note (optional)">
+      <div class="bal-tools" style="margin-top:10px">
+        <span class="sub" style="margin:0" data-i18n="inv_strategy">Default assignment strategy</span>
+        <!-- No native <select> anywhere in this panel (project rule): the
+             strategy is a two-item picker, same control as every other filter. -->
+        <button class="picker-btn compact" data-picker="inv-strategy" data-title="inv_strategy"></button>
+        <input type="hidden" id="inv-strategy">
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="inv-tabs">
+        <button class="btn sm inv-tab on" id="inv-tab-invites" data-i18n="inv_tab_invites">Invites</button>
+        <button class="btn sm ghost inv-tab" id="inv-tab-accounts" data-i18n="inv_tab_accounts">Accounts</button>
+      </div>
+
+      <div id="inv-pane-invites">
+        <div class="bal-tools" style="margin:10px 0 12px">
+          <input id="inv-search" class="mini-search" style="min-width:200px" data-i18n-ph="inv_search_ph" placeholder="Search code / label / note / account…">
+          <button class="picker-btn compact" data-picker="inv-cat" data-title="inv_cat_filter"></button>
+          <input type="hidden" id="inv-cat">
+          <button class="picker-btn compact" data-picker="inv-status" data-title="inv_status_filter"></button>
+          <input type="hidden" id="inv-status">
+          <button class="picker-btn compact" data-picker="inv-account" data-title="filter_account"></button>
+          <input type="hidden" id="inv-account">
+          <button class="picker-btn compact" data-picker="inv-sort" data-title="inv_sort"></button>
+          <input type="hidden" id="inv-sort">
+          <button class="btn ghost sm" id="inv-refresh" data-i18n="refresh">Refresh</button>
+          <span class="sub" id="inv-count" style="margin:0"></span>
+        </div>
+        <div id="inv-list"></div>
+        <div class="inv-pager" id="inv-pager"></div>
+      </div>
+
+      <div id="inv-pane-accounts" style="display:none">
+        <div class="bal-tools" style="margin:10px 0 12px">
+          <input id="inv-acc-search" class="mini-search" style="min-width:200px" data-i18n-ph="inv_acc_search_ph" placeholder="Search account…">
+          <button class="btn ghost sm" id="inv-assign-all" data-i18n="inv_assign_next_all">Assign next to every account</button>
+          <span class="sub" id="inv-acc-count" style="margin:0"></span>
+        </div>
+        <div id="inv-acc-list"></div>
+      </div>
+      <!-- Bounded activity log: the last N actions of THIS page, so an
+           assign/release that failed is readable without opening Logs. Capped
+           in JS; it is not a second copy of the engine log. -->
+      <div class="inv-log" id="inv-log"></div>
+    </div>
+
+    <div class="card">
+      <div class="bal-head">
+        <b data-i18n="inv_mk_title">Official marketing info</b>
+        <div class="bal-tools">
+          <button class="picker-btn compact" data-picker="inv-mk-account" data-title="picker_pick_account"></button>
+          <input type="hidden" id="inv-mk-account">
+          <button class="btn sm" id="inv-mk-load" data-i18n="inv_mk_load">Refresh for this account</button>
+        </div>
+      </div>
+      <!-- Explicitly on demand. The upstream call is per ACCOUNT, so refreshing
+           it for the whole pool on a timer would be one upstream request per
+           account per tick — the page only asks for the account the operator
+           selected. -->
+      <div class="sub" style="margin-top:6px" data-i18n="inv_mk_hint">Fetched for the selected account only, when you press the button. Read-only official info — it does not redeem or claim anything.</div>
+      <div id="inv-mk-body" class="sub" style="margin-top:10px" data-i18n="inv_mk_idle">Pick an account and press Refresh.</div>
     </div>
   </div>
 
@@ -256,6 +346,9 @@
   <div class="page" id="page-intel">
     <h2 data-i18n="intel_title">Upstream Intel</h2>
     <div class="sub" data-i18n="intel_sub">Official release notes and gate changes — live feed, newest 15 only</div>
+    <div class="bal-tools" style="margin-bottom:12px">
+      <button class="btn ghost sm" id="intel-refresh" data-i18n="refresh">Refresh</button>
+    </div>
     <div id="intel-body"><span class="sub" data-i18n="loading">Loading…</span></div>
   </div>
 
@@ -307,6 +400,83 @@ Do this:
 5. Type credentials ONLY into the provider's own authorize page opened from
    its authorizeUrl — never send them to any other endpoint or third party.</pre>
       <button class="btn sm" id="apidoc-copy" data-i18n="apidoc_copy">Copy prompt</button>
+    </div>
+
+    <!-- ── Invitation registry API ───────────────────────────────────────────
+         Separate card from the batch-login flow above because it is a different
+         job: the first adds accounts, this one manages the operator's own
+         invite registry. Both are admin-API surfaces with the same auth. -->
+    <div class="card" style="margin-top:14px">
+      <div class="lbl" data-i18n="apidoc_inv_title">Invitation registry API</div>
+      <div class="sub" style="margin-top:6px;font-family:var(--mono);font-size:11.5px;line-height:1.9">
+        GET /admin/api/invites?search=&amp;category=&amp;status=&amp;accountId=&amp;page=1&amp;pageSize=20&amp;sort=<br>
+        GET /admin/api/invites/stats<br>
+        POST /admin/api/invites &nbsp; { "code"|"url", "label", "category", "tags": [], "campaignId", "status", "maxUses", "expiresAt", "note", "ownerAccountId" }<br>
+        PATCH /admin/api/invites/:id &nbsp; (any of the fields above; "ownerAccountId": null clears the owner)<br>
+        POST /admin/api/invites/:id/assign &nbsp; { "accountId", "requestId"? }<br>
+        POST /admin/api/invites/assign-next &nbsp; { "accountId", "strategy": "round_robin", "category"?, "requestId"? }<br>
+        POST /admin/api/invites/:id/release &nbsp; { "accountId" }<br>
+        DELETE /admin/api/invites/:id &nbsp; (409 while a live reservation exists — release first)<br>
+        POST /admin/api/invites/settings &nbsp; { "defaultStrategy": "manual" | "round_robin" }<br>
+        GET /admin/api/marketing?accountId=…
+      </div>
+      <div class="hint" style="margin-top:8px">
+        <span data-i18n="apidoc_inv_note">Every entry returned by GET /invites carries its own effectiveStatus (active | paused | expired | exhausted), computed from status, expiry and use counts.</span>
+        <span data-i18n="apidoc_inv_local">Assignments returned by the assign endpoints are LOCAL reservations in this gateway's registry — no endpoint redeems, activates or spends a code upstream, and no count here is an official reward or chance figure.</span>
+        <span data-i18n="apidoc_inv_errors">Writes answer 400 bad_request (malformed expiresAt or field value), 409 duplicate_code / in_use, 404 not_found. A reservation counts against maxUses immediately; release returns it.</span>
+      </div>
+      <div class="hint" style="margin-top:6px">
+        <span data-i18n="apidoc_inv_errors_head">Errors are JSON { "error": { "type", "message" } } with</span>
+        <span data-i18n="apidoc_inv_errors_body">400 (bad request / unknown field), 404 (no such invite), 409 (already assigned to that account) and 401/403 (auth). The mutating calls use the same admin auth as the rest of this page.</span>
+      </div>
+      <div class="hint" style="margin-top:6px" data-i18n="apidoc_auth">Auth: same admin key / panel session as every other admin API (Cookie session, or Authorization: Bearer for API-key callers; writes need the x-csrf-token header when cookie-authenticated).</div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="lbl" data-i18n="apidoc_inv_prompt_title">Prompt for your AI — invitation management (click to select all, then copy)</div>
+      <pre id="apidoc-inv-prompt" class="sub" style="margin-top:6px;white-space:pre-wrap;word-break:break-all;background:#0d1014;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:11.5px;cursor:text">Manage the invitation registry on my ZcodeKnight gateway, via its admin API only.
+
+Gateway: {BASE_URL}  (admin key: I will provide it when you ask)
+Panel page: {BASE_URL}/admin  (Invite page)
+
+Auth for every call:
+- Header: Authorization: Bearer &lt;admin key&gt;
+- If you authenticate with the panel Cookie session instead, every POST/PATCH must
+  also send the x-csrf-token header from the login response.
+
+Contract:
+- GET  {BASE_URL}/admin/api/invites?search=&amp;category=&amp;status=&amp;accountId=&amp;page=1&amp;pageSize=20&amp;sort=
+  -&gt; { entries: [{ id, ownerAccountId?, code, url, label, category, tags, source,
+       campaignId, status, effectiveStatus, maxUses, usedCount, reservedCount,
+       expiresAt, note, createdAt, updatedAt }], total, page, pageSize, totalPages,
+       categories, settings: { defaultStrategy }, assignments: [...], accounts: [...] }
+- GET  {BASE_URL}/admin/api/invites/stats -&gt; { total, active, paused, expired, exhausted, assignedAccounts }
+- POST {BASE_URL}/admin/api/invites  body { code | url, label?, category?, tags?, campaignId?, status?, maxUses?, expiresAt?, note?, ownerAccountId? } -&gt; { entry }
+- PATCH {BASE_URL}/admin/api/invites/:id  same fields, partial -&gt; { entry }
+- POST {BASE_URL}/admin/api/invites/:id/assign  { accountId, requestId? } -&gt; { assignment, entry }
+- POST {BASE_URL}/admin/api/invites/assign-next  { accountId, strategy: "round_robin", category?, requestId? } -&gt; { assignment, entry }
+- POST {BASE_URL}/admin/api/invites/:id/release  { accountId } -&gt; { ok }
+- POST {BASE_URL}/admin/api/invites/settings  { defaultStrategy: "manual" | "round_robin" } -&gt; { settings }
+- GET  {BASE_URL}/admin/api/marketing?accountId=&lt;id&gt; -&gt; { accountId, fetchedAt, fresh, available, deliveries: [...], error? }
+
+Rules you must follow:
+1. This gateway's registry is LOCAL bookkeeping. An assignment returned by the
+   assign endpoints is a LOCAL reservation, NOT a successful official use, and
+   nothing here redeems, activates or spends a code upstream. Never report an
+   assignment as a completed redemption.
+2. Never invent official links, rewards or remaining-chance counts. If a field
+   (expiresAt, maxUses, campaignId, remainingChances, a URL) is null/missing,
+   say it is unknown.
+3. `source` is "manual" for entries an operator entered and "official" for ones
+   the engine knows about. Only manual entries can be created/edited through
+   this API.
+4. Prefer PATCH for edits; it accepts a partial body. Use an explicit null to
+   clear an optional field such as ownerAccountId or expiresAt.
+5. Do not attempt automatic external redemption, claiming or captcha solving
+   through these endpoints — the API has no such call, and the Invite page never
+   performs one.
+6. Never send provider passwords anywhere: no endpoint here accepts them.</pre>
+      <button class="btn sm" id="apidoc-inv-copy" data-i18n="apidoc_copy">Copy prompt</button>
     </div>
   </div>
 
@@ -635,6 +805,37 @@ Do this:
     <div class="row">
       <button class="btn ghost" id="ask-cancel" data-i18n="cancel">Cancel</button>
       <button class="btn" id="ask-ok" data-i18n="ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<!--
+  Invite edit dialog.
+
+  Its own mask, NOT a reuse of #ask-mask: askConfirm() renders a plain-text body
+  and resolves a promise from #ask-ok, so a form sharing that element would make
+  "OK" do two different things depending on which caller opened it. A separate
+  dialog keeps both contracts simple — this one has its own Save/Cancel and its
+  own hidden input holding the id being edited.
+-->
+<div class="mask" id="inv-edit-mask">
+  <div class="modal" style="width:min(520px,92vw)">
+    <h3 id="inv-e-title">Edit</h3>
+    <label data-i18n="inv_ph_label">Label (optional)</label>
+    <input id="inv-e-label" placeholder="">
+    <label data-i18n="inv_ph_category">Category (optional)</label>
+    <input id="inv-e-category" placeholder="">
+    <label data-i18n="inv_ph_tags">tags, comma separated</label>
+    <input id="inv-e-tags" placeholder="">
+    <label data-i18n="inv_ph_campaign">Campaign id (optional)</label>
+    <input id="inv-e-campaign" placeholder="">
+    <label data-i18n="inv_ph_max">Max uses (blank = no limit)</label>
+    <input id="inv-e-max" type="number" min="0" placeholder="">
+    <label data-i18n="inv_ph_note">Note (optional)</label>
+    <input id="inv-e-note" placeholder="">
+    <div class="row">
+      <button class="btn ghost" id="inv-edit-cancel" data-i18n="cancel">Cancel</button>
+      <button class="btn" id="inv-edit-save" data-i18n="saved">Save</button>
     </div>
   </div>
 </div>

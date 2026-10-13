@@ -93,6 +93,23 @@ interface LoginSession {
 const LOGIN_TTL_MS = 5 * 60_000;
 const sessions = new Map<string, LoginSession>();
 
+/**
+ * GET /marketing cache — one entry per account, 5-minute TTL.
+ *
+ * The panel polls; the marketing plane must not see a burst per poll. Cleared
+ * by `resetMarketingCacheForTest` so tests can drive real fetch sequences.
+ */
+interface MarketingCacheEntry {
+  at: number;
+  payload: Record<string, unknown>;
+}
+const marketingCache = new Map<string, MarketingCacheEntry>();
+
+/** For tests: drop the /marketing cache. */
+export function resetMarketingCacheForTest(): void {
+  marketingCache.clear();
+}
+
 /** Options built once in serve(). */
 export interface AdminRouteOptions {
   config: ProxyConfig;
@@ -446,14 +463,10 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
     });
   }
 
-  // Invite: the upstream invite API is not deployed yet. The planning doc
-  // calls for a stub plus a manual-link fallback so the page ships now and the
-  // stub can be swapped for the real call without touching the UI. The shape
-  // below is the contract the page already renders against.
   /**
-   * Invite / referral.
+   * Invite / referral registry.
    *
-   * There is no per-account invite link to show. Verified against the upstream
+   * There is no upstream invite-generation API. Verified against the upstream
    * on 2026-09-22: every candidate endpoint under `/api/v1/zcode-plan/`
    * (`/invite`, `/invite/info`, `/invitation`, `/user/invite`, `/billing/invite`)
    * answers 404, and the desktop client contains no invite UI at all — its only
@@ -461,20 +474,372 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
    * `create-sign`, `prepay`), i.e. redeeming someone else's code for a discount,
    * not generating one of your own.
    *
-   * So the honest answer is "not available", and the page says that plus the one
-   * thing the user can actually do (save their own share link by hand). This
-   * returns the same shape the page already renders against, so if upstream ever
-   * ships the feature the real call drops in here without touching the UI.
+   * So codes/links are a LOCAL registry: the operator pastes codes and share
+   * links by hand (source is pinned to "manual" on official-source creates —
+   * the panel must never pretend a code came from, or was minted by, upstream),
+   * assigns them to pool accounts manually or round-robin, and releases an
+   * assignment to give the code back. Persistence and listing live in
+   * `src/invite/store.ts` (`data/invites.json`, same AES-GCM envelope as the
+   * account store).
+   *
+   * Route contract (panel invite page):
+   *   GET    /invites            list — search/category/status/accountId/page/pageSize/sort
+   *   GET    /invites/stats      counters for the page header
+   *   POST   /invites            create one registry entry
+   *   PATCH  /invites/:id        edit one entry
+   *   POST   /invites/:id/assign     assign a SPECIFIC entry to an account
+   *   POST   /invites/assign-next    auto-pick by strategy and assign
+   *   POST   /invites/:id/release    release this entry's latest live assignment
+   *   POST   /invites/settings       default strategy
    */
-  if (method === "GET" && path === "/invite") {
-    return json({
-      available: false,
-      reason: "no_upstream_invite_api",
-      message: "上游没有邀请接口（已实测 /api/v1/zcode-plan/* 全部 404），客户端也没有邀请界面。目前只能手动保存你自己的分享链接。",
-      inviteUrl: "",
-      invited: 0,
-      reward: "",
-    });
+  if (path === "/invites" || path.startsWith("/invites/")) {
+    const inviteStore = await import("../invite/store.js");
+    const {
+      listInvites, inviteStats, createInvite, updateInvite, deleteInvite,
+      assignInvite, releaseInvite, getInviteSettings, updateInviteSettings,
+      loadInvites,
+    } = inviteStore;
+    type InviteStatus = import("../invite/store.js").InviteStatus;
+    type InviteAssignmentStrategy = import("../invite/store.js").InviteAssignmentStrategy;
+    const { loadAccounts } = await import("../auth/account-store.js");
+
+    /** Account id + display name pairs, so listings and filters show names. */
+    const accounts = (await loadAccounts()).accounts.map((a) => ({ id: a.id, name: a.name }));
+    const accountExists = (id: string): boolean => accounts.some((a) => a.id === id);
+
+    // ---- GET /invites — filtered, paged listing plus everything the page ----
+    // needs in one response (categories for the filter, settings for the form,
+    // the account list, and each entry's assignments WITH account names).
+    if (method === "GET" && path === "/invites") {
+      const statusParam = (url.searchParams.get("status") ?? "").trim();
+      const entries = await listInvites({
+        query: url.searchParams.get("search") ?? "",
+        category: url.searchParams.get("category") ?? "",
+        status: statusParam && statusParam !== "all"
+          ? statusParam.split(",").map((s) => s.trim()).filter(Boolean) as InviteStatus[]
+          : undefined,
+        page: Number(url.searchParams.get("page") ?? "1") || 1,
+        pageSize: Number(url.searchParams.get("pageSize") ?? "25") || 25,
+      });
+      const accountId = (url.searchParams.get("accountId") ?? "").trim();
+      const doc = await loadInvites();
+      const nameById = new Map(accounts.map((a) => [a.id, a.name]));
+      const sort = (url.searchParams.get("sort") ?? "").trim();
+      const assignments = doc.assignments
+        .filter((a) => !accountId || a.accountId === accountId)
+        .map((a) => ({ ...a, accountName: nameById.get(a.accountId) ?? a.accountId }))
+        .sort((a, b) => b.assignedAt.localeCompare(a.assignedAt));
+      // sort=recent puts the entries with the newest assignment first; anything
+      // else keeps the store's own order (page math already applied there).
+      if (sort === "recent") {
+        const lastAt = new Map(doc.assignments.map((a) => [a.inviteId, a.assignedAt]));
+        entries.items = [...entries.items].sort((a, b) =>
+          (lastAt.get(b.id) ?? b.updatedAt).localeCompare(lastAt.get(a.id) ?? a.updatedAt));
+      }
+      const categories = [...new Set(doc.invites.map((i) => i.category).filter(Boolean))].sort();
+      return json({
+        entries: entries.items,
+        total: entries.total,
+        page: entries.page,
+        pageSize: entries.pageSize,
+        totalPages: entries.totalPages,
+        categories,
+        settings: doc.settings,
+        assignments,
+        accounts,
+      });
+    }
+
+    // ---- GET /invites/stats ----
+    if (method === "GET" && path === "/invites/stats") {
+      return json({ stats: await inviteStats(), settings: await getInviteSettings() });
+    }
+
+    // ---- POST /invites — register a manual code / share link ----
+    if (method === "POST" && path === "/invites") {
+      const body = await readJson<Record<string, unknown>>(req);
+      const code = String(body?.code ?? "").trim();
+      if (!code) return errorResponse(400, "bad_request", "code required (手动粘贴的邀请码或链接标识)");
+      // Official creation/update is REGISTRATION ONLY: the operator types what
+      // they were given. No upstream invite endpoint is called — none exists
+      // (see the route comment above) and one must not be probed for.
+      const source = String(body?.source ?? "").trim() || "manual";
+      if (source !== "manual") {
+        return errorResponse(400, "bad_request", "source must be manual — 上游没有邀请接口，条目只能手动登记");
+      }
+      const expiresAt = body?.expiresAt;
+      if (expiresAt != null && typeof expiresAt === "string" && expiresAt.trim()
+          && Number.isNaN(Date.parse(expiresAt))) {
+        return errorResponse(400, "bad_request", "expiresAt must be an ISO-8601 date or null");
+      }
+      try {
+        const invite = await createInvite({
+          code,
+          ...(body?.url !== undefined ? { url: String(body.url) } : {}),
+          ...(body?.label !== undefined ? { label: String(body.label) } : {}),
+          ...(body?.category !== undefined ? { category: String(body.category) } : {}),
+          ...(Array.isArray(body?.tags) ? { tags: body.tags.map(String) } : {}),
+          source: "manual",
+          ...(body?.campaignId !== undefined ? { campaignId: String(body.campaignId) } : {}),
+          ...(body?.status !== undefined ? { status: String(body.status) as InviteStatus } : {}),
+          ...(body?.maxUses !== undefined ? { maxUses: body.maxUses as number | null } : {}),
+          ...(body?.usedCount !== undefined ? { usedCount: Number(body.usedCount) || 0 } : {}),
+          ...(expiresAt !== undefined ? { expiresAt: (typeof expiresAt === "string" && expiresAt.trim() ? expiresAt : null) as string | null } : {}),
+          ...(body?.note !== undefined ? { note: String(body.note) } : {}),
+        });
+        adminLog.push(`[invites] registered code ${invite.code} (${invite.category})`, "ok");
+        return json({ ok: true, invite });
+      } catch (e) {
+        const msg = (e as Error).message;
+        if (msg.includes("already exists")) return errorResponse(409, "duplicate_code", msg);
+        return errorResponse(400, "bad_request", msg);
+      }
+    }
+
+    // ---- PATCH /invites/:id ----
+    // SINGLE path segment only. A bare prefix match also swallowed the sibling
+    // action routes (`PATCH /invites/assign-next` would look up an invite whose
+    // id is the literal "assign-next"), which is a path-confusion foot-gun even
+    // though the method guard happens to keep POST out of it today.
+    if (method === "PATCH" && /^\/invites\/[^/]+$/.test(path)) {
+      const id = path.slice("/invites/".length);
+      if (!id) return errorResponse(400, "bad_request", "id required");
+      const body = await readJson<Record<string, unknown>>(req);
+      // Same registration-only rule as the create: a patch cannot invent an
+      // official provenance for an entry, and no upstream call is made.
+      if (body?.source !== undefined && String(body.source).trim() !== "manual") {
+        return errorResponse(400, "bad_request", "source must be manual — 上游没有邀请接口，条目只能手动登记");
+      }
+      const patch: Record<string, unknown> = {};
+      for (const key of ["code", "url", "label", "category", "tags", "campaignId", "status", "maxUses", "usedCount", "expiresAt", "note"] as const) {
+        if (body?.[key] !== undefined) patch[key] = body[key];
+      }
+      try {
+        const invite = await updateInvite(id, patch);
+        if (!invite) return errorResponse(404, "not_found", "invite not found");
+        return json({ ok: true, invite });
+      } catch (e) {
+        const msg = (e as Error).message;
+        if (msg.includes("already exists")) return errorResponse(409, "duplicate_code", msg);
+        if (msg.includes("required")) return errorResponse(400, "bad_request", msg);
+        return errorResponse(400, "bad_request", msg);
+      }
+    }
+
+    // ---- POST /invites/:id/assign — give THIS entry to an account ----
+    if (method === "POST" && /^\/invites\/[^/]+\/assign$/.test(path)) {
+      const id = path.split("/")[2]!;
+      const body = await readJson<{ accountId?: string; requestId?: string }>(req);
+      const accountId = String(body?.accountId ?? "").trim();
+      if (!accountId) return errorResponse(400, "bad_request", "accountId required");
+      if (!accountExists(accountId)) return errorResponse(404, "not_found", "account not found");
+      try {
+        // strategy "manual" + this id: the store enforces availability
+        // (paused/expired/capacity) and refuses a used-up code.
+        const result = await assignInvite(accountId, { strategy: "manual", inviteId: id, result: body?.requestId?.trim() || "assigned" });
+        if (!result) {
+          return errorResponse(409, "not_assignable", "invite is paused, expired or its capacity is used up");
+        }
+        adminLog.push(`[invites] assigned ${result.invite.code} → ${accountId}`, "ok");
+        return json({ ok: true, ...result });
+      } catch (e) {
+        return errorResponse(400, "bad_request", (e as Error).message);
+      }
+    }
+
+    // ---- POST /invites/assign-next — auto-pick by strategy ----
+    if (method === "POST" && path === "/invites/assign-next") {
+      const body = await readJson<{ accountId?: string; strategy?: string; category?: string; requestId?: string }>(req);
+      const accountId = String(body?.accountId ?? "").trim();
+      if (!accountId) return errorResponse(400, "bad_request", "accountId required");
+      if (!accountExists(accountId)) return errorResponse(404, "not_found", "account not found");
+      const strategy = (body?.strategy === "manual" ? "manual"
+        : body?.strategy === "round_robin" ? "round_robin" : undefined) as InviteAssignmentStrategy | undefined;
+      // category narrows the round-robin candidate set: pick the least-assigned
+      // active entry within the category here, then hand the store the choice.
+      if (body?.category?.trim()) {
+        const doc = await loadInvites();
+        const now = Date.now();
+        const candidates = doc.invites.filter((i) =>
+          i.category === body.category!.trim()
+          && i.status === "active"
+          && !(i.expiresAt && Date.parse(i.expiresAt) <= now)
+          && (i.maxUses === null || i.usedCount < i.maxUses))
+          .sort((a, b) => {
+            const aN = doc.assignments.filter((x) => x.inviteId === a.id).length;
+            const bN = doc.assignments.filter((x) => x.inviteId === b.id).length;
+            return aN - bN || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
+          });
+        if (!candidates.length) {
+          return errorResponse(409, "not_assignable", "no active invite in this category");
+        }
+        try {
+          const result = await assignInvite(accountId, { strategy: "manual", inviteId: candidates[0]!.id, result: body?.requestId?.trim() || "assigned" });
+          if (!result) return errorResponse(409, "not_assignable", "invite became unavailable before assignment");
+          adminLog.push(`[invites] assign-next(${body.category.trim()}) ${result.invite.code} → ${accountId}`, "ok");
+          return json({ ok: true, ...result });
+        } catch (e) {
+          return errorResponse(400, "bad_request", (e as Error).message);
+        }
+      }
+      try {
+        const result = await assignInvite(accountId, { strategy, result: body?.requestId?.trim() || "assigned" });
+        if (!result) {
+          return errorResponse(409, "not_assignable", "no available invite (all paused, expired or used up)");
+        }
+        adminLog.push(`[invites] assign-next(${strategy ?? "default"}) ${result.invite.code} → ${accountId}`, "ok");
+        return json({ ok: true, ...result });
+      } catch (e) {
+        return errorResponse(400, "bad_request", (e as Error).message);
+      }
+    }
+
+    // ---- DELETE /invites/:id — remove a registry entry ----
+    // Refused while a live reservation points at it (release first): deleting
+    // the entry would leave that account's card referencing a missing invite.
+    if (method === "DELETE" && /^\/invites\/[^/]+$/.test(path)) {
+      const id = path.slice("/invites/".length);
+      try {
+        const removed = await deleteInvite(id);
+        if (!removed) return errorResponse(404, "not_found", "invite not found");
+        adminLog.push(`[invites] deleted entry ${id}`, "ok");
+        return json({ ok: true });
+      } catch (e) {
+        return errorResponse(409, "in_use", (e as Error).message);
+      }
+    }
+
+    // ---- POST /invites/:id/release — take the code back from an account ----
+    if (method === "POST" && /^\/invites\/[^/]+\/release$/.test(path)) {
+      const id = path.split("/")[2]!;
+      const body = await readJson<{ accountId?: string }>(req);
+      const doc = await loadInvites();
+      const live = doc.assignments
+        .filter((a) => a.inviteId === id && !a.consumedAt
+          && (!body?.accountId || a.accountId === body.accountId))
+        .sort((a, b) => b.assignedAt.localeCompare(a.assignedAt));
+      if (!live.length) {
+        return errorResponse(404, "not_found", "no live assignment for this invite");
+      }
+      const released = await releaseInvite(live[0]!.id);
+      if (!released) return errorResponse(409, "not_assignable", "assignment already closed");
+      adminLog.push(`[invites] released assignment ${released.id} for invite ${id}`, "ok");
+      return json({ ok: true, assignment: released });
+    }
+
+    // ---- POST /invites/settings — default assignment strategy ----
+    if (method === "POST" && path === "/invites/settings") {
+      const body = await readJson<{ defaultStrategy?: string }>(req);
+      const raw = body?.defaultStrategy;
+      if (raw !== "manual" && raw !== "round_robin") {
+        return errorResponse(400, "bad_request", "defaultStrategy must be manual or round_robin");
+      }
+      const settings = await updateInviteSettings({ defaultStrategy: raw });
+      return json({ ok: true, settings });
+    }
+  }
+
+  /**
+   * GET /marketing?accountId — READ-ONLY official marketing touch.
+   *
+   * Proxies the official rewards-page READ endpoints
+   * (`/api/v1/incentive/referral/summary`, `referral/invitees?limit=…`,
+   * `reward-records?limit=…` — reverse-engineered 2026-10-12 from the public
+   * rewards page chunks, see analysis/invite-3.15.1/FINDINGS.md) using THAT
+   * account's existing JWT / deviceMid / appVersion, exactly as the balance
+   * poller reuses credentials. Strictly read: no claim, no redeem, no
+   * bind-code POST, no other upstream call is attempted — there is deliberately
+   * no write path on this route.
+   *
+   *  - no account (or an account without a JWT) → 400;
+   *  - one upstream call per panel request, with a short timeout and a
+   *    5-minute server cache so a page poll cannot hammer the marketing plane;
+   *  - the Authorization header is redacted from any surfaced error text.
+   */
+  if (method === "GET" && path === "/marketing") {
+    const accountId = (url.searchParams.get("accountId") ?? "").trim();
+    if (!accountId) return errorResponse(400, "bad_request", "accountId required");
+    const account = (await loadAccounts()).accounts.find((a) => a.id === accountId);
+    if (!account) return errorResponse(404, "not_found", "account not found");
+    const jwt = account.credential.jwt?.trim();
+    if (!jwt) {
+      return errorResponse(400, "no_jwt", "this account has no plan JWT — marketing read needs an OAuth login");
+    }
+
+    // 5-minute cache keyed by account: the panel may poll; the marketing plane
+    // should see one read per account per few minutes at most.
+    const CACHE_TTL_MS = 5 * 60_000;
+    let cache = marketingCache.get(accountId);
+    const now = Date.now();
+    if (!cache || now - cache.at > CACHE_TTL_MS) {
+      const origin = config.claim.origin.replace(/\/+$/, "");
+      const timeoutMs = 10_000;
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${jwt}`,
+        Accept: "application/json",
+        "X-Client-Language": "zh-CN",
+      };
+      if (account.deviceMid) headers["X-Device-Mid"] = account.deviceMid;
+
+      const call = async (subPath: string): Promise<{ ok: boolean; data?: unknown; error?: string; status: number }> => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const resp = await fetch(`${origin}/api/v1/incentive/${subPath}`, {
+            headers,
+            signal: controller.signal,
+            cache: "no-store",
+          });
+          const text = await resp.text();
+          let parsed: Record<string, unknown> | undefined;
+          try {
+            const j = JSON.parse(text) as unknown;
+            if (j && typeof j === "object") parsed = j as Record<string, unknown>;
+          } catch { /* non-JSON surfaced via status */ }
+          if (!resp.ok) {
+            return { ok: false, status: resp.status, error: `HTTP ${resp.status}` };
+          }
+          const code = parsed?.code;
+          if (code !== undefined && code !== 0) {
+            return { ok: false, status: resp.status, error: `biz ${String(code)}` };
+          }
+          return { ok: true, status: resp.status, data: parsed?.data };
+        } catch (e) {
+          // Redact anything that could carry the credential: only the error
+          // KIND is surfaced, never the message (an AbortError message names
+          // nothing sensitive, but a fetch failure message can echo the URL
+          // with headers in exotic runtimes — cheap to just not risk it).
+          const aborted = e instanceof Error && e.name === "AbortError";
+          return { ok: false, status: 0, error: aborted ? "timeout" : "network_error" };
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+
+      const [summary, invitees, rewardRecords] = await Promise.all([
+        call("referral/summary"),
+        call("referral/invitees?limit=5"),
+        call("reward-records?limit=5"),
+      ]);
+      cache = {
+        at: now,
+        payload: {
+          accountId,
+          accountName: account.name,
+          fetchedAt: new Date(now).toISOString(),
+          fresh: summary.ok || invitees.ok || rewardRecords.ok,
+          summary: summary.ok ? summary.data : null,
+          summaryError: summary.error,
+          invitees: invitees.ok ? invitees.data : null,
+          inviteesError: invitees.error,
+          rewardRecords: rewardRecords.ok ? rewardRecords.data : null,
+          rewardRecordsError: rewardRecords.error,
+          readonly: true,
+        },
+      };
+      marketingCache.set(accountId, cache);
+    }
+    return json(cache.payload);
   }
 
   // Self-update. `GET /update/check` is read-only and safe to poll; the two

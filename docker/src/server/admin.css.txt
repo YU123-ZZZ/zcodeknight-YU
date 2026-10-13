@@ -195,6 +195,15 @@
   /* Model-scoped throttle: the account still serves other models, so this is
      amber "degraded", never the red that means the account is down. */
   .st.throttled { color: var(--gold); background: rgba(224,163,74,.14); }
+  /* Invite registry statuses. `active`/`expired` are new here (the account pool
+     has no equivalent), and both are needed: an invite card whose status pill
+     had no rule would render unstyled — i.e. looking healthy — for a dead code. */
+  .st.active { color: var(--green); background: rgba(79,174,124,.12); }
+  .st.expired { color: var(--gold); background: rgba(224,163,74,.14); }
+  /* Source pill: manual entries are the operator's own, official ones the engine
+     knows about — visually distinct so a mixed list stays readable. */
+  .pill.manual { color: var(--blue); border-color: #34487c; }
+  .pill.official { color: var(--purple); border-color: #4a3a70; }
   .hold-box {
     margin-top: 8px; padding: 7px 10px; border-radius: 8px;
     background: rgba(224,163,74,.08); border-left: 2px solid var(--gold);
@@ -538,3 +547,78 @@
   }
   .cl-item:last-child { border-bottom: none; }
   .cl-item::before { content: "›"; position: absolute; left: 0; color: var(--blue); font-weight: 700; }
+
+  /* ── Invite registry page ── */
+  /* The scope line is a standing disclaimer rather than body copy: the whole
+     page is local bookkeeping, and that must be readable before any card. */
+  .inv-scope {
+    margin-top: 10px; padding: 8px 12px; border-radius: 8px;
+    background: rgba(91,133,255,.08); border-left: 3px solid var(--blue);
+    color: #c3d2ee; font-size: 12.5px; line-height: 1.6;
+  }
+  .inv-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin-top: 10px; }
+  .inv-form input {
+    background: #101318; border: 1px solid var(--line); color: var(--steel);
+    border-radius: 8px; padding: 6px 10px; font-size: 12.5px; font-family: inherit; width: 100%;
+  }
+  .inv-form input:focus { outline: none; border-color: var(--blue); }
+  .inv-form .btn { justify-self: start; }
+  .inv-tabs { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .inv-tab.on { background: linear-gradient(180deg, var(--blue), var(--blue-dk)); color: #fff; border-color: transparent; }
+  /* One invite's card. Left accent carries the effective status so a paused or
+     dead code is distinguishable without reading its pill. */
+  .inv-card {
+    background: #171c24; border: 1px solid var(--line); border-left: 3px solid var(--blue);
+    border-radius: 10px; padding: 12px 14px; margin-bottom: 12px;
+  }
+  .inv-card.manual { border-left-color: var(--blue); }
+  .inv-card.official { border-left-color: var(--purple); }
+  .inv-card.paused { border-left-color: var(--muted); }
+  .inv-card.expired { border-left-color: var(--gold); }
+  .inv-card.exhausted { border-left-color: var(--red); }
+  .inv-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; margin-bottom: 8px; }
+  .inv-card-head .nm { font-weight: 600; color: #dfe6f0; }
+  .inv-card-head .inv-acts { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+  /* LOCAL: the badge that keeps a reservation from reading as a redemption. */
+  .inv-local {
+    font-size: 10.5px; font-weight: 700; letter-spacing: .08em;
+    padding: 1px 7px; border-radius: 5px; font-family: var(--mono);
+    color: var(--gold); background: rgba(224,163,74,.13); border: 1px solid rgba(224,163,74,.4);
+  }
+  .inv-code {
+    font-family: var(--mono); font-size: 12px; color: var(--blue);
+    background: #101318; border: 1px dashed var(--line); border-radius: 6px;
+    padding: 4px 8px; word-break: break-all; flex: 1 1 auto; min-width: 0;
+  }
+  .inv-code-row { display: flex; gap: 8px; align-items: stretch; margin-bottom: 6px; }
+  .inv-code-row .btn { flex: 0 0 auto; }
+  .inv-note { font-size: 12.5px; color: #cbd4e2; white-space: pre-wrap; margin-top: 6px; }
+  .inv-assign-row {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    font-size: 12px; padding: 6px 0; border-top: 1px dashed rgba(139,147,161,.18);
+  }
+  .inv-assign-row .nm { color: #dfe6f0; font-weight: 600; }
+  .inv-acc-row {
+    display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap;
+    padding: 10px 0; border-bottom: 1px solid #20242c;
+  }
+  .inv-acc-row:last-child { border-bottom: none; }
+  .inv-acc-row .col { min-width: 0; }
+  .inv-acc-row .col.grow { flex: 1 1 260px; }
+  .inv-pager { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  .inv-page-num {
+    min-width: 30px; text-align: center; background: var(--card); border: 1px solid var(--line);
+    color: var(--steel); border-radius: 6px; padding: 3px 7px; font-size: 12px; font-family: inherit; cursor: pointer;
+  }
+  .inv-page-num.on { border-color: var(--blue); color: #fff; background: rgba(91,133,255,.18); }
+  /* Bounded activity log: fixed height, scrolls, capped in JS. It records what
+     THIS page did (assign/release/save), not the engine's log. */
+  .inv-log {
+    margin-top: 12px; background: #0d1014; border: 1px solid var(--line); border-radius: 8px;
+    font-family: var(--mono); font-size: 11.5px; padding: 8px 10px;
+    height: 108px; overflow-y: auto; line-height: 1.7; color: #97a3b6;
+  }
+  .inv-log-line { display: flex; gap: 8px; align-items: baseline; }
+  .inv-log-line .lg-t { flex: 0 0 auto; color: #5f6b7d; }
+  .inv-log .lm-err { color: #ff8f9c; }
+  .inv-log .lm-ok { color: var(--green); }

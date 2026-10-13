@@ -52,7 +52,7 @@ import { requestStats, type RequestRecord } from "../proxy/request-stats.js";
 import { listProbeRecords } from "../provider/probe-store.js";
 
 /** Files that make up the restorable state, relative to `data/`. */
-const STATE_FILES = ["accounts.json", "model-probe.json"] as const;
+const STATE_FILES = ["accounts.json", "model-probe.json", "invites.json"] as const;
 
 /**
  * Additional files included in a FULL export only.
@@ -64,6 +64,39 @@ const STATE_FILES = ["accounts.json", "model-probe.json"] as const;
  * every setting by hand.
  */
 const FULL_ONLY_FILES = ["config.yaml"] as const;
+
+/**
+ * Structural check for an `invites.json` payload (invite registry, invite
+ * module — same AES-GCM envelope as the account store).
+ *
+ * The registry's own module exposes no `validate` export, so this lives here:
+ * a bundle claiming to be invites.json must at least decrypt (checksum already
+ * proven by validateBackup) into a `{ version, invites[], assignments[],
+ * settings }` shape before it is allowed to replace the live registry. Plain
+ * JSON is also accepted because that is what the module writes on export and
+ * what a hand-edited repair file would look like.
+ */
+async function invitesPayloadLooksValid(content: string): Promise<boolean> {
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    if (!parsed || typeof parsed !== "object") return false;
+    const obj = parsed as {
+      encrypted?: unknown;
+      version?: unknown;
+      invites?: unknown;
+      assignments?: unknown;
+      settings?: unknown;
+    };
+    // Encrypted envelope: the same shell the account store uses.
+    if (typeof obj.encrypted === "string" && obj.encrypted.length > 0) return true;
+    // Plaintext document: check the shape the invite module normalises from.
+    if (obj.version !== 1) return false;
+    return Array.isArray(obj.invites) && Array.isArray(obj.assignments)
+      && typeof obj.settings === "object" && obj.settings !== null;
+  } catch {
+    return false;
+  }
+}
 
 export interface BackupBundle {
   format: "zcodeknight-backup";
@@ -195,6 +228,12 @@ export async function validateBackup(raw: unknown): Promise<{ ok: true; bundle: 
     if (!(STATE_FILES as readonly string[]).includes(f.name)) {
       return { ok: false, error: `refusing to restore unexpected file "${f.name}"` };
     }
+    // The invite registry gets a shape check beyond the checksum: a truncated
+    // or hand-mangled invites.json would otherwise normalise to an EMPTY
+    // registry on first read, silently discarding every stored code.
+    if (f.name === "invites.json" && !(await invitesPayloadLooksValid(f.content))) {
+      return { ok: false, error: `invites.json in this bundle is not a valid invite registry` };
+    }
     const actual = await sha256(f.content);
     if (actual !== f.sha256) {
       return { ok: false, error: `checksum mismatch for ${f.name} — the file is corrupt or was edited` };
@@ -241,12 +280,27 @@ export async function importBackup(raw: unknown): Promise<ImportResult> {
     restored.push(f.name);
   }
 
+  // Drop the invite registry's in-memory cache so a post-import read serves the
+  // restored file instead of the stale pre-import document (same reason the
+  // account store is reloaded by the /import route).
+  if (restored.includes("invites.json")) {
+    try {
+      const { resetInviteStoreForTest } = await import("../invite/store.js");
+      resetInviteStoreForTest();
+    } catch {
+      // Registry module unavailable (slim build): the cache reloads on restart.
+    }
+  }
+
   notes.push("restart the engine to load the restored state");
   if (restored.includes("accounts.json")) {
     notes.push(
       "the account store stays encrypted with this machine's key — if this bundle " +
       "came from a different machine, the accounts will not decrypt and you must log in again",
     );
+  }
+  if (restored.includes("invites.json")) {
+    notes.push("the invite registry was restored — the in-memory cache reloads on next read or restart");
   }
   return { ok: true, restored, backupDir, notes };
 }
@@ -390,7 +444,7 @@ export async function importBackupZip(zipBuf: Buffer, opts: { dryrun?: boolean }
   }
   const hasAccounts = byName.has("accounts.json");
   if (files.length === 0) {
-    return { ok: false, restored: [], backupDir: "", notes: ["压缩包里没有可恢复的数据文件（accounts.json / model-probe.json 均不存在）"], fileNames, hasAccounts };
+    return { ok: false, restored: [], backupDir: "", notes: ["压缩包里没有可恢复的数据文件（accounts.json / model-probe.json / invites.json 均不存在）"], fileNames, hasAccounts };
   }
   if (opts.dryrun) {
     const checked = await validateBackup({ format: "zcodeknight-backup", version: 1, createdAt: new Date().toISOString(), files });

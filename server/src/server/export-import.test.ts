@@ -168,6 +168,48 @@ describe("backup validation", () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toMatch(/unexpected file/);
   });
+
+  it("accepts invites.json as restorable state", async () => {
+    // The invite registry rides in STATE_FILES: exporting and importing it is
+    // part of "restore the engine's data", next to accounts and probe results.
+    seedState("invites.json", JSON.stringify({ version: 1, invites: [], assignments: [], settings: { defaultStrategy: "round_robin" } }));
+    const b = await exportBackup(SETTINGS, "4.7.13");
+    const invites = b.files.find((f) => f.name === "invites.json");
+    expect(invites).toBeDefined();
+    const r = await validateBackup(b);
+    expect(r.ok).toBe(true);
+  });
+
+  it("rejects a bundle with a malformed invites.json payload", async () => {
+    // A truncated / hand-mangled registry would normalise to an EMPTY registry
+    // on first read, silently discarding every stored code — reject it before
+    // anything is written.
+    const content = JSON.stringify({ version: 1, oops: true });
+    const { createHash } = await import("node:crypto");
+    const r = await validateBackup({
+      format: "zcodeknight-backup", version: 1,
+      files: [{
+        name: "invites.json", content,
+        sha256: createHash("sha256").update(content, "utf-8").digest("hex"),
+        bytes: Buffer.byteLength(content, "utf-8"),
+      }],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/invite registry/);
+  });
+
+  it("restores invites.json and keeps accounts intact", async () => {
+    const registry = JSON.stringify({ version: 1, invites: [{ id: "i1", code: "ABCD2345" }], assignments: [], settings: { defaultStrategy: "manual" } });
+    seedState("invites.json", registry);
+    const b = await exportBackup(SETTINGS, "4.7.13");
+
+    seedState("invites.json", JSON.stringify({ version: 1, invites: [], assignments: [], settings: {} }));
+    const res = await importBackup(b);
+    expect(res.ok).toBe(true);
+    expect(res.restored).toContain("invites.json");
+    expect(readFileSync(join(tmp, "invites.json"), "utf-8")).toBe(registry);
+    expect(res.notes.join(" ")).toMatch(/invite registry/i);
+  });
 });
 
 describe("backup import", () => {

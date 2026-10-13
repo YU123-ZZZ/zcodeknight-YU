@@ -94,6 +94,14 @@ So `glm-5.3` allows one request at a time per account while `glm-5.3-flash`
 allows three. ZcodeKnight gates per model, so the second `glm-5.3` request
 **queues** rather than failing — you wait a moment, you do not get an error.
 
+> **`glm-5.3` 能用，不是被代码禁用。** 那条 `glm-5.3: 1` 是**上游官方限制的复刻**：
+> 同一个账号同时发第二个 glm-5.3 请求，上游就回 `3009 model concurrency limit exceeded`
+> （实测见上表；同一账号的 glm-5.3-flash 并发 3 个没问题）。引擎把这条已实测的规则
+> 写成本地闸门，是为了**主动排队而不是撞上游报错**——限制的是"同时几个请求"，
+> 不是"能不能调用"。多账号池下不同账号可以并行跑 glm-5.3（5 个号 = 5 路并发）。
+> 想改这个闸门：面板 → 设置 → 模型单独上限（`glm-5.3=2` 之类），改完立刻生效；
+> 改大了遇到 3009 是上游拒绝，不是引擎故障。
+
 A single global number cannot express both: set it to 1 and flash loses two
 thirds of its capacity; set it to 3 and parallel `glm-5.3` calls break with
 `3009`.
@@ -251,6 +259,28 @@ upstream (api.z.ai / open.bigmodel.cn)
 
 小内存主机（2G）建议：CAPTCHA_WINDOW_REUSE=0 关闭窗口复用是最快的第一步隔离手段；
 配合 systemd MemoryMax 观察是否触顶。日志 CSV 导出现在包含全量引擎历史，可用于回溯。
+
+v4.7.14（2026-10-13）：
+
+1. **邀请好友页面恢复可用**——不再是"敬请期待"占位页。每个账号单独显示本地预留的
+   邀请码/邀请链接；支持搜索（码/链接/标签/备注/账号）、按分类与状态筛选、分页；
+   可手动指定账号，也可按 round_robin 轮询分配（取分配次数最少的那个），预留可释放。
+   条目只能**手动登记**，页面不会把手工录入的码说成官方生成。
+   同时接入官方 incentive **只读**接口（`referral/summary`、`referral/invitees`、
+   `reward-records`）：按你点选的账号查询官方活动/奖励信息，只展示不领取——
+   绑定/兑换这类写操作一律不做。
+2. **修复 3.15.1 等版本不显示介绍**——GitHub release 正文为空时（v3.15.1 就是这种），
+   依次回退到 atom summary 与官方 changelog 页面取正文；都取不到时明确显示
+   "该条目没有发行说明"，不再是空白卡片。实测已能取到 v3.15.1 的完整更新内容。
+3. **修复概览同一模型显示成多行**——客户端把模型写成 `GLM-5.3`/`glm-5.3`/`Glm-5.3`
+   时，统计按原样字符串分桶，一个模型就出现多行。现按规范化（小写）聚合，
+   旧统计文件里的重复行在加载时自动合并。
+4. **修复概览/账号池"点进去账号消失、数据不实时"**——切页时先用已有数据立即重绘再刷新；
+   失败的空响应不再清空已渲染的账号池；概览的余额列表改为随 5 秒轮询同步刷新（静默模式，
+   失败保留上一次列表）。
+5. **API 文档页的复制按钮真正写剪贴板**——此前只用 `navigator.clipboard`，在局域网
+   HTTP 下不可用且失败后只选中文本（等于没复制）。现统一走带 textarea 降级的复制助手，
+   失败时明确提示手动复制。
 
 v4.7.13（2026-10-10）：
 

@@ -78,11 +78,65 @@ const I18N = {
     md_blocked: "{n} 个账号被风控/验证码拦截，已保留上次结果",
     md_probing: "探测中…（每个模型约 1 秒）", md_ok: "可用", md_no: "不可用",
     md_carried: "×未复测",
-    inv_title: "邀请好友", inv_sub: "敬请期待",
-    inv_placeholder: "该功能暂未开放。邀请功能上线后由本代理处理，目前无需在此配置。",
+    inv_title: "邀请管理", inv_sub: "按账号管理邀请码：归属、分类与手动 / 轮询分配",
+    inv_local_note: "本页只是本地登记表：分配只是本面板登记的「预留」，不会向上游兑换、激活或消耗任何邀请码。",
+    inv_stat_total: "总数", inv_stat_active: "生效中", inv_stat_paused: "已暂停",
+    inv_stat_expired: "已过期", inv_stat_exhausted: "已用尽", inv_stat_assigned: "已分配账号",
+    inv_add_title: "手动添加邀请码", inv_add_hint: "粘贴你手上已有的邀请码或完整邀请链接。这里只会新增手动登记的记录 —— 网关不会向上游生成或兑换邀请码。",
+    inv_ph_code: "邀请码或链接", inv_ph_label: "备注名（可选）", inv_ph_category: "分类（可选）",
+    inv_ph_tags: "标签，逗号分隔", inv_ph_campaign: "活动 ID（可选）", inv_ph_max: "可用次数（留空=不限）",
+    inv_ph_expires: "过期时间（YYYY-MM-DD，可选）", inv_ph_note: "备注（可选）",
+    inv_add: "添加", inv_save_settings: "保存默认策略",
+    inv_cat: "分类", inv_campaign: "活动 ID", inv_expires: "过期",
+    inv_strategy: "默认分配策略", inv_strategy_manual: "手动分配", inv_strategy_rr: "轮询分配",
+    inv_tab_invites: "邀请码", inv_tab_accounts: "按账号",
+    inv_search_ph: "搜索邀请码 / 备注名 / 备注 / 账号…",
+    inv_cat_filter: "按分类筛选", inv_status_filter: "按状态筛选", inv_sort: "排序",
+    inv_sort_new: "最新添加", inv_sort_updated: "最近更新", inv_sort_code: "按邀请码", inv_sort_status: "按状态",
+    inv_source_manual: "手动", inv_source_official: "官方",
+    inv_status_active: "生效中", inv_status_paused: "已暂停",
+    inv_status_expired: "已过期", inv_status_exhausted: "已用尽",
+    inv_used: "已用", inv_reserved: "已预留", inv_max_none: "不限",
+    inv_owner: "归属账号", inv_owner_none: "未指定",
+    inv_copy_code: "复制邀请码", inv_copy_link: "复制链接",
+    inv_edit: "编辑", inv_pause: "暂停", inv_resume: "启用",
+    inv_delete: "删除",
+    inv_del_confirm: "删除邀请码 {c}？该条目会从本地登记表移除（它名下的分配记录一并消失）。若仍有未释放的预留，引擎会拒绝删除并提示先释放。",
+    inv_assign: "分配", inv_assign_pick: "选择要分配的账号", inv_release: "释放",
+    inv_assign_ok: "已登记分配（本地预留）",
+    inv_release_ok: "已释放本地预留",
+    inv_saved_ok: "已保存",
+    inv_empty: "还没有邀请码记录 —— 用上方表单手动添加一条。",
+    inv_no_match: "没有匹配的邀请码",
+    inv_assign_none: "该邀请码当前没有本地预留",
+    inv_code_required: "请填写邀请码或链接",
+    inv_expires_bad: "过期时间格式不对（应为 YYYY-MM-DD）",
+    inv_count: "第 {p}/{t} 页 · 共 {n} 条",
+    inv_page_prev: "上一页", inv_page_next: "下一页",
+    inv_acc_search_ph: "搜索账号…", inv_acc_count: "本页 {n} 个账号",
+    inv_assign_next_all: "给每个账号各分配一个",
+    inv_assign_next_one: "分配下一个",
+    inv_owned_none: "该账号暂无本地预留",
+    inv_assign_all_ok: "已为 {n} 个账号登记本地预留",
+    inv_mk_title: "官方活动信息", inv_mk_load: "刷新该账号", inv_mk_idle: "选择一个账号后点「刷新该账号」。",
+    inv_mk_hint: "只在你点按钮时查询所选账号，绝不会按账号逐个轮询。只读的官方信息，不会领取或兑换任何东西。",
+    inv_mk_available: "官方返回 {n} 条活动信息",
+    inv_mk_empty: "官方没有返回活动信息（未知）",
+    inv_mk_unknown: "未知", inv_mk_fetched: "更新于",
+    inv_mk_local: "以下为官方只读信息；本页的登记与分配不在此列，也不代表已成功领取。",
+    inv_log_empty: "（暂无操作）",
+    inv_err: "操作失败：",
+    inv_owner_pick: "选择归属账号",
+    apidoc_inv_title: "邀请登记 API",
+    apidoc_inv_note: "GET /invites 返回的每条记录都带有服务端算好的 effectiveStatus（active | paused | expired | exhausted），由状态、过期时间与使用次数共同决定。",
+    apidoc_inv_errors: "写接口的错误码：400 bad_request（expiresAt 格式错误或字段值非法）、409 duplicate_code / in_use、404 not_found。预留会立即计入 maxUses，release 会归还额度。",
+    apidoc_inv_local: "assign 系列接口返回的分配只是本网关登记表里的「本地预留」—— 没有任何接口会向上游兑换、激活或消耗邀请码，这里的数字也不是官方奖励或名额。",
+    apidoc_inv_errors_head: "错误统一为 JSON { \"error\": { \"type\", \"message\" } }，状态码：",
+    apidoc_inv_errors_body: "400（参数或字段非法）、404（邀请码不存在）、409（该账号已占用）、401/403（鉴权失败）。写操作与本页其他管理接口使用同一套鉴权。",
+    apidoc_inv_prompt_title: "给你 AI 的提示词 —— 邀请登记管理（点击选中，然后复制）",
     cl_title: "版本更新日志", cl_sub: "每个版本修复了什么 —— 新版本在前",
     cl_known_issues: "已知遗留问题与说明",
-    nav_intel: "官方实时情报", intel_title: "官方实时情报", intel_sub: "官方客户端更新与门禁变化 —— 实时拉取，仅保留最新 15 条", intel_stale: "（缓存，拉取失败 — 显示的是上次内容）", intel_none: "暂无情报条目", intel_fetched: "更新于",
+    nav_intel: "官方实时情报", intel_title: "官方实时情报", intel_sub: "官方客户端更新与门禁变化 —— 实时拉取，仅保留最新 15 条", intel_stale: "（缓存，拉取失败 — 显示的是上次内容）", intel_none: "暂无情报条目", intel_fetched: "更新于", intel_no_notes: "（该条目没有发行说明）",
     nav_apidoc: "API 文档", apidoc_title: "批量登录 API — 给 AI 用", apidoc_sub: "让你的 AI 助手批量添加账号。把下面的提示词复制给你的编程 Agent，它就知道该怎么做。",
     apidoc_how_title: "工作流程（3 步）",
     apidoc_how_1: "1. AI 调用 POST /admin/api/accounts/login/batch（body 传 { \"count\": N }）——引擎开 N 个登录会话，返回 N 个授权链接。",
@@ -266,11 +320,65 @@ const I18N = {
     md_blocked: "{n} account(s) blocked by captcha/risk control — kept the previous result",
     md_probing: "Probing… (~1s per model)", md_ok: "Available", md_no: "Unavailable",
     md_carried: "× not re-measured",
-    inv_title: "Invite Friends", inv_sub: "Coming soon",
-    inv_placeholder: "This feature is not available yet. Invitations will be handled by this proxy once it goes live, so there is nothing to configure here for now.",
+    inv_title: "Invite Management", inv_sub: "Per-account invite registry — codes, owners and manual/round-robin assignment",
+    inv_local_note: "Local registry only: an assignment is a reservation recorded by this panel and does not redeem, activate or spend anything upstream.",
+    inv_stat_total: "Total", inv_stat_active: "Active", inv_stat_paused: "Paused",
+    inv_stat_expired: "Expired", inv_stat_exhausted: "Exhausted", inv_stat_assigned: "Assigned accounts",
+    inv_add_title: "Add an invite (manual)", inv_add_hint: "Paste a code or a full invite URL you already hold. Only manually entered records are created here — the gateway never mints or redeems codes upstream.",
+    inv_ph_code: "Invite code or URL", inv_ph_label: "Label (optional)", inv_ph_category: "Category (optional)",
+    inv_ph_tags: "tags, comma separated", inv_ph_campaign: "Campaign id (optional)", inv_ph_max: "Max uses (blank = no limit)",
+    inv_ph_expires: "Expires (YYYY-MM-DD, optional)", inv_ph_note: "Note (optional)",
+    inv_add: "Add invite", inv_save_settings: "Save default strategy",
+    inv_cat: "Category", inv_campaign: "Campaign", inv_expires: "Expires",
+    inv_strategy: "Default assignment strategy", inv_strategy_manual: "Manual", inv_strategy_rr: "Round-robin",
+    inv_tab_invites: "Invites", inv_tab_accounts: "By account",
+    inv_search_ph: "Search code / label / note / account…",
+    inv_cat_filter: "Filter by category", inv_status_filter: "Filter by status", inv_sort: "Sort",
+    inv_sort_new: "Newest first", inv_sort_updated: "Recently updated", inv_sort_code: "By code", inv_sort_status: "By status",
+    inv_source_manual: "Manual", inv_source_official: "Official",
+    inv_status_active: "Active", inv_status_paused: "Paused",
+    inv_status_expired: "Expired", inv_status_exhausted: "Exhausted",
+    inv_used: "used", inv_reserved: "reserved", inv_max_none: "no limit",
+    inv_owner: "Owner", inv_owner_none: "unassigned",
+    inv_copy_code: "Copy code", inv_copy_link: "Copy link",
+    inv_edit: "Edit", inv_pause: "Pause", inv_resume: "Enable",
+    inv_delete: "Delete",
+    inv_del_confirm: "Delete invite {c}? The entry is removed from the local registry (its assignment records go with it). If a live reservation still points at it the engine refuses and asks you to release first.",
+    inv_assign: "Assign", inv_assign_pick: "Choose the account to assign to", inv_release: "Release",
+    inv_assign_ok: "Assignment recorded (local reservation)",
+    inv_release_ok: "Local reservation released",
+    inv_saved_ok: "Saved",
+    inv_empty: "No invite records yet — add one with the form above.",
+    inv_no_match: "No matching invites",
+    inv_assign_none: "No local reservation on this invite",
+    inv_code_required: "Enter an invite code or URL",
+    inv_expires_bad: "Bad expiry date (expected YYYY-MM-DD)",
+    inv_count: "Page {p}/{t} · {n} total",
+    inv_page_prev: "Prev", inv_page_next: "Next",
+    inv_acc_search_ph: "Search accounts…", inv_acc_count: "{n} account(s) shown",
+    inv_assign_next_all: "Assign next to every account",
+    inv_assign_next_one: "Assign next",
+    inv_owned_none: "No local reservation for this account",
+    inv_assign_all_ok: "Recorded local reservations for {n} account(s)",
+    inv_mk_title: "Official marketing info", inv_mk_load: "Refresh for this account", inv_mk_idle: "Pick an account and press Refresh.",
+    inv_mk_hint: "Queries the selected account only, when you press the button — never polled per account. Read-only official info; it does not claim or redeem anything.",
+    inv_log_empty: "(no actions yet)",
+    inv_mk_available: "Official info returned {n} entries",
+    inv_mk_empty: "Official info returned nothing (unknown)",
+    inv_mk_unknown: "unknown", inv_mk_fetched: "fetched",
+    inv_mk_local: "Official read-only info below. This page's registry and assignments are NOT a claim and do not mean anything was successfully redeemed.",
+    inv_err: "Failed:",
+    inv_owner_pick: "Choose the owner account",
+    apidoc_inv_title: "Invitation registry API",
+    apidoc_inv_note: "Every entry returned by GET /invites carries a server-computed effectiveStatus (active | paused | expired | exhausted), derived from status, expiry and use counts.",
+    apidoc_inv_errors: "Write errors: 400 bad_request (malformed expiresAt or field value), 409 duplicate_code / in_use, 404 not_found. A reservation counts against maxUses immediately; release returns it.",
+    apidoc_inv_local: "Assignments returned by the assign endpoints are LOCAL reservations in this gateway's registry — no endpoint redeems, activates or spends a code upstream, and no count here is an official reward or chance figure.",
+    apidoc_inv_errors_head: "Errors are JSON { \"error\": { \"type\", \"message\" } } with status codes:",
+    apidoc_inv_errors_body: "400 (bad request / unknown field), 404 (no such invite), 409 (already assigned to that account) and 401/403 (auth). Mutating calls use the same admin auth as the rest of this page.",
+    apidoc_inv_prompt_title: "Prompt for your AI — invitation management (click to select all, then copy)",
     cl_title: "Version Changelog", cl_sub: "What each version fixed — newest first",
     cl_known_issues: "Known issues and notes",
-    nav_intel: "Upstream Intel", intel_title: "Upstream Intel", intel_sub: "Official client releases and gate changes — live feed, newest 15 only", intel_stale: "(cached — fetch failed, showing last known)", intel_none: "No intel entries", intel_fetched: "fetched",
+    nav_intel: "Upstream Intel", intel_title: "Upstream Intel", intel_sub: "Official client releases and gate changes — live feed, newest 15 only", intel_stale: "(cached — fetch failed, showing last known)", intel_none: "No intel entries", intel_fetched: "fetched", intel_no_notes: "(no release notes in this entry)",
     nav_apidoc: "API Docs", apidoc_title: "Batch Login API — for AI agents", apidoc_sub: "Let your AI assistant add accounts in bulk. Copy the prompt below into your coding agent — it knows everything it needs.",
     apidoc_how_title: "How it works (3 steps)",
     apidoc_how_1: "1. Your AI calls POST /admin/api/accounts/login/batch with { \"count\": N } — the engine opens N login sessions and returns N authorize URLs.",
@@ -397,6 +505,26 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
+  { ver: "v4.7.14", date: "2026-10-13", items: {
+    zh: [
+      "【邀请】邀请好友页面恢复为可用功能：每个账号单独显示本地预留的邀请码/邀请链接，支持搜索（码/链接/标签/备注/账号）、按分类与状态筛选、分页、手动指定账号、按账号轮询分配（round_robin 取最少分配的那个）、释放预留、删除条目（有未释放预留时会拒绝并提示先释放）；条目只能手动登记，不会伪造官方来源",
+      "【邀请】修复写入校验与串行化：非法 expiresAt 现在会被拒绝（此前会被当成“永不过期”静默放行）；一次校验失败（重复码/容量超限）不再冻结后续所有写操作",
+      "【邀请】新增只读的官方活动信息：按你点选的账号查询官方 incentive 接口（referral/summary、referral/invitees、reward-records），只显示不领取；绑定/兑换这类写操作不做，页面明确标注“本地预留”不等于官方已受理",
+      "【情报】修复 3.15.1 等版本不显示介绍：GitHub release 正文为空时依次回退到 atom summary 与官方 changelog 页面，取不到时明确显示“该条目没有发行说明”而不是空白卡片",
+      "【概览】修复同一模型显示成多行：模型名大小写（GLM-5.3 / glm-5.3 / Glm-5.3）归一化聚合，旧统计文件里的重复行在加载时合并",
+      "【面板】修复概览与账号池“点进去账号消失/数据不实时”：切页先用已有数据立即重绘再刷新；失败的空响应不再清空已渲染的账号池；概览列表随 5 秒轮询同步刷新（静默模式）",
+      "【面板】API 文档页的“复制提示词”等按钮改为真实写入剪贴板（HTTP 局域网环境下用 textarea 降级），复制失败时明确提示手动复制而不是假装成功",
+    ],
+    en: [
+      "Invite: the Invite Friends page is now a working local registry — every account shows its own reserved code/link, with search (code/link/label/note/account), category and status filters, pagination, manual per-account assignment, round-robin assignment (least-assigned first), release, and delete (refused while a live reservation exists, asking you to release first). Entries are registered by hand only; nothing pretends to be an official source",
+      "Invite: write validation and serialization fixed — a malformed expiresAt is now refused (it used to read as “never expires” and pass silently), and one validation failure (duplicate code / capacity) no longer freezes every later write",
+      "Invite: new read-only official campaign info — queries the official incentive endpoints (referral/summary, referral/invitees, reward-records) for the account you pick, display only. Binding/redeeming writes are not performed, and the page states that a local reservation is not an official acceptance",
+      "Intel: fixed missing release notes for versions like 3.15.1 — when the GitHub release body is empty the feed falls back to the atom summary and then to the official changelog page, and shows an explicit “no release notes in this entry” line instead of a blank card",
+      "Overview: one model no longer renders as several rows — model ids are canonicalized (GLM-5.3 / glm-5.3 / Glm-5.3 aggregate together) and duplicate rows in an old stats file are merged on load",
+      "Panel: fixed Overview/Accounts showing missing accounts or stale numbers — a page switch repaints the data already in hand before refreshing, an empty failure response no longer wipes a rendered pool, and the overview list now refreshes on the same 5s tick (silent mode)",
+      "Panel: the API docs copy buttons (including the AI prompt) now really write to the clipboard, with a textarea fallback on plain-HTTP LAN origins, and report “copy manually” when the copy genuinely failed instead of claiming success",
+    ],
+  } },
   { ver: "v4.7.13", date: "2026-10-10", items: {
     zh: [
       "【上游】529/1305（模型过载）不再落成 502：归为模型级冷却 + 同请求内自动换账号重试一次，重试成功客户端无感；仍过载时返回 429+retry-after（可重试），不再透传上游原始报文",
@@ -616,12 +744,27 @@ async function loadIntel(force) {
         fmtLogTime(d.fetchedAt) + (d.fresh === false ? " " + T("intel_stale") : "") + "</div>";
     }
     if (!items.length) {
+      // The engine may send its own reason; when it sends neither entries nor an
+      // error, say "none" rather than rendering an empty card with no text.
       html += '<div class="card"><p class="sub">' + esc(d.error || T("intel_none")) + "</p></div>";
     } else {
       html += items.map(function (it) {
-        return '<div class="card cl-rel"><div class="cl-ver">' + esc(it.version) +
-          '</div><div class="cl-date">' + esc(it.date || "") + "</div>" +
-          (it.notes ? '<div class="cl-item" style="white-space:pre-wrap">' + esc(it.notes) + "</div>" : "") +
+        // notesStatus / source are OPTIONAL engine fields (the intel agent owns
+        // the server side and may add them later). Both are rendered only when
+        // present, so an older engine's payload renders exactly as before, and
+        // an entry with no notes gets an explicit placeholder instead of an
+        // empty card that reads as a render failure.
+        const status = it.notesStatus
+          ? ' <span class="sub" style="margin:0">' + esc(it.notesStatus) + "</span>"
+          : "";
+        const src = it.source
+          ? ' <span class="sub" style="margin:0">· ' + esc(it.source) + "</span>"
+          : "";
+        const notes = it.notes
+          ? '<div class="cl-item" style="white-space:pre-wrap">' + esc(it.notes) + "</div>"
+          : '<div class="cl-item sub">' + T("intel_no_notes") + "</div>";
+        return '<div class="card cl-rel"><div class="cl-ver">' + esc(it.version) + src +
+          '</div><div class="cl-date">' + esc(it.date || "") + status + "</div>" + notes +
           (it.url ? '<div style="margin-top:8px"><a href="' + esc(it.url) + '" target="_blank" style="color:var(--blue);font-weight:700;text-decoration:underline">在 GitHub 查看 ' + esc(it.version) + " 完整更新日志 ↗</a></div>" : "") +
           "</div>";
       }).join("");
@@ -635,31 +778,19 @@ async function loadIntel(force) {
 }
 if (typeof document !== "undefined") {
   renderChangelog();
-  // ── Invite page: render the engine's honest answer ────────────────────
-// The upstream has NO invite API (verified: every candidate endpoint 404s and
-// the official client has no invite UI). The page calls GET /invite and shows
-// the reason plus what the operator CAN do, instead of a dead "coming soon".
-if (typeof document !== "undefined") {
-  const invBtn = document.querySelector('#nav button[data-page="invite"]');
-  if (invBtn) invBtn.addEventListener("click", async () => {
-    const box = document.getElementById("invite-body");
-    if (!box) return;
-    try {
-      const d = await (await api("/invite")).json();
-      box.innerHTML =
-        '<div class="card"><p class="sub">' + esc(d.message || T("inv_placeholder")) + "</p>" +
-        '<p class="sub" style="margin-top:8px">' + T("inv_community") + '</p>' +
-        '<p style="margin-top:6px">' +
-        '<a href="https://qm.qq.com/q/sUAFJgC3Fm" target="_blank" class="sub">QQ 群 1091692024</a> · ' +
-        '<a href="https://www.52pojie.cn/home.php?mod=space&uid=2394304" target="_blank" class="sub">吾爱破解</a> · ' +
-        '<a href="https://github.com/YU123-ZZZ/zcodeknight-YU" target="_blank" class="sub">GitHub</a></p></div>';
-    } catch (e) {
-      box.innerHTML = '<div class="card"><p class="sub">' + esc(String(e)) + "</p></div>";
-    }
-  });
-}
-const intelBtn = document.querySelector('#nav button[data-page="intel"]');
+  // The Invite page no longer has its own nav listener. It used to fetch
+  // GET /invite and render the engine's "no upstream invite API" answer as a
+  // dead-end card; the page is now a real local registry and loads through
+  // showPage("invite") -> loadInvitePage(), like every other data page. Two
+  // loaders for one page would fire duplicate requests and let the slower one
+  // overwrite the other's render.
+  const intelBtn = document.querySelector('#nav button[data-page="intel"]');
   if (intelBtn) intelBtn.addEventListener("click", function () { loadIntel(false); });
+  // Explicit refresh: an operator looking at a stale feed (the server caches for
+  // 10 minutes) can now ask for a new one — the page otherwise fetched only once
+  // per open. force=true bypasses the client's own 60s guard.
+  const intelRefresh = document.getElementById("intel-refresh");
+  if (intelRefresh) intelRefresh.onclick = () => loadIntel(true);
 }
 
 document.getElementById("langBtn").onclick = () => {
@@ -918,17 +1049,34 @@ function showPage(name) {
   if (name === "playground") { pgRestore(); loadPlaygroundAccounts(); }
   if (name === "changelog") renderChangelog();
   if (name === "intel") loadIntel(false);
+  if (name === "invite") loadInvitePage();
   if (name === "apidoc" && !document.getElementById("apidoc-prompt").dataset.filled) {
-    // Stamp the real BASE_URL into the copyable prompt the first time the page
-    // opens, so the agent gets a ready-to-paste address instead of a
-    // placeholder the user must edit by hand.
-    const pre = document.getElementById("apidoc-prompt");
-    pre.textContent = pre.textContent
-      .replaceAll("{BASE_URL}", location.origin)
-      .replaceAll("&lt;", "<").replaceAll("&gt;", ">");
-    pre.dataset.filled = "1";
+    // Stamp the real BASE_URL into the copyable prompts the first time the page
+    // opens, so the agent gets a ready-to-paste address instead of a placeholder
+    // the user must edit by hand.
+    for (const id of ["apidoc-prompt", "apidoc-inv-prompt"]) {
+      const pre = document.getElementById(id);
+      if (!pre) continue;
+      pre.textContent = pre.textContent
+        .replaceAll("{BASE_URL}", location.origin)
+        .replaceAll("&lt;", "<").replaceAll("&gt;", ">");
+    }
+    document.getElementById("apidoc-prompt").dataset.filled = "1";
   }
-  if (name === "accounts") refreshAccounts();
+  if (name === "accounts") {
+    // Re-entry must not blank the pool: repaint from the data already in hand
+    // BEFORE the refresh lands, otherwise a switch shows an empty list for a
+    // round trip and reads as "账号消失了" (field report 2026-10-13).
+    if (lastAccounts.length) renderAccounts(lastAccounts);
+    refreshAccounts();
+  }
+  if (name === "overview") {
+    // Same rule for the overview's balance list: repaint what is already
+    // rendered, then let loadBalances decide whether the cache is old enough to
+    // justify a round trip (its own recent-data window handles that).
+    if (document.getElementById("ov-balances").dataset.loaded === "1") renderBalanceList();
+    loadBalances();
+  }
   if (name === "models") loadProbeAccounts();
   if (name === "logs") pollLogs();
   if (name === "settings") loadExportSummary();
@@ -1151,20 +1299,25 @@ function renderRecent(rows) {
 let lastQuota = [];
 let lastAccountMeta = new Map();
 
-async function loadBalances(knownAccounts, knownQuota) {
+async function loadBalances(knownAccounts, knownQuota, opts) {
   // Reentry guard rides ON THE FUNCTION OBJECT so the extracted-function tests
   // (which run this body standalone) do not hit an undeclared outer variable.
   if (loadBalances._inflight) return;
+  const silent = !!(opts && opts.silent);
   loadBalances._inflight = true;
   const el = document.getElementById("ov-balances");
   // Recent-data skip: boot(), showPage("overview") and pool actions all call
   // this, and every call used to fetch quota + accounts again — entering the
   // overview repainted the whole list from scratch each time (field report:
   // "点进去和其他之前一样要每次刷新数据"). If a load completed within the last
-  // 15 seconds (the engine's balance cache changes slower than that), keep the
+  // few seconds (the engine's balance cache changes slower than that), keep the
   // rendered list and skip the round trips. An explicit refresh button or a
   // pool action still passes fresh data and always wins.
-  if (Date.now() - (loadBalances._doneAt || 0) < 15_000 && el.dataset.loaded === "1") {
+  //
+  // The window is SHORT on purpose: a poll-driven call (silent) must still pick
+  // up a status change within a tick or two, or the overview reads as stale.
+  const recentMs = silent ? 4_000 : 8_000;
+  if (Date.now() - (loadBalances._doneAt || 0) < recentMs && el.dataset.loaded === "1") {
     loadBalances._inflight = false;
     return;
   }
@@ -1201,9 +1354,16 @@ async function loadBalances(knownAccounts, knownQuota) {
     renderTotals(lastQuota);
     refreshClaimAllDisabled();
     renderBalanceList();
-  } catch {
-    el.innerHTML = '<span class="sub">—</span>';
-    document.getElementById("ov-total-quota").textContent = "—";
+  } catch (e) {
+    // A FAILED poll must not wipe a list that is already on screen: the
+    // operator would see their accounts vanish for one bad round trip and
+    // reappear on the next tick. Only the never-rendered case shows "—".
+    if (el.dataset.loaded === "1") {
+      if (!silent) console.warn("balance refresh failed (keeping last list):", e);
+    } else {
+      el.innerHTML = '<span class="sub">—</span>';
+      document.getElementById("ov-total-quota").textContent = "—";
+    }
     // Self-heal: a failed load used to leave "—" until an unrelated action
     // happened to re-run this. Invalidate the rendered flag so the next
     // periodic load (page switch, pool action) shows the loading state and
@@ -1548,7 +1708,18 @@ async function refreshAccounts() {
     } catch (e) {}
     const r = await api("/accounts");
     const j = await r.json();
-    lastAccounts = j.accounts || [];
+    const next = j.accounts || [];
+    // A failed/empty poll must not wipe a rendered pool: `/accounts` answers
+    // with an empty list when the store read fails, and rendering that made
+    // every account vanish until the next successful round trip (field report
+    // 2026-10-13: "点进去会消失对应账号"). An empty response that contradicts a
+    // non-empty rendered pool is treated as a bad read, not as "no accounts".
+    if (next.length === 0 && lastAccounts.length > 0) {
+      console.warn("accounts refresh returned empty while the pool was non-empty — keeping the rendered list");
+      renderStoreProblem(j.storeProblem);
+      return;
+    }
+    lastAccounts = next;
     renderAccounts(lastAccounts);
     renderStoreProblem(j.storeProblem);  // ONE quota read, shared by both views. Each used to fetch it on its own, so a
     // single refresh sent two identical /accounts/quota requests — and for an
@@ -2045,23 +2216,57 @@ document.getElementById("login-regen").onclick = () => {
  * plain http, where `navigator.clipboard` is undefined — the direct calls
  * threw and every copy button silently died. The textarea + execCommand path
  * still works there, so every copy goes through this helper.
+ *
+ * Returns TRUE only when the copy actually happened. A selection is not a copy:
+ * the fallback used to select the text and report success anyway, so the toast
+ * said "copied" while the clipboard still held whatever was there before.
  */
 async function copyToClipboard(text) {
+  const value = String(text ?? "");
+  // navigator.clipboard.writeText can REJECT (denied permission, a page that is
+  // not focused, an insecure context) as well as be undefined; both land here.
   try {
-    await navigator.clipboard.writeText(text);
-    return true;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
   } catch {
-    // Undefined (non-secure context) or denied — fall through.
+    // Fall through to execCommand.
   }
   try {
+    // Preserve the operator's current selection and focus. Stealing the
+    // selection without restoring it is felt as "the page jumped" when copying
+    // from a text field, and the previous code left the whole prompt block
+    // selected afterwards.
+    const active = document.activeElement;
+    const sel = typeof getSelection === "function" ? getSelection() : null;
+    const ranges = sel && sel.rangeCount ? [...Array(sel.rangeCount)].map((_, i) => sel.getRangeAt(i)) : [];
     const ta = document.createElement("textarea");
-    ta.value = text;
+    ta.value = value;
+    ta.setAttribute("readonly", "");
+    // Fixed + off-screen rather than `display:none`: a hidden element cannot be
+    // selected, and execCommand then returns false.
     ta.style.position = "fixed";
+    ta.style.top = "0";
+    ta.style.left = "-9999px";
     ta.style.opacity = "0";
     document.body.appendChild(ta);
     ta.select();
-    const ok = document.execCommand("copy");
+    ta.setSelectionRange(0, ta.value.length);
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch { ok = false; }
     document.body.removeChild(ta);
+    // Restore the selection ranges where the DOM still allows it; a failure here
+    // must not turn a successful copy into a reported failure.
+    if (sel) {
+      try {
+        sel.removeAllRanges();
+        for (const r of ranges) sel.addRange(r);
+      } catch { /* ranges invalidated by the DOM change: leave the selection alone */ }
+    }
+    if (active && typeof active.focus === "function") {
+      try { active.focus(); } catch { /* element gone: nothing to restore */ }
+    }
     return ok;
   } catch {
     return false;
@@ -4169,14 +4374,757 @@ document.getElementById("imp-run").onclick = async () => {
   }
   btn.disabled = false;
 };
-// ── Invite / rewards ──────────────────────────────────────────────────────
-// Placeholder for now: the page says "coming soon" and nothing is wired.
-//
-// The previous version embedded the upstream rewards centre in an iframe. It is
-// removed rather than kept as a half-working page because the frame needed
-// `allow-same-origin` on a cross-origin document, and the feature is going to be
-// handled by this proxy rather than by that page once it is implemented — so
-// there is nothing here worth carrying forward.
+// ── Invite registry (local bookkeeping) ──────────────────────────────────
+/**
+ * The Invite page: a LOCAL registry of invite codes plus per-account ownership
+ * and reservation.
+ *
+ * Scope, deliberately: this page records what the operator holds and who it is
+ * set aside for. It does NOT redeem, activate or spend anything upstream, and
+ * nothing here is an official reward or chance count. Every card that shows an
+ * assignment labels it LOCAL for that reason — a reservation shown without that
+ * word reads as "this was accepted by the provider", which is the one claim the
+ * gateway cannot make.
+ *
+ * Data shape is the contract the engine's /invites routes conform to (see the
+ * API Docs page): entries carry an `effectiveStatus` computed server-side from
+ * status + expiry + counts, and the same response carries `assignments`,
+ * `accounts`, `categories` and `settings`, so one GET fills the whole page.
+ */
+const INV = {
+  /** Current view/query state. Kept in one object so a reload is one call. */
+  search: "", category: "", status: "", accountId: "", sort: "newest",
+  page: 1, pageSize: 20,
+  tab: "invites",
+  data: null,
+  /** Owned by this page only; bounded in invLog(). */
+  log: [],
+};
+const INV_LOG_MAX = 60;
+const INV_PAGE_SIZE = 20;
+
+/** One line in the page's own bounded activity log. */
+function invLog(msg, kind) {
+  INV.log.push({ at: Date.now(), msg: String(msg), kind: kind || "" });
+  if (INV.log.length > INV_LOG_MAX) INV.log = INV.log.slice(-INV_LOG_MAX);
+  invRenderLog();
+}
+function invRenderLog() {
+  const box = document.getElementById("inv-log");
+  if (!box) return;
+  if (!INV.log.length) {
+    box.innerHTML = '<div class="inv-log-line"><span class="lg-t">' + esc(T("inv_log_empty")) + "</span></div>";
+    return;
+  }
+  box.innerHTML = INV.log.map((e) =>
+    '<div class="inv-log-line' + (e.kind ? " lm-" + esc(e.kind) : "") + '">' +
+    '<span class="lg-t">' + fmtLogTime(e.at) + "</span><span>" + esc(e.msg) + "</span></div>").join("");
+  box.scrollTop = box.scrollHeight;
+}
+
+/** Account rows from the last payload, so repeated renders need no refetch. */
+function invAccounts() { return (INV.data && INV.data.accounts) || []; }
+function invAccountName(id) {
+  if (!id) return "";
+  const a = invAccounts().find((x) => x.id === id);
+  return a ? a.name : id;
+}
+/** Assignments for one invite, newest first. */
+function invAssignmentsFor(inviteId) {
+  return ((INV.data && INV.data.assignments) || []).filter((a) => a.inviteId === inviteId);
+}
+/** Assignments held by one account (the per-account tab). */
+function invAssignmentsOf(accountId) {
+  return ((INV.data && INV.data.assignments) || []).filter((a) => a.accountId === accountId
+    // A released reservation is history, not a live hold.
+    && a.result !== "released");
+}
+
+/**
+ * The status a card is dressed with.
+ *
+ * `effectiveStatus` is the engine's own computed verdict and is preferred; the
+ * panel never recomputes it from dates, because a client-side guess would
+ * disagree with the API the moment the engine's rules change. The local
+ * computation exists only as a fallback for an engine that does not send the
+ * field yet.
+ */
+function invEffectiveStatus(e) {
+  if (e && e.effectiveStatus) return e.effectiveStatus;
+  if (!e) return "active";
+  if (e.status === "paused") return "paused";
+  if (e.expiresAt && Number(e.expiresAt) <= Date.now()) return "expired";
+  if (e.maxUses != null && Number(e.usedCount || 0) + Number(e.reservedCount || 0) >= Number(e.maxUses)) return "exhausted";
+  return "active";
+}
+function invStatusLabel(st) {
+  const key = "inv_status_" + st;
+  return T(key) === key ? st : T(key);
+}
+
+/** Register this page's pickers. Called on load AND on language switch. */
+function invInitPickers() {
+  setPickerOptions("inv-strategy", [
+    { value: "manual", label: T("inv_strategy_manual") },
+    { value: "round_robin", label: T("inv_strategy_rr") },
+  ]);
+  setPickerOptions("inv-sort", [
+    { value: "newest", label: T("inv_sort_new") },
+    { value: "updated", label: T("inv_sort_updated") },
+    { value: "code", label: T("inv_sort_code") },
+    { value: "status", label: T("inv_sort_status") },
+  ]);
+  for (const id of ["inv-cat", "inv-status", "inv-account", "inv-sort", "inv-strategy"]) {
+    const el = document.getElementById(id);
+    if (el && !el.value) setPickerValue(id, id === "inv-strategy" ? "manual" : (id === "inv-sort" ? "newest" : "all"));
+  }
+}
+
+/** Category / status / account filter options, from the payload's own lists. */
+function invFillFilterPickers() {
+  const cats = (INV.data && INV.data.categories) || [];
+  setPickerOptions("inv-cat", [{ value: "all", label: T("f_all") },
+    ...cats.map((c) => ({ value: String(c), label: String(c) }))]);
+  setPickerOptions("inv-status", [
+    { value: "all", label: T("f_all") },
+    { value: "active", label: T("inv_status_active") },
+    { value: "paused", label: T("inv_status_paused") },
+    { value: "expired", label: T("inv_status_expired") },
+    { value: "exhausted", label: T("inv_status_exhausted") },
+  ]);
+  setPickerOptions("inv-account", [{ value: "all", label: T("f_all") },
+    ...invAccounts().map((a) => ({ value: a.id, label: a.name, sub: a.provider }))]);
+  // The marketing picker and the assign-picker share the same account source.
+  setPickerOptions("inv-mk-account", invAccounts().map((a) => ({ value: a.id, label: a.name, sub: a.provider + " · " + a.plan })));
+  const mk = document.getElementById("inv-mk-account");
+  if (mk && !mk.value && invAccounts().length) setPickerValue("inv-mk-account", invAccounts()[0].id);
+  // Re-apply the chosen values: setPickerOptions rewrites the button caption but
+  // a value that vanished from the list (a deleted category) would leave the
+  // filter pointing at nothing.
+  for (const [id, val] of [["inv-cat", INV.category || "all"], ["inv-status", INV.status || "all"],
+                           ["inv-account", INV.accountId || "all"]]) {
+    const el = document.getElementById(id);
+    if (el && !el.value) setPickerValue(id, val);
+  }
+}
+
+/** Query string for the current view state. No timers fetch — only this does. */
+function invQuery(overrides) {
+  const o = overrides || {};
+  const p = new URLSearchParams();
+  const search = o.search !== undefined ? o.search : INV.search;
+  const category = o.category !== undefined ? o.category : INV.category;
+  const status = o.status !== undefined ? o.status : INV.status;
+  const accountId = o.accountId !== undefined ? o.accountId : INV.accountId;
+  if (search) p.set("search", search);
+  if (category && category !== "all") p.set("category", category);
+  if (status && status !== "all") p.set("status", status);
+  if (accountId && accountId !== "all") p.set("accountId", accountId);
+  p.set("page", String(o.page !== undefined ? o.page : INV.page));
+  p.set("pageSize", String(INV_PAGE_SIZE));
+  p.set("sort", o.sort !== undefined ? o.sort : INV.sort);
+  return p.toString();
+}
+
+/**
+ * Load the page: stats + one page of entries, in one round trip pair.
+ *
+ * Called from showPage("invite") and from every explicit action on the page.
+ * Deliberately NOT on a timer: the page has no live counters to keep up, and a
+ * poll would re-fetch the whole registry (and re-render every card) for nothing.
+ */
+async function loadInvitePage() {
+  if (loadInvitePage._inflight) return;
+  loadInvitePage._inflight = true;
+  try {
+    invInitPickers();
+    const [list, stats] = await Promise.all([
+      api("/invites?" + invQuery()).then((r) => r.json()),
+      // Stats failing must not blank the list: they are a summary card, the
+      // registry below is the page.
+      api("/invites/stats").then((r) => r.json()).catch(() => null),
+    ]);
+    INV.data = list;
+    invFillFilterPickers();
+    // The engine is authoritative for the saved strategy; the picker shows what
+    // is actually in force, not what this tab last chose.
+    const st = (list.settings && list.settings.defaultStrategy) || "";
+    if (st) setPickerValue("inv-strategy", st);
+    invRenderStats(stats);
+    invRenderList();
+    invRenderAccounts();
+  } catch (e) {
+    const box = document.getElementById("inv-list");
+    if (box) box.innerHTML = '<div class="bal-empty">' + esc(T("inv_err") + " " + e) + "</div>";
+    invLog(T("inv_err") + " " + e, "err");
+  } finally {
+    loadInvitePage._inflight = false;
+  }
+}
+
+function invRenderStats(stats) {
+  const s = stats || {};
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v == null ? "—" : String(v); };
+  set("inv-st-total", s.total);
+  set("inv-st-active", s.active);
+  set("inv-st-paused", s.paused);
+  set("inv-st-expired", s.expired);
+  set("inv-st-exhausted", s.exhausted);
+  set("inv-st-assigned", s.assignedAccounts);
+}
+
+/** Format an epoch-ms deadline, or the unknown marker. Never invent one. */
+function invWhen(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n <= 0) return T("inv_mk_unknown");
+  return fmtLogTime(n);
+}
+
+/**
+ * One invite card.
+ *
+ * The code is shown verbatim with its own copy button (the operator pastes it
+ * elsewhere, so the exact string matters), and the assignments are listed with
+ * an explicit LOCAL badge plus a release button each.
+ */
+function invCard(e) {
+  const st = invEffectiveStatus(e);
+  const source = e.source === "official" ? "official" : "manual";
+  const box = document.createElement("div");
+  box.className = "inv-card " + source + " " + st;
+  box.dataset.invId = e.id;
+
+  const title = e.label || e.code || e.id;
+  const meta = [
+    e.category ? T("inv_cat") + ": " + e.category : "",
+    (e.tags && e.tags.length) ? e.tags.join(", ") : "",
+    e.campaignId ? T("inv_campaign") + ": " + e.campaignId : "",
+  ].filter(Boolean).join(" · ");
+
+  const counts = [];
+  counts.push(T("inv_used") + " " + Number(e.usedCount || 0) + (e.maxUses == null ? " / " + T("inv_max_none") : " / " + e.maxUses));
+  if (e.reservedCount) counts.push(T("inv_reserved") + " " + e.reservedCount);
+  counts.push(T("inv_expires") + ": " + invWhen(e.expiresAt));
+
+  const assigns = invAssignmentsFor(e.id);
+  const assignHtml = assigns.length
+    ? assigns.map((a) => {
+        const live = a.result !== "released";
+        return '<div class="inv-assign-row"><span class="inv-local">LOCAL</span>' +
+          '<span class="nm">' + esc(invAccountName(a.accountId)) + "</span>" +
+          '<span class="sub" style="margin:0">' + esc(a.strategy || "") + " · " + esc(fmtLogTime(a.assignedAt || 0)) + "</span>" +
+          (live ? '<button class="btn ghost sm inv-release" data-inv="' + esc(e.id) + '" data-acc="' + esc(a.accountId) + '">' + T("inv_release") + "</button>"
+                : '<span class="sub" style="margin:0">' + esc(a.result) + "</span>") +
+          "</div>";
+      }).join("")
+    : '<div class="inv-assign-row"><span class="sub" style="margin:0">' + T("inv_assign_none") + "</span></div>";
+
+  box.innerHTML =
+    '<div class="inv-card-head">' +
+      '<span class="nm">' + esc(title) + "</span>" +
+      '<span class="pill ' + source + '">' + esc(T("inv_source_" + source)) + "</span>" +
+      '<span class="st ' + esc(st) + '">' + esc(invStatusLabel(st)) + "</span>" +
+      '<span class="inv-acts">' +
+        '<button class="btn ghost sm inv-copy-code" data-inv="' + esc(e.id) + '">' + T("inv_copy_code") + "</button>" +
+        (e.url ? '<button class="btn ghost sm inv-copy-link" data-inv="' + esc(e.id) + '">' + T("inv_copy_link") + "</button>" : "") +
+        '<button class="btn ghost sm inv-edit" data-inv="' + esc(e.id) + '">' + T("inv_edit") + "</button>" +
+        (e.status === "paused"
+          ? '<button class="btn ghost sm inv-pause" data-inv="' + esc(e.id) + '" data-to="active">' + T("inv_resume") + "</button>"
+          : '<button class="btn ghost sm inv-pause" data-inv="' + esc(e.id) + '" data-to="paused">' + T("inv_pause") + "</button>") +
+        '<button class="btn ghost sm inv-del" data-inv="' + esc(e.id) + '">' + T("inv_delete") + "</button>" +
+      "</span>" +
+    "</div>" +
+    '<div class="inv-code-row"><span class="inv-code">' + esc(e.code || "—") + "</span></div>" +
+    (e.url ? '<div class="inv-code-row"><span class="inv-code">' + esc(e.url) + "</span></div>" : "") +
+    '<div class="meta-row"><span>' + esc(counts.join(" · ")) + "</span>" +
+      "<span>" + T("inv_owner") + ": " + esc(e.ownerAccountId ? invAccountName(e.ownerAccountId) : T("inv_owner_none")) + "</span>" +
+      "<span>" + "ID " + esc(e.id) + "</span></div>" +
+    (meta ? '<div class="sub" style="margin:6px 0 0">' + esc(meta) + "</div>" : "") +
+    (e.note ? '<div class="inv-note">' + esc(e.note) + "</div>" : "") +
+    '<div style="margin-top:8px">' + assignHtml + "</div>" +
+    '<div class="bal-tools" style="margin-top:8px">' +
+      '<button class="btn sm inv-assign" data-inv="' + esc(e.id) + '">' + T("inv_assign") + "</button>" +
+      '<button class="btn ghost sm inv-assign-next" data-inv="' + esc(e.id) + '">' + T("inv_assign_next_one") + "</button>" +
+      '<button class="btn ghost sm inv-owner" data-inv="' + esc(e.id) + '">' + T("inv_owner") + "</button>" +
+    "</div>";
+  return box;
+}
+
+/** Render the current page of invites (server paginated). */
+function invRenderList() {
+  const box = document.getElementById("inv-list");
+  if (!box) return;
+  const d = INV.data || {};
+  const entries = d.entries || [];
+  if (!entries.length) {
+    const msg = (INV.search || (INV.category && INV.category !== "all") || (INV.status && INV.status !== "all"))
+      ? T("inv_no_match") : T("inv_empty");
+    box.innerHTML = '<div class="bal-empty">' + esc(msg) + "</div>";
+  } else {
+    box.replaceChildren(...entries.map(invCard));
+  }
+  const cnt = document.getElementById("inv-count");
+  if (cnt) {
+    const totalPages = Math.max(1, Number(d.totalPages) || 1);
+    cnt.textContent = T("inv_count")
+      .replace("{p}", String(Number(d.page) || INV.page))
+      .replace("{t}", String(totalPages))
+      .replace("{n}", String(Number(d.total) || entries.length));
+  }
+  invRenderPager();
+}
+
+/**
+ * Bounded pagination: first/prev/window/next/last over the server's page count.
+ *
+ * The window is capped at 7 buttons so a 400-page registry cannot produce a
+ * thousand-element toolbar; the numbers shown are always real page indices.
+ */
+function invRenderPager() {
+  const box = document.getElementById("inv-pager");
+  if (!box) return;
+  const d = INV.data || {};
+  const totalPages = Math.max(1, Number(d.totalPages) || 1);
+  const page = Math.min(Math.max(1, Number(d.page) || 1), totalPages);
+  if (totalPages <= 1) { box.innerHTML = ""; return; }
+  const nums = new Set([1, totalPages, page, page - 1, page + 1]);
+  const list = [...nums].filter((n) => n >= 1 && n <= totalPages).sort((a, b) => a - b);
+  const parts = ['<button class="inv-page-num" data-page="' + (page - 1) + '"' + (page <= 1 ? " disabled" : "") + ">" + T("inv_page_prev") + "</button>"];
+  let prev = 0;
+  for (const n of list) {
+    if (prev && n - prev > 1) parts.push('<span class="sub" style="margin:0">…</span>');
+    parts.push('<button class="inv-page-num' + (n === page ? " on" : "") + '" data-page="' + n + '">' + n + "</button>");
+    prev = n;
+  }
+  parts.push('<button class="inv-page-num" data-page="' + (page + 1) + '"' + (page >= totalPages ? " disabled" : "") + ">" + T("inv_page_next") + "</button>");
+  box.innerHTML = parts.join("");
+}
+
+/** The per-account tab: one row per account, with its own assignment controls. */
+function invRenderAccounts() {
+  const box = document.getElementById("inv-acc-list");
+  if (!box) return;
+  const q = (document.getElementById("inv-acc-search").value || "").trim().toLowerCase();
+  const accts = invAccounts().filter((a) => !q
+    || (a.name || "").toLowerCase().includes(q)
+    || (a.provider || "").toLowerCase().includes(q)
+    || (a.plan || "").toLowerCase().includes(q));
+  const cnt = document.getElementById("inv-acc-count");
+  if (cnt) cnt.textContent = T("inv_acc_count").replace("{n}", String(accts.length));
+  if (!accts.length) {
+    box.innerHTML = '<div class="bal-empty">' + esc(T("no_match")) + "</div>";
+    return;
+  }
+  box.replaceChildren(...accts.map((a) => {
+    const row = document.createElement("div");
+    row.className = "inv-acc-row";
+    row.dataset.accId = a.id;
+    const held = invAssignmentsOf(a.id);
+    const heldHtml = held.length
+      ? held.map((as) => {
+          const inv = ((INV.data && INV.data.entries) || []).find((x) => x.id === as.inviteId);
+          return '<div class="inv-assign-row"><span class="inv-local">LOCAL</span>' +
+            '<span class="nm">' + esc(inv ? (inv.label || inv.code) : as.inviteId) + "</span>" +
+            '<span class="sub" style="margin:0">' + esc(as.strategy || "") + "</span>" +
+            '<button class="btn ghost sm inv-release" data-inv="' + esc(as.inviteId) + '" data-acc="' + esc(a.id) + '">' + T("inv_release") + "</button></div>";
+        }).join("")
+      : '<div class="inv-assign-row"><span class="sub" style="margin:0">' + T("inv_owned_none") + "</span></div>";
+    row.innerHTML =
+      '<div class="col grow"><div class="acc-head"><span class="acc-name">' + esc(a.name) + "</span>" +
+        '<span class="pill ' + esc(a.provider) + '">' + esc(a.provider) + "</span>" +
+        (a.plan ? '<span class="pill">' + esc(a.plan) + "</span>" : "") +
+        (a.paused ? '<span class="st paused">' + T("st_paused") + "</span>" : "") +
+      "</div></div>" +
+      '<div class="col" style="display:flex;gap:6px;flex-wrap:wrap">' +
+        '<button class="btn sm inv-assign-next" data-acc="' + esc(a.id) + '">' + T("inv_assign_next_one") + "</button>" +
+      "</div>" +
+      '<div style="flex:1 1 100%">' + heldHtml + "</div>";
+    return row;
+  }));
+}
+
+// ── Invite page actions ───────────────────────────────────────────────────
+/** Read the add-form into a POST body. Empty fields are omitted, not sent blank. */
+function invReadForm() {
+  const val = (id) => (document.getElementById(id).value || "").trim();
+  const code = val("inv-f-code");
+  if (!code) { toast(T("inv_code_required")); return null; }
+  const body = { code };
+  // A pasted URL is kept as the url too: the engine decides which is which, but
+  // sending both means the operator does not have to split them by hand.
+  if (/^https?:\/\//i.test(code)) { body.url = code; body.code = code; }
+  for (const [field, id] of [["label", "inv-f-label"], ["category", "inv-f-category"],
+                             ["campaignId", "inv-f-campaign"], ["note", "inv-f-note"]]) {
+    const v = val(id);
+    if (v) body[field] = v;
+  }
+  const tags = val("inv-f-tags");
+  if (tags) body.tags = tags.split(",").map((s) => s.trim()).filter(Boolean);
+  const max = val("inv-f-max");
+  if (max) body.maxUses = Number(max);
+  const exp = val("inv-f-expires");
+  if (exp) {
+    // Accept YYYY-MM-DD only. A silently-misparsed date would set an expiry the
+    // operator did not intend, and this field decides whether a code still
+    // counts as active.
+    const t = Date.parse(exp.length === 10 ? exp + "T00:00:00" : exp);
+    if (!Number.isFinite(t)) { toast(T("inv_expires_bad")); return null; }
+    body.expiresAt = t;
+  }
+  return body;
+}
+async function invPost(path, body, method, okMsg) {
+  try {
+    const r = await api(path, { method: method || "POST", body: JSON.stringify(body || {}) });
+    if (!(await okOrToast(r))) { invLog(T("inv_err") + " " + path, "err"); return null; }
+    const d = await r.json().catch(() => ({}));
+    if (okMsg) invLog(okMsg, "ok");
+    return d || {};
+  } catch (e) {
+    toast(String(e));
+    invLog(T("inv_err") + " " + e, "err");
+    return null;
+  }
+}
+
+document.getElementById("inv-tab-invites").onclick = () => {
+  INV.tab = "invites";
+  document.getElementById("inv-tab-invites").classList.add("on");
+  document.getElementById("inv-tab-invites").classList.remove("ghost");
+  document.getElementById("inv-tab-accounts").classList.remove("on");
+  document.getElementById("inv-tab-accounts").classList.add("ghost");
+  document.getElementById("inv-pane-invites").style.display = "";
+  document.getElementById("inv-pane-accounts").style.display = "none";
+};
+document.getElementById("inv-tab-accounts").onclick = () => {
+  INV.tab = "accounts";
+  document.getElementById("inv-tab-accounts").classList.add("on");
+  document.getElementById("inv-tab-accounts").classList.remove("ghost");
+  document.getElementById("inv-tab-invites").classList.remove("on");
+  document.getElementById("inv-tab-invites").classList.add("ghost");
+  document.getElementById("inv-pane-invites").style.display = "none";
+  document.getElementById("inv-pane-accounts").style.display = "";
+};
+
+document.getElementById("inv-add").onclick = async (e) => {
+  const body = invReadForm();
+  if (!body) return;
+  const btn = e.target;
+  btn.disabled = true;
+  const d = await invPost("/invites", body);
+  btn.disabled = false;
+  if (!d) return;
+  toast(T("inv_saved_ok"));
+  invLog(T("inv_add") + " · " + (body.label || body.code), "ok");
+  // Clear the form only on success, so a rejected submit keeps what was typed.
+  for (const id of ["inv-f-code", "inv-f-label", "inv-f-category", "inv-f-tags", "inv-f-campaign", "inv-f-max", "inv-f-expires", "inv-f-note"]) {
+    document.getElementById(id).value = "";
+  }
+  loadInvitePage();
+};
+
+document.getElementById("inv-refresh").onclick = () => loadInvitePage();
+document.getElementById("inv-search").addEventListener("input", () => {
+  // Re-query on input with the page reset to 1: a filter change that kept page 5
+  // would show an empty list for a narrow search and read as "no results".
+  INV.search = (document.getElementById("inv-search").value || "").trim();
+  INV.page = 1;
+  invDebouncedLoad();
+});
+/** Small debounce so typing does not fire one request per keystroke. */
+let invDebounceTimer = null;
+function invDebouncedLoad() {
+  if (invDebounceTimer) clearTimeout(invDebounceTimer);
+  invDebounceTimer = setTimeout(() => { invDebounceTimer = null; loadInvitePage(); }, 220);
+}
+for (const [id, key] of [["inv-cat", "category"], ["inv-status", "status"], ["inv-account", "accountId"], ["inv-sort", "sort"]]) {
+  document.getElementById(id).addEventListener("change", (e) => {
+    INV[key] = e.target.value;
+    INV.page = 1;
+    loadInvitePage();
+  });
+}
+document.getElementById("inv-acc-search").addEventListener("input", invRenderAccounts);
+document.getElementById("inv-pager").addEventListener("click", (e) => {
+  const btn = e.target.closest && e.target.closest(".inv-page-num");
+  if (!btn || btn.disabled) return;
+  const n = Number(btn.dataset.page);
+  if (!Number.isFinite(n) || n < 1) return;
+  INV.page = n;
+  loadInvitePage();
+});
+// One delegated listener for every per-card action: the list is re-rendered on
+// each load, so per-button handlers would be lost on every refresh.
+/**
+ * One delegated handler for every invite action, on BOTH lists.
+ *
+ * The invites tab and the per-account tab each render their own buttons, so the
+ * listener is installed on both containers rather than one — a handler bound only
+ * to #inv-list left every control on the account tab inert (they look identical,
+ * which is exactly why the gap would go unnoticed).
+ *
+ * The invite is resolved from the enclosing card when there is one, and from
+ * `data-inv` otherwise: the per-account rows carry the invite id on the button
+ * itself, because a row has no single invite card around it.
+ */
+async function invOnListClick(e) {
+  const t = e.target;
+  const find = (id) => ((INV.data && INV.data.entries) || []).find((x) => x.id === id);
+  const dl = t.closest && t.closest("[data-inv], [data-acc]");
+  const card = t.closest && t.closest(".inv-card");
+  const invId = card ? card.dataset.invId : (dl && dl.dataset.inv ? dl.dataset.inv : "");
+  const inv = invId ? find(invId) : null;
+
+  const copyBtn = t.closest && (t.closest(".inv-copy-code") || t.closest(".inv-copy-link"));
+  if (copyBtn) {
+    if (!inv) return;
+    const text = copyBtn.classList.contains("inv-copy-link") ? inv.url : inv.code;
+    if (!text) { toast(T("inv_mk_unknown")); return; }
+    // Routed through the shared helper: navigator.clipboard is unavailable on a
+    // LAN http origin, where the direct call threw and the button did nothing.
+    toast((await copyToClipboard(text)) ? T("copied") : T("copy_manual"));
+    return;
+  }
+  // Release works from either list: the button names its own account, so it does
+  // not need the invite object to be loaded on this page.
+  const rel = t.closest && t.closest(".inv-release");
+  if (rel) {
+    const d = await invPost("/invites/" + encodeURIComponent(rel.dataset.inv) + "/release",
+      { accountId: rel.dataset.acc }, "POST", T("inv_release_ok"));
+    if (d) loadInvitePage();
+    return;
+  }
+  const next = t.closest && t.closest(".inv-assign-next");
+  if (next) {
+    // On the account tab the target account is on the button; on an invite card
+    // the operator still has to choose, so the picker opens.
+    if (next.dataset.acc) {
+      const d = await invPost("/invites/assign-next",
+        { accountId: next.dataset.acc, strategy: "round_robin", requestId: "panel-" + Date.now() },
+        "POST", T("inv_assign_ok") + " → " + invAccountName(next.dataset.acc));
+      if (d) loadInvitePage();
+    } else if (inv) {
+      invAssignAccount(inv, { next: true });
+    }
+    return;
+  }
+  if (!inv) return;
+  if (t.closest(".inv-pause")) {
+    const btn = t.closest(".inv-pause");
+    const to = btn.dataset.to;
+    const d = await invPost("/invites/" + encodeURIComponent(inv.id), { status: to }, "PATCH",
+      (to === "paused" ? T("inv_pause") : T("inv_resume")) + " · " + inv.code);
+    if (d) loadInvitePage();
+    return;
+  }
+  if (t.closest(".inv-edit")) { invOpenEdit(inv); return; }
+  if (t.closest(".inv-del")) {
+    // Confirmed, because deleting drops the entry from the registry (the
+    // account assignments it carried go with it). The engine refuses while a
+    // live reservation exists, and that refusal is surfaced verbatim so the
+    // operator knows to release first.
+    if (!(await askConfirm(T("inv_del_confirm").replace("{c}", inv.code || inv.id), { danger: true, okText: T("inv_delete") }))) return;
+    const d = await invPost("/invites/" + encodeURIComponent(inv.id), undefined, "DELETE", T("inv_delete") + " · " + inv.code);
+    if (d) loadInvitePage();
+    return;
+  }
+  if (t.closest(".inv-owner")) { invAssignAccount(inv, { owner: true }); return; }
+  if (t.closest(".inv-assign")) { invAssignAccount(inv, {}); return; }
+}
+document.getElementById("inv-list").addEventListener("click", invOnListClick);
+document.getElementById("inv-acc-list").addEventListener("click", invOnListClick);
+
+/**
+ * Assign an invite, chosen through the shared picker.
+ *
+ * Three different jobs share one code path, and they are NOT interchangeable:
+ *   - `{}`        reserve this invite for a chosen account (POST /:id/assign)
+ *   - `owner:true` set whose code this is (PATCH ownerAccountId)
+ *   - `next:true`  ask the engine for the next code round-robin for an account
+ *                  (POST /assign-next) — the invite on the card is only the
+ *                  one the button was clicked from, so it is not sent.
+ * Conflating ownership with a reservation would make every ownership edit look
+ * like a handout, which is why they are separate buttons.
+ */
+function invAssignAccount(inv, opts) {
+  const o = opts || {};
+  // A per-call picker id: the registry entry is temporary and must not collide
+  // with the page's persistent filter pickers.
+  const pid = "inv-pick-" + String(inv.id).replace(/[^a-zA-Z0-9_-]/g, "_");
+  let hidden = document.getElementById(pid);
+  if (!hidden) {
+    hidden = document.createElement("input");
+    hidden.type = "hidden";
+    hidden.id = pid;
+    document.body.appendChild(hidden);
+  }
+  hidden.value = "";
+  setPickerOptions(pid, invAccounts().map((a) => ({
+    value: a.id, label: a.name, sub: a.provider + " · " + a.plan,
+    badges: a.paused ? [{ text: T("st_paused"), cls: "paused" }] : [],
+  })));
+  // The picker writes into the hidden input and fires `change`; the handler is
+  // cleared once it runs, so repeated clicks cannot stack handlers.
+  hidden.onchange = async () => {
+    hidden.onchange = null;
+    const accountId = hidden.value;
+    if (!accountId) return;
+    let d;
+    if (o.owner) {
+      d = await invPost("/invites/" + encodeURIComponent(inv.id), { ownerAccountId: accountId }, "PATCH",
+        T("inv_owner") + " · " + invAccountName(accountId));
+    } else if (o.next) {
+      d = await invPost("/invites/assign-next",
+        { accountId: accountId, strategy: "round_robin", requestId: "panel-" + Date.now() },
+        "POST", T("inv_assign_ok") + " → " + invAccountName(accountId));
+    } else {
+      d = await invPost("/invites/" + encodeURIComponent(inv.id) + "/assign",
+        { accountId: accountId, requestId: "panel-" + Date.now() },
+        "POST", T("inv_assign_ok") + " · " + inv.code + " → " + invAccountName(accountId));
+    }
+    if (d) loadInvitePage();
+  };
+  // The picker's modal is opened through the same button/registry contract as
+  // every other filter. The button is created once and hidden: the modal is what
+  // the operator interacts with, and a stray visible control would read as a
+  // second, unexplained picker on the page.
+  if (!document.querySelector('.picker-btn[data-picker="' + pid + '"]')) {
+    const b = document.createElement("button");
+    b.className = "picker-btn";
+    b.dataset.picker = pid;
+    b.style.display = "none";
+    document.body.appendChild(b);
+  }
+  const btn = document.querySelector('.picker-btn[data-picker="' + pid + '"]');
+  if (btn) btn.dataset.title = o.owner ? "inv_owner_pick" : "inv_assign_pick";
+  // Open directly rather than clicking the hidden button: a synthetic click on a
+  // `display:none` element is unreliable, and openPicker is the real entry point.
+  openPicker(pid);
+}
+
+/** Edit dialog: a small in-page form for the fields a PATCH accepts. */
+function invOpenEdit(inv) {
+  // Reuses the ask-mask shell? No — that dialog is a two-button confirm with a
+  // fixed body text. The edit form is built into the same mask element under a
+  // dedicated id so it cannot clash with askConfirm() (which requires ask-body
+  // to be plain text and ask-ok to resolve its promise).
+  const mask = document.getElementById("inv-edit-mask");
+  document.getElementById("inv-e-title").textContent = T("inv_edit") + " · " + (inv.label || inv.code || inv.id);
+  const fields = {
+    "inv-e-label": inv.label || "",
+    "inv-e-category": inv.category || "",
+    "inv-e-tags": (inv.tags || []).join(", "),
+    "inv-e-campaign": inv.campaignId || "",
+    "inv-e-max": inv.maxUses == null ? "" : String(inv.maxUses),
+    "inv-e-note": inv.note || "",
+  };
+  for (const [id, v] of Object.entries(fields)) document.getElementById(id).value = v;
+  mask.dataset.invId = inv.id;
+  mask.classList.add("on");
+  setTimeout(() => document.getElementById("inv-e-label").focus(), 50);
+}
+document.getElementById("inv-edit-cancel").onclick = () => document.getElementById("inv-edit-mask").classList.remove("on");
+document.getElementById("inv-edit-mask").addEventListener("click", (e) => {
+  if (e.target.id === "inv-edit-mask") document.getElementById("inv-edit-mask").classList.remove("on");
+});
+addEventListener("keydown", (e) => {
+  if (!document.getElementById("inv-edit-mask").classList.contains("on")) return;
+  if (e.key === "Escape") { e.preventDefault(); document.getElementById("inv-edit-mask").classList.remove("on"); }
+});
+document.getElementById("inv-edit-save").onclick = async () => {
+  const mask = document.getElementById("inv-edit-mask");
+  const id = mask.dataset.invId;
+  if (!id) return;
+  const val = (x) => (document.getElementById(x).value || "").trim();
+  const body = {
+    label: val("inv-e-label"),
+    category: val("inv-e-category"),
+    campaignId: val("inv-e-campaign"),
+    note: val("inv-e-note"),
+    tags: val("inv-e-tags") ? val("inv-e-tags").split(",").map((s) => s.trim()).filter(Boolean) : [],
+    // An emptied max is an explicit "no limit", which the API expresses as null.
+    maxUses: val("inv-e-max") ? Number(val("inv-e-max")) : null,
+  };
+  const d = await invPost("/invites/" + encodeURIComponent(id), body, "PATCH", T("inv_saved_ok"));
+  if (!d) return;   // keep the dialog open with the typed values on failure
+  mask.classList.remove("on");
+  loadInvitePage();
+};
+
+document.getElementById("inv-set-save").onclick = async () => {
+  const strategy = document.getElementById("inv-strategy").value || "manual";
+  const d = await invPost("/invites/settings", { defaultStrategy: strategy }, "POST", T("inv_save_settings") + " · " + strategy);
+  if (d) loadInvitePage();
+};
+
+document.getElementById("inv-assign-all").onclick = async (e) => {
+  const btn = e.target;
+  btn.disabled = true;
+  // Sequential, not parallel: the server's round-robin cursor advances per call,
+  // and firing them at once would race that cursor and hand the same code to
+  // several accounts.
+  let ok = 0;
+  for (const a of invAccounts()) {
+    const d = await invPost("/invites/assign-next", { accountId: a.id, strategy: "round_robin", requestId: "panel-" + Date.now() + "-" + a.id }, "POST");
+    if (d && d.assignment) ok++;
+  }
+  btn.disabled = false;
+  toast(T("inv_assign_all_ok").replace("{n}", String(ok)));
+  loadInvitePage();
+};
+
+// Marketing info: ONLY on an explicit click, for the ONE selected account.
+document.getElementById("inv-mk-load").onclick = async (e) => {
+  const accountId = document.getElementById("inv-mk-account").value;
+  const box = document.getElementById("inv-mk-body");
+  if (!accountId) { toast(T("picker_none")); return; }
+  const btn = e.target;
+  btn.disabled = true;
+  box.textContent = T("loading");
+  try {
+    const d = await (await api("/marketing?accountId=" + encodeURIComponent(accountId))).json();
+    box.innerHTML = invRenderMarketing(d);
+  } catch (err) {
+    box.innerHTML = '<span class="sub">' + esc(T("inv_err") + " " + err) + "</span>";
+    invLog(T("inv_err") + " " + err, "err");
+  }
+  btn.disabled = false;
+};
+
+/**
+ * Render official marketing payload read-only.
+ *
+ * Every optional field falls back to the unknown marker rather than a guess:
+ * the page must never present an invented reward, chance count or link, and a
+ * missing value is information the operator needs to see as missing.
+ */
+function invRenderMarketing(d) {
+  const head = '<div class="sub" style="margin-bottom:8px">' + T("inv_mk_local") + "</div>";
+  if (!d) return head + '<div class="bal-empty">' + T("inv_mk_unknown") + "</div>";
+  const meta = '<div class="meta-row"><span>' + T("inv_mk_fetched") + " " + esc(invWhen(d.fetchedAt)) + "</span>" +
+    "<span>" + esc(invAccountName(d.accountId) || d.accountId || "") + "</span>" +
+    (d.fresh === false ? "<span>" + T("intel_stale") + "</span>" : "") + "</div>";
+  if (d.error) return head + meta + '<div class="bal-empty">' + esc(d.error) + "</div>";
+  if (!d.available || !(d.deliveries || []).length) {
+    return head + meta + '<div class="bal-empty">' + T("inv_mk_empty") + "</div>";
+  }
+  const rows = d.deliveries.map((x) => {
+    return '<div class="inv-assign-row"><span class="nm">' + esc(x.title || x.campaignId || T("inv_mk_unknown")) + "</span>" +
+      '<span class="sub" style="margin:0">' + esc(x.priority != null ? "priority " + x.priority : "") +
+      (x.position != null ? " · #" + x.position : "") + "</span>" +
+      (x.remainingChances != null ? '<span class="pill">' + esc(String(x.remainingChances)) + "</span>" : "") +
+      "</div>" +
+      (x.description ? '<div class="inv-note">' + esc(x.description) + "</div>" : "") +
+      '<div class="meta-row"><span>' + esc(x.startsAt ? invWhen(x.startsAt) : T("inv_mk_unknown")) + " → " +
+      esc(x.endsAt ? invWhen(x.endsAt) : T("inv_mk_unknown")) + "</span></div>";
+  }).join("");
+  return head + meta + '<div class="sub" style="margin:8px 0">' +
+    T("inv_mk_available").replace("{n}", String(d.deliveries.length)) + "</div>" + rows;
+}
+
+invRenderLog();
+
+// ── Donate ────────────────────────────────────────────────────────────────
 document.getElementById("donateLink").onclick = e => {
   e.preventDefault();
   document.getElementById("donate-mask").classList.add("on");
@@ -4312,7 +5260,18 @@ async function boot() {
   setInterval(() => {
     // Poll only while the Overview is actually visible: a hidden page's fetch
     // + full re-render every 5s was the reported "某个模块加载很久" stall.
-    if (document.getElementById("page-overview").classList.contains("on")) refreshOverview();
+    if (document.getElementById("page-overview").classList.contains("on")) {
+      refreshOverview();
+      // The balance list is part of the overview, and it used to refresh only
+      // on pool actions — so in-flight counts and status badges on those cards
+      // lagged the header tiles by minutes ("概览…数据显示不实时"). Riding the
+      // same 5s tick with the pool the page already has keeps them in step; the
+      // recent-data skip inside loadBalances still prevents a real round trip
+      // when nothing changed.
+      if (document.getElementById("ov-balances").dataset.loaded === "1") {
+        loadBalances(lastAccounts, null, { silent: true });
+      }
+    }
     // Same for the Accounts page: concurrent requests change inFlight /
     // cooldown badges mid-flight, and the page had NO timer — those changes
     // only appeared after a manual refresh (field report: "并发请求时账号池
@@ -4323,26 +5282,45 @@ async function boot() {
     if (document.getElementById("page-accounts").classList.contains("on")) refreshAccounts();
   }, 5000);
 }
-// ── API Docs page: copy-prompt button ──────────────────────────────────────
-// Selects the whole prompt block and copies it; textContent (not innerHTML)
-// is what gets copied so the agent receives clean text without entities.
-document.getElementById("apidoc-copy").onclick = async () => {
-  const pre = document.getElementById("apidoc-prompt");
-  const text = pre.textContent || "";
-  try {
-    await navigator.clipboard.writeText(text);
-    toast(T("copied"));
-  } catch {
-    // Clipboard API can be denied (http origins, permissions) — fall back to
-    // the classic select-all so the user can Ctrl+C manually.
-    const range = document.createRange();
-    range.selectNodeContents(pre);
-    const sel = getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-    toast(T("copy_manual"));
-  }
-};
+// ── API Docs page: copy-prompt buttons ─────────────────────────────────────
+/**
+ * Wire a copy button to a prompt block.
+ *
+ * Both buttons route through copyToClipboard — the direct `navigator.clipboard`
+ * call this handler used to make is undefined over plain http on a LAN address,
+ * so the button silently did nothing there (the exact failure the shared helper
+ * exists for). textContent (not innerHTML) is copied so the agent receives clean
+ * text without entities.
+ *
+ * The toast is driven by the helper's BOOLEAN. Reporting "copied" after merely
+ * selecting the text is the failure mode this avoids: the operator pastes and
+ * gets whatever was in the clipboard before, with a toast that said otherwise.
+ */
+function wirePromptCopy(btnId, preId) {
+  const btn = document.getElementById(btnId);
+  const pre = document.getElementById(preId);
+  if (!btn || !pre) return;
+  btn.onclick = async () => {
+    const text = pre.textContent || "";
+    if (!text.trim()) return;
+    const ok = await copyToClipboard(text);
+    toast(ok ? T("copied") : T("copy_manual"));
+    // Last resort for the manual path: leave the block selected so Ctrl+C works
+    // immediately. Selection happens ONLY when the copy actually failed, so a
+    // success never steals the caret.
+    if (!ok) {
+      try {
+        const range = document.createRange();
+        range.selectNodeContents(pre);
+        const sel = getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } catch { /* older engine/DOM: the toast already told the operator */ }
+    }
+  };
+}
+wirePromptCopy("apidoc-copy", "apidoc-prompt");
+wirePromptCopy("apidoc-inv-copy", "apidoc-inv-prompt");
 
 armSelfHeal();
 boot();

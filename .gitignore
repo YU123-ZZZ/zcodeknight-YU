@@ -76,3 +76,8 @@ __pycache__/
 backup-before-delete-*.json
 zcodeknight-alldata-*.json
 zcodeknight-logs-*.csv
+
+# ── 逆向取证产物（本地保留，不入库）─────────────────────────────────────────
+# analysis/ 存的是官方公开页面与 JS chunk 的抓取副本，用于核对上游接口；
+# 属于分析中间产物，不属于源码，避免随仓库分发第三方前端代码。
+analysis/

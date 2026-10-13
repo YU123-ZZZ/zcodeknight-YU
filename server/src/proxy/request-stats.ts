@@ -75,10 +75,24 @@ export interface RequestRecord {
 /** How many recent requests the overview keeps. */
 const RECENT_CAP = 100;
 
+/**
+ * Canonical key for the per-model aggregates.
+ *
+ * Clients spell the same model several ways — `GLM-5.3`, `glm-5.3`, `Glm-5.3`
+ * — and the aggregates used the raw string, so one model appeared as three
+ * separate rows on the overview (field report 2026-10-13: "概览页面出现很多个
+ * 相同的一个模型数据"). Upstream model ids are lowercase, so lowercasing is the
+ * canonical form; the display keeps the id as written the first time it was seen.
+ */
+function modelKey(model: string | undefined): string {
+  const raw = (model ?? "").trim();
+  return (raw || "(unspecified)").toLowerCase();
+}
+
 const recent: RequestRecord[] = [];
 // Per-model aggregates. The running mean keeps sum+count so the average stays
 // exact as entries accumulate; resetRequestStats clears it with the rest.
-const perModel = new Map<string, { total: number; succeeded: number; failed: number; ttfbSum: number; ttfbCount: number; tokensTotal: number }>();
+const perModel = new Map<string, { model: string; total: number; succeeded: number; failed: number; ttfbSum: number; ttfbCount: number; tokensTotal: number }>();
 let total = 0;
 let succeeded = 0;
 let failed = 0;
@@ -98,7 +112,7 @@ function persist(): void {
     const tmp = STATS_PATH + ".tmp-" + process.pid;
     writeFileSync(tmp, JSON.stringify({
       total, succeeded, failed, ttfbSum, tokensTotal, recent,
-      perModel: [...perModel.entries()],
+      perModel: [...perModel.entries()].map(([key, m]) => [key, m]),
     }), "utf-8");
     renameSync(tmp, STATS_PATH);
   } catch {
@@ -119,7 +133,22 @@ function restore(): void {
     if (Array.isArray(j.recent)) recent.push(...j.recent.filter((r: RequestRecord) => r && typeof r.started === "number").slice(-RECENT_CAP));
     if (Array.isArray(j.perModel)) {
       for (const [model, m] of j.perModel) {
-        if (model && m && typeof m.total === "number") perModel.set(model, m);
+        if (!model || !m || typeof m.total !== "number") continue;
+        // A snapshot written before the normalization can hold several rows for
+        // the same model under different spellings; MERGE them under the
+        // canonical key instead of loading three duplicate rows.
+        const key = modelKey(model);
+        const existing = perModel.get(key);
+        if (!existing) {
+          perModel.set(key, { ...m, model: m.model || model });
+          continue;
+        }
+        existing.total += m.total;
+        existing.succeeded += m.succeeded ?? 0;
+        existing.failed += m.failed ?? 0;
+        existing.ttfbSum += m.ttfbSum ?? 0;
+        existing.ttfbCount += m.ttfbCount ?? 0;
+        existing.tokensTotal += m.tokensTotal ?? 0;
       }
     }
   } catch {
@@ -144,8 +173,10 @@ export function recordRequest(rec: RequestRecord): void {
     failed++;
   }
   tokensTotal += rec.tokens;
-  const mkey = rec.model || "(unspecified)";
-  const m = perModel.get(mkey) ?? { total: 0, succeeded: 0, failed: 0, ttfbSum: 0, ttfbCount: 0, tokensTotal: 0 };
+  // Normalized key so `GLM-5.3` / `glm-5.3` / `Glm-5.3` aggregate into ONE row;
+  // the first spelling seen is kept for display.
+  const mkey = modelKey(rec.model);
+  const m = perModel.get(mkey) ?? { model: (rec.model || "").trim() || "(unspecified)", total: 0, succeeded: 0, failed: 0, ttfbSum: 0, ttfbCount: 0, tokensTotal: 0 };
   m.total++;
   if (rec.status >= 200 && rec.status < 400) { m.succeeded++; m.ttfbSum += rec.ttfbMs; m.ttfbCount++; }
   else m.failed++;
@@ -240,9 +271,9 @@ export function requestStats(): RequestStats {
     avgTtfbMs: succeeded > 0 ? Math.round(ttfbSum / succeeded) : 0,
     tokensTotal,
     recent: [...recent].reverse(),
-    perModel: [...perModel.entries()]
-      .map(([model, m]) => ({
-        model,
+    perModel: [...perModel.values()]
+      .map((m) => ({
+        model: m.model,
         total: m.total,
         succeeded: m.succeeded,
         failed: m.failed,
