@@ -435,20 +435,21 @@ v4.7.2 现场修复后的补充说明（2026-09-30）：
 
 ### 1. Start
 
-Get the right package from the [Releases page](https://github.com/YU123-ZZZ/zcodeknight-YU/releases) —
-each one contains **only** what that platform needs (no Docker, no other
-architecture, no source tree):
+Get the right file from the [Releases page](https://github.com/YU123-ZZZ/zcodeknight-YU/releases) —
+four assets, each containing **only** what that platform needs (no Docker inside
+the source package, no other architecture, no source tree in the Docker package):
 
 | Your machine | Download |
 | --- | --- |
-| Windows x64 | `ZcodeKnight-windows-x64-v<ver>.7z` — unpack, double-click `ZcodeKnight.bat` |
-| Linux x86_64 | `ZcodeKnight-linux-x64-v<ver>.7z` — unpack, `sh start.sh` |
-| Linux aarch64 / arm64 | `ZcodeKnight-linux-arm64-v<ver>.7z` — unpack, `sh start.sh` |
+| Windows x64 | `ZcodeKnight-source-v<ver>.7z` — complete program + source; unpack, double-click `ZcodeKnight.bat` |
+| Linux x86_64 | `ZcodeKnight-YU-linux-x64` — `chmod +x`, then `./ZcodeKnight-YU-linux-x64 --cli serve` |
+| Linux aarch64 / arm64 | `ZcodeKnight-YU-linux-arm64` — same, for arm64 |
 | Docker | `ZcodeKnight-docker-v<ver>.7z` — `cd docker && docker compose up -d --build` |
-| Building from source | `ZcodeKnight-source-v<ver>.7z` — source + docs only, then `sh setup.sh` / `setup.bat` |
 
-Bare Linux binaries (`ZcodeKnight-YU-linux-x64`, `-arm64`) are attached too, for
-replacing just the executable. Verify with `SHA256SUMS.txt` from the same release.
+The source package doubles as the Windows release build (it carries
+`ZcodeKnight.dat`). The two Linux assets are bare single-file binaries: they
+create `config.yaml` from their built-in template on first run, and need no
+runtime installed.
 
 ```bat
 :: Windows — double-click, or run:
@@ -975,19 +976,19 @@ ZcodeKnight/
 
 ### 1. 启动
 
-到 [Releases 页](https://github.com/YU123-ZZZ/zcodeknight-YU/releases) 下载对应平台的包。
-每个包**只含该平台需要的东西**（不含 Docker、不含其它架构、不含源码树）：
+到 [Releases 页](https://github.com/YU123-ZZZ/zcodeknight-YU/releases) 下载对应文件。
+共四个资产，每个**只含该平台需要的东西**（源码包里没有 Docker 目录，Docker 包里没有
+源码树和其它架构二进制）：
 
 | 你的机器 | 下载哪个 |
 | --- | --- |
-| Windows x64 | `ZcodeKnight-windows-x64-v<版本>.7z` —— 解压，双击 `ZcodeKnight.bat` |
-| Linux x86_64 | `ZcodeKnight-linux-x64-v<版本>.7z` —— 解压，`sh start.sh` |
-| Linux aarch64 / arm64 | `ZcodeKnight-linux-arm64-v<版本>.7z` —— 解压，`sh start.sh` |
+| Windows x64 | `ZcodeKnight-source-v<版本>.7z` —— 完整程序 + 源码；解压，双击 `ZcodeKnight.bat` |
+| Linux x86_64 | `ZcodeKnight-YU-linux-x64` —— `chmod +x` 后 `./ZcodeKnight-YU-linux-x64 --cli serve` |
+| Linux aarch64 / arm64 | `ZcodeKnight-YU-linux-arm64` —— 同上，arm64 用 |
 | Docker | `ZcodeKnight-docker-v<版本>.7z` —— `cd docker && docker compose up -d --build` |
-| 从源码编译 | `ZcodeKnight-source-v<版本>.7z` —— 纯源码+文档，再跑 `sh setup.sh` / `setup.bat` |
 
-同一 Release 还附带裸 Linux 二进制（`ZcodeKnight-YU-linux-x64`、`-arm64`），
-用于只替换可执行文件。校验用同一 Release 里的 `SHA256SUMS.txt`。
+源码包同时就是 Windows 发布版（内含 `ZcodeKnight.dat`）。两个 Linux 资产是单文件裸
+二进制：首次运行会用内置模板生成 `config.yaml`，无需安装任何运行时。
 
 ```bat
 :: Windows —— 双击，或命令行运行：

@@ -43,6 +43,19 @@ function filesIn(dir: string, prefix = ""): string[] {
 const sha = command("git", ["rev-parse", "HEAD"]).trim();
 const tracked = command("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"]).split("\0").filter(Boolean);
 const requiredVersion = `ZcodeKnight-YU ${version}`;
+/**
+ * Release layout — exactly four assets, matching what the project has always
+ * shipped:
+ *
+ *   ZcodeKnight-source-v<ver>.7z   complete Windows program + source (双击即用)
+ *   ZcodeKnight-docker-v<ver>.7z   Docker build context
+ *   ZcodeKnight-YU-linux-x64       bare Linux x86_64 binary
+ *   ZcodeKnight-YU-linux-arm64     bare Linux arm64 binary
+ *
+ * No per-platform archive for Windows (the source package carries the .dat),
+ * no per-platform archive for Linux (the bare binaries are the assets), and no
+ * checksum sidecar on the release. Audit data stays local under dist/.
+ */
 const targets = [
   { kind: "windows-x64" as const, target: "bun-windows-x64", filename: "ZcodeKnight.dat", format: "PE", arch: "x64" },
   { kind: "linux-x64" as const, target: "bun-linux-x64", filename: "ZcodeKnight-YU-linux-x64", format: "ELF", arch: "x64" },
@@ -95,29 +108,34 @@ exec env CI=1 "$ROOT/ZcodeKnight" --cli serve "$ROOT/config.yaml"
 
 function readme(kind: ReleaseKind): string {
   const head = `# ZcodeKnight v${version} — ${kind}\n\n`;
-  if (kind === "windows-x64") return head + "Windows x64 运行包。只含 Windows 引擎、启动/停止脚本和运行资源，不含 Docker、Linux 二进制、源码树或 Bun 运行时。\n\n解压整个目录，双击 `ZcodeKnight.bat`。面板默认为 http://127.0.0.1:17800/admin。首次启动按内置模板生成 `config.yaml`；面板默认密码为 `admin`，客户端 API Key 与面板密码是独立设置。运行数据存于本目录 `data/`。\n\n升级前备份现有配置和 data；覆盖本包程序文件，保留原 config.yaml 与 data。`config.example.yaml` 是从本次源码生成的示例，不含真实凭据。\n\n源码单独下载 `ZcodeKnight-source-v" + version + ".7z`。各文件校验值见 MANIFEST.json。\n";
   return head + "仅适用于 Linux " + (kind === "linux-arm64" ? "aarch64 / arm64" : "x86_64 / amd64") + "。只含本架构引擎和 Linux 启动脚本，不含 Windows、Docker、其他架构二进制或源码树。\n\n```sh\nsh start.sh\n```\n\n前台启动，Ctrl+C 停止。首次复制 config.example.yaml 为 config.yaml；面板默认 http://127.0.0.1:17800/admin，默认面板密码 admin。API Key 与面板密码独立。运行数据位于同目录 data/。\n\n升级前备份现有配置和 data，保留它们，仅替换程序文件。直接下载的裸二进制需 `chmod +x ZcodeKnight-YU-linux-" + (kind === "linux-arm64" ? "arm64" : "x64") + "`，然后使用 `--cli serve` 启动。\n\n本包在 Windows 主机交叉编译；ELF 架构和嵌入版本已校验，未宣称已在本机执行 Linux 引擎。文件校验值见 MANIFEST.json。\n";
 }
 
 const assets: string[] = [];
 const packageChecks: Array<Record<string, unknown>> = [];
-for (const kind of ["windows-x64", "linux-x64", "linux-arm64", "source", "docker"] as ReleaseKind[]) {
+// Exactly four assets: two archives plus the two bare Linux binaries.
+//   ZcodeKnight-source-v<ver>.7z   complete Windows program + source (双击即用)
+//   ZcodeKnight-docker-v<ver>.7z   Docker build context
+//   ZcodeKnight-YU-linux-x64       bare Linux x86_64 binary (engine creates
+//   ZcodeKnight-YU-linux-arm64     config.yaml on first run; run with --cli serve)
+// No per-platform archives, no checksum sidecar on the release.
+for (const kind of ["source", "docker"] as ReleaseKind[]) {
   const stage = join(output, "stage", kind);
   mkdirSync(stage, { recursive: true });
   for (const input of releaseInputs(kind, tracked)) copy(join(root, input.from), join(stage, input.to));
   if (kind === "docker") {
     const manual = "# ZcodeKnight v" + version + " — Docker\n\n本目录是独立 Docker 部署包，不含 Windows/Linux 裸二进制或 node_modules。\n\n```sh\ncd docker\ndocker compose up -d --build\n```\n\n使用 oven/bun:1.4.2 在容器内原生编译。主机目录 `data/`、`config/` 为运行状态，不随包分发；升级时保留现有这两个目录。端口仅映射到主机 loopback。检查更新不会自动替换镜像。\n";
     writeFileSync(join(stage, "docker/README.md"), manual, "utf8");
-  } else if (kind !== "source") {
-    copy(built.get(kind)!, join(stage, kind === "windows-x64" ? "ZcodeKnight.dat" : "ZcodeKnight"));
+  } else if (kind === "source") {
+    // Complete Windows program + source: unzip and double-click ZcodeKnight.bat.
+    copy(built.get("windows-x64")!, join(stage, "ZcodeKnight.dat"));
+    writeFileSync(join(stage, "config.example.yaml"), EXAMPLE_CONFIG_YAML, "utf8");
+  } else {
+    copy(built.get(kind)!, join(stage, "ZcodeKnight"));
     writeFileSync(join(stage, "README.md"), readme(kind), "utf8");
     writeFileSync(join(stage, "config.example.yaml"), EXAMPLE_CONFIG_YAML, "utf8");
-    if (kind.startsWith("linux-")) {
-      writeFileSync(join(stage, "start.sh"), linuxStart, { encoding: "utf8", mode: 0o755 });
-      chmodSync(join(stage, "ZcodeKnight"), 0o755);
-    }
-  } else {
-    writeFileSync(join(stage, "config.example.yaml"), EXAMPLE_CONFIG_YAML, "utf8");
+    writeFileSync(join(stage, "start.sh"), linuxStart, { encoding: "utf8", mode: 0o755 });
+    chmodSync(join(stage, "ZcodeKnight"), 0o755);
   }
   const filenames = filesIn(stage);
   assertReleaseLayout(kind, filenames);
@@ -139,7 +157,7 @@ for (const kind of ["windows-x64", "linux-x64", "linux-arm64", "source", "docker
   for (const file of unpackedFiles) {
     if (sha256File(join(extracted, file)) !== sha256File(join(stage, file))) throw new Error(`${kind}: unpacked hash mismatch ${file}`);
   }
-  if (kind === "windows-x64") {
+  if (kind === "source") {
     if (command(join(extracted, "ZcodeKnight.dat"), ["--version"]).trim() !== requiredVersion) throw new Error("Unpacked Windows binary version mismatch");
   }
   assets.push(archive);
@@ -151,7 +169,8 @@ for (const target of targets.filter((t) => t.kind.startsWith("linux-"))) {
   copy(built.get(target.kind)!, file);
   assets.push(file);
 }
-const checksumFile = join(output, "SHA256SUMS.txt");
+// Local audit only — not a release asset.
+const checksumFile = join(output, "SHA256SUMS.local.txt");
 writeFileSync(checksumFile, assets.map((file) => `${sha256File(file)}  ${relative(output, file)}`).join("\n") + "\n", "utf8");
 const report = { version, sourceCommit: sha, createdAt: new Date().toISOString(), binaries: binaryChecks, packages: packageChecks, assets: assets.map((file) => ({ name: relative(output, file), bytes: statSync(file).size, sha256: sha256File(file) })) };
 writeFileSync(join(output, "release-audit.json"), JSON.stringify(report, null, 2) + "\n", "utf8");

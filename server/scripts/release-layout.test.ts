@@ -3,6 +3,7 @@ import { assertReleaseLayout, inspectBinary, releaseInputs } from "./release-lay
 
 const candidates = [
   "LICENSE", "README.md", "logo.svg", "ZcodeKnight.bat", "stop.bat", "setup.bat", "setup.sh", "make-shortcut.ps1",
+  "push-to-github.bat", "使用说明.txt", "策划方案.md", "维护指南.md",
   "docs/zk-support-qr.png", "icons/ZcodeKnight.ico", "server/src/index.ts", "server/src/config/template.ts",
   "server/package.json", "server/bun.lock", "server/scripts/package-release.ts", "server/scripts/release-layout.ts",
   "server/runtime.exe", "ZcodeKnight.dat", "server/ZcodeKnight-YU-linux-x64", "server/ZcodeKnight-YU-linux-arm64",
@@ -16,26 +17,28 @@ function paths(kind: Parameters<typeof releaseInputs>[0]) {
   return releaseInputs(kind, candidates).map((file) => file.to);
 }
 
-describe("release plans never mix platforms or copy live state", () => {
-  it("Windows excludes Docker, source trees, Linux binaries and live config", () => {
-    expect(paths("windows-x64")).toContain("ZcodeKnight.bat");
-    expect(paths("windows-x64")).toContain("icons/ZcodeKnight.ico");
-    expect(paths("windows-x64").some((p) => /docker|server\/|linux|config.yaml|data\//.test(p))).toBe(false);
-    assertReleaseLayout("windows-x64", [...paths("windows-x64"), "README.md", "config.example.yaml", "ZcodeKnight.dat"]);
+describe("the release carries exactly four assets", () => {
+  it("source = complete Windows program + source, with no Docker or Linux binaries", () => {
+    const source = paths("source");
+    expect(source).toContain("ZcodeKnight.bat");
+    expect(source).toContain("server/src/index.ts");
+    expect(source).toContain("server/scripts/package-release.ts");
+    expect(source).toContain("icons/ZcodeKnight.ico");
+    // The three author notes are untracked and must never ship.
+    for (const privateDoc of ["使用说明.txt", "策划方案.md", "维护指南.md"]) {
+      expect(source).not.toContain(privateDoc);
+    }
+    expect(source.some((p) => /^docker\/|linux-x64$|linux-arm64$|runtime\.exe|node_modules|analysis\//.test(p))).toBe(false);
+    assertReleaseLayout("source", [...source, "config.example.yaml", "ZcodeKnight.dat"]);
   });
-  it("Linux has no Windows launchers, Docker or other architectures", () => {
+
+  it("Linux contains only its own architecture and start script", () => {
     for (const kind of ["linux-x64", "linux-arm64"] as const) {
-      expect(paths(kind).some((p) => /\.bat|\.exe|\.dat|\.ico|\.ps1|docker|server\//.test(p))).toBe(false);
+      expect(paths(kind).some((p) => /\.bat|\.exe|\.dat|\.ico|\.ps1|docker\/|server\//.test(p))).toBe(false);
       assertReleaseLayout(kind, [...paths(kind), "README.md", "config.example.yaml", "ZcodeKnight", "start.sh"]);
     }
   });
-  it("source contains only source and documentation, never build output", () => {
-    const source = paths("source");
-    expect(source).toContain("server/src/index.ts");
-    expect(source).toContain("server/scripts/package-release.ts");
-    expect(source.some((p) => /docker\/|\.exe|\.dat|linux-x64$|linux-arm64$|node_modules|analysis\//.test(p))).toBe(false);
-    assertReleaseLayout("source", [...source, "config.example.yaml"]);
-  });
+
   it("Docker contains only its own build context", () => {
     const docker = paths("docker");
     expect(docker).toContain("docker/Dockerfile");
@@ -44,10 +47,19 @@ describe("release plans never mix platforms or copy live state", () => {
     expect(docker).not.toContain("docker/config/config.yaml");
     assertReleaseLayout("docker", [...docker, "docker/README.md"]);
   });
-  it("fails if an extra platform payload or secret is inserted", () => {
-    const win = [...paths("windows-x64"), "README.md", "config.example.yaml", "ZcodeKnight.dat"];
-    for (const unexpected of ["docker/Dockerfile", "server/runtime.exe", "ZcodeKnight-YU-linux-x64", "data/accounts.json"]) {
-      expect(() => assertReleaseLayout("windows-x64", [...win, unexpected])).toThrow();
+
+  it("no package may carry credentials, private notes or a nested archive", () => {
+    expect(paths("source").some((p) => /accounts\.json|invites\.json|config\.yaml$/.test(p))).toBe(false);
+    for (const kind of ["source", "docker", "linux-x64", "linux-arm64"] as const) {
+      expect(paths(kind)).not.toContain("ZcodeKnight-source-v4.7.13.7z");
+      expect(paths(kind)).not.toContain("data/accounts.json");
+    }
+  });
+
+  it("fails when an unexpected payload is inserted", () => {
+    const source = [...paths("source"), "config.example.yaml", "ZcodeKnight.dat"];
+    for (const unexpected of ["docker/Dockerfile", "server/runtime.exe", "使用说明.txt", "data/accounts.json"]) {
+      expect(() => assertReleaseLayout("source", [...source, unexpected])).toThrow();
     }
     expect(() => releaseInputs("source", ["../data/accounts.json"])).toThrow();
     expect(() => releaseInputs("source", ["C:/secret"])).toThrow();

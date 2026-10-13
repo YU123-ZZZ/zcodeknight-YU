@@ -1,13 +1,23 @@
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 
-export type ReleaseKind = "windows-x64" | "linux-x64" | "linux-arm64" | "source" | "docker";
+export type ReleaseKind = "linux-x64" | "linux-arm64" | "source" | "docker";
 export interface ReleaseInput { from: string; to: string }
 
+/**
+ * Source package = the complete Windows program PLUS the source tree
+ * ("解压双击即用"), matching the release layout the project has always shipped:
+ * four assets only — source, docker, and the two bare Linux binaries.
+ *
+ * Excluded on purpose: docker/ (it has its own package), the Linux binaries
+ * (they ship as bare assets), server/runtime.exe (downloaded by setup.bat),
+ * node_modules, and live state. The author's own notes (使用说明/策划方案/
+ * 维护指南) are not tracked by git and therefore never reach a package.
+ */
 const ROOT_SOURCE_FILES = new Set([
   "LICENSE", "README.md", ".gitattributes", ".gitignore", "logo.svg",
   "ZcodeKnight.bat", "stop.bat", "setup.bat", "setup.sh", "make-shortcut.ps1",
-  "push-to-github.bat", "维护指南.md", "使用说明.txt", "策划方案.md",
+  "push-to-github.bat",
 ]);
 const SERVER_SOURCE_FILES = new Set([
   "server/package.json", "server/bun.lock", "server/bunfig.toml",
@@ -45,6 +55,9 @@ export function isSourceInput(path: string): boolean {
 /** Platform plans are allowlists; the source tree is never recursively packed. */
 export function releaseInputs(kind: ReleaseKind, candidates: string[]): ReleaseInput[] {
   const all = [...new Set(candidates.map(normalizeReleasePath))].sort();
+  // SOURCE = complete Windows program + source. The .dat binary is produced by
+  // the build (it is not a tracked file), so it is added by the packer rather
+  // than coming from this list.
   if (kind === "source") return all.filter(isSourceInput).map((path) => ({ from: path, to: path }));
   if (kind === "docker") return all.filter((path) => {
     if (!path.startsWith("docker/") || isRuntimeState(path)) return false;
@@ -52,25 +65,26 @@ export function releaseInputs(kind: ReleaseKind, candidates: string[]): ReleaseI
     return DOCKER_FILES.has(rel) || /^src\/.*\.(ts|txt|json)$/.test(rel)
       || /^docs\/.*\.(png|svg)$/.test(rel);
   }).map((path) => ({ from: path, to: path }));
+  // Bare Linux binaries: the executable is added by the packer; only the small
+  // shared runtime bits come from the tree.
   const allowed = new Set(COMMON_RUNTIME_FILES);
-  if (kind === "windows-x64") {
-    for (const path of ["ZcodeKnight.bat", "stop.bat", "make-shortcut.ps1", "icons/ZcodeKnight.ico"]) allowed.add(path);
-  }
   return all.filter((path) => allowed.has(path)).map((path) => ({ from: path, to: path }));
 }
 
 export function assertReleaseLayout(kind: ReleaseKind, filenames: string[]): void {
   const files = filenames.map(normalizeReleasePath);
   const required = kind === "source"
-    ? ["LICENSE", "README.md", "server/src/index.ts", "server/package.json", "server/bun.lock", "server/scripts/package-release.ts"]
+    ? ["LICENSE", "README.md", "config.example.yaml", "ZcodeKnight.dat", "ZcodeKnight.bat", "stop.bat",
+       "server/src/index.ts", "server/package.json", "server/bun.lock", "server/scripts/package-release.ts"]
     : kind === "docker"
       ? ["docker/README.md", "docker/Dockerfile", "docker/docker-compose.yml", "docker/package.json", "docker/bun.lock", "docker/src/index.ts"]
-      : ["LICENSE", "README.md", "config.example.yaml", kind === "windows-x64" ? "ZcodeKnight.dat" : "ZcodeKnight", kind === "windows-x64" ? "ZcodeKnight.bat" : "start.sh"];
+      : ["LICENSE", "README.md", "config.example.yaml", "ZcodeKnight", "start.sh"];
   for (const path of required) if (!files.includes(path)) throw new Error(`${kind}: missing ${path}`);
   for (const path of files) {
     if (isRuntimeState(path)) throw new Error(`${kind}: runtime state or nested archive: ${path}`);
-    if (path === "MANIFEST.json" || path === "config.example.yaml") continue;
+    if (path === "MANIFEST.json" || path === "config.example.yaml" || path === "ZcodeKnight.dat") continue;
     if (kind === "source") {
+      // The Windows binary rides along; nothing else outside the source plan.
       if (!isSourceInput(path)) throw new Error(`source: unexpected input ${path}`);
     } else if (kind === "docker") {
       const rel = path.startsWith("docker/") ? path.slice(7) : "";
@@ -79,12 +93,7 @@ export function assertReleaseLayout(kind: ReleaseKind, filenames: string[]): voi
         throw new Error(`docker: unexpected input ${path}`);
       }
     } else {
-      const runtime = new Set([...COMMON_RUNTIME_FILES, "README.md"]);
-      if (kind === "windows-x64") {
-        for (const name of ["ZcodeKnight.dat", "ZcodeKnight.bat", "stop.bat", "make-shortcut.ps1", "icons/ZcodeKnight.ico"]) runtime.add(name);
-      } else {
-        runtime.add("ZcodeKnight"); runtime.add("start.sh");
-      }
+      const runtime = new Set([...COMMON_RUNTIME_FILES, "README.md", "ZcodeKnight", "start.sh"]);
       if (!runtime.has(path)) throw new Error(`${kind}: foreign platform/source payload ${path}`);
     }
   }
