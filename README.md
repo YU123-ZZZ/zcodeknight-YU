@@ -435,13 +435,31 @@ v4.7.2 现场修复后的补充说明（2026-09-30）：
 
 ### 1. Start
 
+Get the right package from the [Releases page](https://github.com/YU123-ZZZ/zcodeknight-YU/releases) —
+each one contains **only** what that platform needs (no Docker, no other
+architecture, no source tree):
+
+| Your machine | Download |
+| --- | --- |
+| Windows x64 | `ZcodeKnight-windows-x64-v<ver>.7z` — unpack, double-click `ZcodeKnight.bat` |
+| Linux x86_64 | `ZcodeKnight-linux-x64-v<ver>.7z` — unpack, `sh start.sh` |
+| Linux aarch64 / arm64 | `ZcodeKnight-linux-arm64-v<ver>.7z` — unpack, `sh start.sh` |
+| Docker | `ZcodeKnight-docker-v<ver>.7z` — `cd docker && docker compose up -d --build` |
+| Building from source | `ZcodeKnight-source-v<ver>.7z` — source + docs only, then `sh setup.sh` / `setup.bat` |
+
+Bare Linux binaries (`ZcodeKnight-YU-linux-x64`, `-arm64`) are attached too, for
+replacing just the executable. Verify with `SHA256SUMS.txt` from the same release.
+
 ```bat
 :: Windows — double-click, or run:
 ZcodeKnight.bat
 ```
 
 ```bash
-# Linux / macOS — one command, no prerequisites
+# Linux (platform package) — foreground, Ctrl-C to stop
+sh start.sh
+
+# Linux/macOS (source package) — one command, no prerequisites
 sh setup.sh
 ```
 
@@ -957,13 +975,30 @@ ZcodeKnight/
 
 ### 1. 启动
 
+到 [Releases 页](https://github.com/YU123-ZZZ/zcodeknight-YU/releases) 下载对应平台的包。
+每个包**只含该平台需要的东西**（不含 Docker、不含其它架构、不含源码树）：
+
+| 你的机器 | 下载哪个 |
+| --- | --- |
+| Windows x64 | `ZcodeKnight-windows-x64-v<版本>.7z` —— 解压，双击 `ZcodeKnight.bat` |
+| Linux x86_64 | `ZcodeKnight-linux-x64-v<版本>.7z` —— 解压，`sh start.sh` |
+| Linux aarch64 / arm64 | `ZcodeKnight-linux-arm64-v<版本>.7z` —— 解压，`sh start.sh` |
+| Docker | `ZcodeKnight-docker-v<版本>.7z` —— `cd docker && docker compose up -d --build` |
+| 从源码编译 | `ZcodeKnight-source-v<版本>.7z` —— 纯源码+文档，再跑 `sh setup.sh` / `setup.bat` |
+
+同一 Release 还附带裸 Linux 二进制（`ZcodeKnight-YU-linux-x64`、`-arm64`），
+用于只替换可执行文件。校验用同一 Release 里的 `SHA256SUMS.txt`。
+
 ```bat
 :: Windows —— 双击，或命令行运行：
 ZcodeKnight.bat
 ```
 
 ```bash
-# Linux / macOS —— 一条命令，无需预装任何东西
+# Linux（平台包）—— 前台运行，Ctrl-C 停止
+sh start.sh
+
+# Linux / macOS（源码包）—— 一条命令，无需预装任何东西
 sh setup.sh
 ```
 
