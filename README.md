@@ -436,8 +436,8 @@ v4.7.2 现场修复后的补充说明（2026-09-30）：
 ### 1. Start
 
 Get the right file from the [Releases page](https://github.com/YU123-ZZZ/zcodeknight-YU/releases) —
-four assets, each containing **only** what that platform needs (no Docker inside
-the source package, no other architecture, no source tree in the Docker package):
+four assets: the Windows/source archive excludes Docker and Linux binaries;
+the Docker archive contains its build sources, but no host binaries or live state:
 
 | Your machine | Download |
 | --- | --- |
@@ -457,8 +457,9 @@ ZcodeKnight.bat
 ```
 
 ```bash
-# Linux (platform package) — foreground, Ctrl-C to stop
-sh start.sh
+# Linux x64 — standalone binary, foreground; Ctrl-C to stop
+chmod +x ZcodeKnight-YU-linux-x64
+./ZcodeKnight-YU-linux-x64 --cli serve
 
 # Linux/macOS (source package) — one command, no prerequisites
 sh setup.sh
@@ -977,8 +978,8 @@ ZcodeKnight/
 ### 1. 启动
 
 到 [Releases 页](https://github.com/YU123-ZZZ/zcodeknight-YU/releases) 下载对应文件。
-共四个资产，每个**只含该平台需要的东西**（源码包里没有 Docker 目录，Docker 包里没有
-源码树和其它架构二进制）：
+共四个附件：源码包含 Windows 程序与源码，不含 Docker 或 Linux 二进制；Docker 包
+含容器构建所需源码，不含宿主机二进制和运行数据。
 
 | 你的机器 | 下载哪个 |
 | --- | --- |
@@ -996,8 +997,9 @@ ZcodeKnight.bat
 ```
 
 ```bash
-# Linux（平台包）—— 前台运行，Ctrl-C 停止
-sh start.sh
+# Linux x64 裸二进制——前台运行，Ctrl-C 停止
+chmod +x ZcodeKnight-YU-linux-x64
+./ZcodeKnight-YU-linux-x64 --cli serve
 
 # Linux / macOS（源码包）—— 一条命令，无需预装任何东西
 sh setup.sh
