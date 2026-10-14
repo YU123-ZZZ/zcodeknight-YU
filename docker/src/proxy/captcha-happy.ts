@@ -61,6 +61,9 @@ const SYNC_FETCH_HEADER_BYTES = 64;
 // [2]=statusTextLen, [3]=headersJsonLen, [4]=setCookieJsonLen, [5]=bodyLen,
 // [6..]=payload bytes (statusText, headersJson, setCookieJson, body)
 let _syncFetchWorker: Worker | null = null;
+const _liveWindows = new Set<object>();
+const _windowContexts = new WeakMap<object, { browserFrame: object; cookieContainer: object }>();
+const _destroyedWindows = new WeakSet<object>();
 
 const SYNC_WORKER_SRC = `
   const { parentPort } = require("node:worker_threads");
@@ -1837,12 +1840,14 @@ async function createDom(region, prefix) {
       },
     },
   });
+  _liveWindows.add(w);
 
-  // Reach into the frame for cookie container + frame ref (host side helpers).
-  // WindowBrowserContext imported at module scope
+  // Reach into the frame for cookie container + frame ref. (WindowBrowserContext imported at module scope)
   const browserFrame = new WindowBrowserContext(w).getBrowserFrame();
+  const cookieContainer = browserFrame.page.context.cookieContainer;
+  _windowContexts.set(w, { browserFrame, cookieContainer });
   global.__browserFrame = browserFrame;
-  global.__cookieContainer = browserFrame.page.context.cookieContainer;
+  global.__cookieContainer = cookieContainer;
 
   // Cookie priming
   for (const raw of cookies) {
@@ -2016,6 +2021,7 @@ const INERT_WINDOW_METHODS = new Set(EXTRA_WINDOW_PROPS);
 // aliases alive until the LAST concurrent window is destroyed, otherwise one
 // destroyDom() pulls `window` out from under a sibling mid-solve.
 let _aliasRefCount = 0;
+const _aliasInstallCounts = new WeakMap<object, number>();
 
 // Post-teardown tombstone (see removeGlobalWindowAlias): how long window-
 // sourced alias getters keep resolving — to the CLOSED window — after the
@@ -2066,6 +2072,7 @@ export function installGlobalWindowAlias(g, w, tombstoneMs?) {
   // teardown could never restore what it overwrote.
   if (_aliasRefCount < 0) _aliasRefCount = 0;
   _aliasRefCount += 1;
+  _aliasInstallCounts.set(w, (_aliasInstallCounts.get(w) || 0) + 1);
   _aliasGeneration += 1; // cancels any pending tombstone from a prior wave
   _tombstoneMs = typeof tombstoneMs === "number" ? tombstoneMs : ALIAS_TOMBSTONE_MS;
   // Build the alias name set FIRST, then snapshot every HOST-EXISTING global
@@ -2151,7 +2158,11 @@ export function installGlobalWindowAlias(g, w, tombstoneMs?) {
   } catch (_) {}
 }
 export function removeGlobalWindowAlias(g, w) {
-  _aliasRefCount -= 1;
+  const installs = _aliasInstallCounts.get(w) || 0;
+  if (installs <= 0) return;
+  if (installs === 1) _aliasInstallCounts.delete(w);
+  else _aliasInstallCounts.set(w, installs - 1);
+  _aliasRefCount = Math.max(0, _aliasRefCount - 1);
   if (_aliasRefCount > 0) return;
   // Host-contract globals come back IMMEDIATELY: every HOST-EXISTING global
   // the wave overwrote — atob/btoa (client-signing's JWT base64 — the
@@ -2214,14 +2225,25 @@ export function removeGlobalWindowAlias(g, w) {
 }
 
 function destroyDom(win) {
+  if (!win || (typeof win !== "object" && typeof win !== "function")) return;
+  if (_destroyedWindows.has(win)) return;
+  _destroyedWindows.add(win);
+  _liveWindows.delete(win);
+  const context = _windowContexts.get(win);
+  _windowContexts.delete(win);
   try {
     const cap = win.document.getElementById("cap");
     if (cap) cap.replaceChildren();
-    win.happyDOM.close();
+    void win.happyDOM.close();
   } catch (_) {}
   try {
-    global.__cookieContainer = null;
-    global.__browserFrame = null;
+    if (global.__browserFrame === context?.browserFrame) {
+      const next = [..._liveWindows]
+        .map((candidate) => _windowContexts.get(candidate))
+        .find(Boolean);
+      global.__browserFrame = next?.browserFrame ?? null;
+      global.__cookieContainer = next?.cookieContainer ?? null;
+    }
   } catch (_) {}
   try {
     // Unconditional: the alias install is unconditional too, and a Node run
@@ -2232,7 +2254,9 @@ function destroyDom(win) {
   // closed window and makes any straggler's `new Function` fall back to the
   // host constructor (harmless: the window registry is already cleared).
   removeGuestScope(win);
-  try { shutdownSyncFetchWorker(); } catch (_) {}
+  if (_liveWindows.size === 0) {
+    try { shutdownSyncFetchWorker(); } catch (_) {}
+  }
 }
 
 function extractVerifyParam(param) {
@@ -2298,44 +2322,93 @@ const REUSE_MAX_IDLE_MS = Number(process.env.CAPTCHA_REUSE_MAX_IDLE_MS || 120_00
 // pooled window is discarded and a full GC forced — trading one fresh-window
 // boot for staying under the hang line. 0 disables.
 const RSS_GUARD_MB = Number(process.env.CAPTCHA_RSS_GUARD_MB || 600);
+const RSS_GUARD_WAIT_MS = Number(process.env.CAPTCHA_RSS_GUARD_WAIT_MS || 30_000);
 
 /** Debounces the "deferring new window" warning to one line per wait episode. */
 let _waitingLogged = false;
+let _windowAdmissionTail: Promise<void> = Promise.resolve();
+let _rssReader = () => process.memoryUsage().rss / 1048576;
+
+async function createWindowUnderRssGuard(region, prefix) {
+  let release!: () => void;
+  const previous = _windowAdmissionTail;
+  _windowAdmissionTail = new Promise<void>((resolve) => { release = resolve; });
+  await previous;
+  try {
+    if (RSS_GUARD_MB > 0) {
+      const gateStart = Date.now();
+      for (;;) {
+        const rssMb = _rssReader();
+        if (rssMb <= RSS_GUARD_MB) break;
+        if (Date.now() - gateStart > RSS_GUARD_WAIT_MS) {
+          _waitingLogged = false;
+          throw new Error(`captcha RSS guard refused new window: ${Math.round(rssMb)}MB > ${RSS_GUARD_MB}MB after ${Math.round(RSS_GUARD_WAIT_MS / 1000)}s`);
+        }
+        if (!_waitingLogged) {
+          _waitingLogged = true;
+          console.warn(`[captcha] RSS ${Math.round(rssMb)}MB > guard ${RSS_GUARD_MB}MB — deferring new window (waiting for in-flight solves to release)`);
+        }
+        await new Promise((r) => setTimeout(r, 1_000));
+      }
+      _waitingLogged = false;
+    }
+    return await createDom(region, prefix);
+  } finally {
+    release();
+  }
+}
 
 function takeReusableWindow() {
   const p = _reusePool;
   if (!p.window) return null;
-  // RSS self-guard runs on every take, before any reuse decision.
+  // RSS self-guard runs on every take, before any reuse decision. The pooled
+  // entry is idle here, so it is safe to discard; return immediately so a
+  // cleared entry can never be handed out as a truthy null wrapper.
   if (RSS_GUARD_MB > 0) {
-    const rssMb = process.memoryUsage.rss() / 1048576;
+    const rssMb = _rssReader();
     if (rssMb > RSS_GUARD_MB) {
       discardReusableWindow();
       try { Bun.gc(true); } catch (_) {}
       console.warn(`[captcha] RSS ${Math.round(rssMb)}MB > guard ${RSS_GUARD_MB}MB — discarded reuse window, GC forced`);
+      return null;
     }
   }
   if (p.solves >= REUSE_MAX_SOLVES) { discardReusableWindow(); return null; }
   if (Date.now() - p.lastUsedAt > REUSE_MAX_IDLE_MS) { discardReusableWindow(); return null; }
-  return { window: p.window, browserFrame: p.browserFrame, reused: true };
-}
-function stageReusableWindow(window, browserFrame) {
-  _reusePool.window = window;
-  _reusePool.browserFrame = browserFrame;
-  _reusePool.solves = 0;
-  _reusePool.lastUsedAt = Date.now();
-}
-function discardReusableWindow() {
-  const p = _reusePool;
-  if (p.window) {
-    try { destroyDom(p.window); } catch (_) {}
-  }
+
+  // Detach atomically before returning. A reused window is owned by exactly
+  // one solve until that solve stages it again or destroys it; concurrent
+  // callers must create independent windows rather than sharing this one.
+  const window = p.window;
+  const browserFrame = p.browserFrame;
+  const solves = p.solves;
   p.window = null;
   p.browserFrame = null;
   p.solves = 0;
+  p.lastUsedAt = 0;
+  return { window, browserFrame, reused: true, solves };
 }
-function noteWindowSolved() {
-  _reusePool.solves += 1;
+
+/** Stage only an unowned window. The boolean tells the caller who must clean it. */
+function stageReusableWindow(window, browserFrame, solves = 0) {
+  if (!window || _reusePool.window) return false;
+  _reusePool.window = window;
+  _reusePool.browserFrame = browserFrame;
+  _reusePool.solves = solves;
   _reusePool.lastUsedAt = Date.now();
+  return true;
+}
+
+function discardReusableWindow() {
+  const p = _reusePool;
+  const window = p.window;
+  p.window = null;
+  p.browserFrame = null;
+  p.solves = 0;
+  p.lastUsedAt = 0;
+  if (window) {
+    try { destroyDom(window); } catch (_) {}
+  }
 }
 
 // ── Guest error capture (read side) ────────────────────────────────────────
@@ -2369,44 +2442,18 @@ async function solveTraceless(opts) {
 
   const wantReuse = opts.reuseWindow ?? process.env.CAPTCHA_WINDOW_REUSE !== "0";
   let dom;
-  let reused = false;
   if (wantReuse) {
     dom = takeReusableWindow();
-    if (dom) reused = true;
+  }
+  let pooledSolves = 0;
+  if (dom) {
+    pooledSolves = dom.solves || 0;
   }
   if (!dom) {
-    // Global RSS gate BEFORE creating a window (field report v4.7.3: the
-    // multi-account claim round fires 4 accounts × 3 lanes × up to 4 retries
-    // at once; each happy-dom window costs 150-300MB, so concurrent creates
-    // pushed RSS past 1GB and the Bun process died with exit 1 — the RSS
-    // guard below only ran on the REUSE path and never gated NEW windows).
-    // When over the guard, wait for the in-flight solves to finish and
-    // release their windows instead of stacking one more; after a short wait
-    // a pooled window is usually reusable again. Falls through after 30s so
-    // a stuck high-RSS state degrades to "solve anyway" rather than a
-    // permanent captcha outage.
-    if (RSS_GUARD_MB > 0) {
-      const gateStart = Date.now();
-      for (;;) {
-        const rssMb = process.memoryUsage.rss() / 1048576;
-        if (rssMb <= RSS_GUARD_MB) break;
-        if (Date.now() - gateStart > 30_000) {
-          console.warn(`[captcha] RSS ${Math.round(rssMb)}MB still > guard ${RSS_GUARD_MB}MB after 30s — solving anyway`);
-          break;
-        }
-        if (!_waitingLogged) {
-          _waitingLogged = true;
-          console.warn(`[captcha] RSS ${Math.round(rssMb)}MB > guard ${RSS_GUARD_MB}MB — deferring new window (waiting for in-flight solves to release)`);
-        }
-        await new Promise((r) => setTimeout(r, 1_000));
-      }
-      _waitingLogged = false;
-    }
-    dom = await createDom(region, prefix);
+    dom = await createWindowUnderRssGuard(region, prefix);
   }
   const { window: w, browserFrame } = dom;
   const solveStart = Date.now();
-  let solveSucceeded = false;
   let keepWindow = false;
   try {
     await waitFor(() => typeof w.initAliyunCaptcha === "function", timeoutMs, 50);
@@ -2414,13 +2461,25 @@ async function solveTraceless(opts) {
     simulateBehavior(w, 600);
 
     const param = await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      let stallTimer: ReturnType<typeof setInterval> | null = null;
+      const cleanupTimers = () => {
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        if (stallTimer) {
+          clearInterval(stallTimer);
+          stallTimer = null;
+        }
+      };
+      timer = setTimeout(() => {
         // Clear the stall detector FIRST: after this reject, catch/finally
         // destroys the window, but a live stallTimer keeps polling _requestLog
         // while holding a reference to the closed window — that reference is
         // exactly what blocked GC and drove the slow RSS climb (field report
         // v4.7.2: 180MB → 722MB in 40 minutes).
-        clearInterval(stallTimer);
+        cleanupTimers();
         const peUrl = (() => { try { return w.__lastPeUrl || "?"; } catch (_) { return "?"; } })();
         const reqs = _requestLog
           .filter((r) => r.at >= solveStart)
@@ -2439,7 +2498,7 @@ async function solveTraceless(opts) {
       // recover instead of dying.
       const stallMs = opts.stallMs ?? Number(process.env.CAPTCHA_STALL_MS || 6_000);
       let stallStruck = false;
-      const stallTimer = setInterval(() => {
+      stallTimer = setInterval(() => {
         const last = _requestLog[_requestLog.length - 1];
         if (last && Date.now() - last.at > stallMs) {
           if (!stallStruck) {
@@ -2453,8 +2512,7 @@ async function solveTraceless(opts) {
             .filter((r) => r.at >= solveStart)
             .map((r) => `${(r.at - solveStart)}ms ${r.method} ${String(r.url).replace(/^https?:\/\//, "").slice(0, 60)}`)
             .slice(-12);
-          clearTimeout(timer);
-          clearInterval(stallTimer);
+          cleanupTimers();
           reject(new Error(`captcha solve stall pe=${peUrl.split("/").pop() || peUrl} lastXhr=${(last.at - solveStart)}ms reqs=${JSON.stringify(reqs)}`));
         } else if (last && Date.now() - last.at <= stallMs) {
           // Traffic resumed — re-arm so a later stall gets its own grace.
@@ -2462,8 +2520,7 @@ async function solveTraceless(opts) {
         }
       }, 500);
       const finish = (fn) => (value) => {
-        clearTimeout(timer);
-        clearInterval(stallTimer);
+        cleanupTimers();
         fn(value);
       };
       try {
@@ -2495,7 +2552,7 @@ async function solveTraceless(opts) {
           onError: (err) => finish(reject)(new Error(`onError: ${JSON.stringify(err)}`)),
         });
       } catch (err) {
-        clearTimeout(timer);
+        cleanupTimers();
         reject(err);
       }
     });
@@ -2521,12 +2578,10 @@ async function solveTraceless(opts) {
       } catch (_) {}
     }
 
-    solveSucceeded = true;
     const out = extractVerifyParam(param);
     if (wantReuse) {
-      if (reused) noteWindowSolved();
-      else stageReusableWindow(w, browserFrame);
-      keepWindow = true;
+      const nextSolves = pooledSolves + 1;
+      keepWindow = stageReusableWindow(w, browserFrame, nextSolves);
     }
     return out;
   } catch (err) {
@@ -2543,8 +2598,13 @@ async function solveTraceless(opts) {
     // Reuse mode: on success the window stays pooled (keepWindow) for the next
     // solve — a ~48% CPU cut. On failure it is destroyed: a stalled window must
     // not poison later solves, and the retry rolls a fresh pe anyway.
+    if (!keepWindow && _reusePool.window === w) {
+      _reusePool.window = null;
+      _reusePool.browserFrame = null;
+      _reusePool.solves = 0;
+      _reusePool.lastUsedAt = 0;
+    }
     if (!keepWindow) {
-      if (_reusePool.window === w) _reusePool.window = null;
       try {
         destroyDom(w);
       } catch (destroyErr) {
@@ -2562,3 +2622,26 @@ async function solveTraceless(opts) {
 }
 
 export { solveTraceless, createDom, destroyDom, discardReusableWindow };
+
+// ── Test-only seams ─────────────────────────────────────────────────────────
+// The pool-ownership rules (atomic detach, single-slot staging, RSS guard)
+// need to be exercisable without booting a real captcha window: a real window
+// costs a CDN fetch and 150-300MB, which is exactly the resource under test.
+// These hooks are only read/written by the regression suite.
+export const __captchaReuseSeams = {
+  take: takeReusableWindow,
+  stage: stageReusableWindow,
+  discard: discardReusableWindow,
+  snapshot: () => ({ ..._reusePool }),
+  setPool: (entry: { window: unknown; browserFrame: unknown; solves: number; lastUsedAt: number }) => {
+    _reusePool.window = entry.window as never;
+    _reusePool.browserFrame = entry.browserFrame as never;
+    _reusePool.solves = entry.solves;
+    _reusePool.lastUsedAt = entry.lastUsedAt;
+  },
+  setRssReader: (reader: () => number) => { _rssReader = reader; },
+  resetRssReader: () => { _rssReader = () => process.memoryUsage().rss / 1048576; },
+  maxSolves: REUSE_MAX_SOLVES,
+  maxIdleMs: REUSE_MAX_IDLE_MS,
+  rssGuardMb: RSS_GUARD_MB,
+};

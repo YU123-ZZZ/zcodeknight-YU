@@ -260,6 +260,26 @@ upstream (api.z.ai / open.bigmodel.cn)
 小内存主机（2G）建议：CAPTCHA_WINDOW_REUSE=0 关闭窗口复用是最快的第一步隔离手段；
 配合 systemd MemoryMax 观察是否触顶。日志 CSV 导出现在包含全量引擎历史，可用于回溯。
 
+v4.7.15（2026-10-14）：
+
+验证码沙箱内存生命周期专项修复（不含任何验证码机制本身的变化）：
+
+1. **窗口池取用原子化**——池中窗口被取走时立即摘除，一个窗口同一时刻只归一个
+   求解所有；并发求解不再共享同一个窗口，各窗口独立创建、独立销毁。
+2. **窗口归还竞态修复**——多个求解同时成功时，只有发现空闲位为空的那个能把窗口
+   放回池中，后来者直接销毁自己的窗口，不再出现两个窗口抢一个池位、池引用指向
+   已销毁窗口的错位。
+3. **求解定时器全部回收**——超时定时器与停滞检测器统一由一个清理函数注销，包括
+   `initAliyunCaptcha` 同步抛异常的路径；此前这条路径会让检测器继续持有已关闭
+   窗口的引用，阻碍回收、内存缓慢爬升。
+4. **RSS 自保护改为失败关闭**——RSS 超过 `CAPTCHA_RSS_GUARD_MB` 且等待
+   `CAPTCHA_RSS_GUARD_WAIT_MS`（默认 30 秒）后，不再"照常求解"新开窗口
+   （新开的 happy-dom 窗口会把受控的内存尖峰变成无界的求解风暴）；现在直接
+   抛错拒绝本次求解，不分配新窗口，等在途求解释放后自动恢复。
+5. **销毁更稳健**——`destroyDom` 对 null/重复销毁直接返回，不影响兄弟窗口的
+   全局别名与共享 worker；只有被销毁窗口确实持有全局别名时才切换到下一个存活
+   窗口，最后一个存活窗口销毁后才关闭同步 fetch worker。
+
 v4.7.14（2026-10-13）：
 
 1. **邀请好友页面恢复可用**——不再是"敬请期待"占位页。每个账号单独显示本地预留的
@@ -436,8 +456,8 @@ v4.7.2 现场修复后的补充说明（2026-09-30）：
 ### 1. Start
 
 Get the right file from the [Releases page](https://github.com/YU123-ZZZ/zcodeknight-YU/releases) —
-four assets, each containing **only** what that platform needs (no Docker inside
-the source package, no other architecture, no source tree in the Docker package):
+four assets: the Windows/source archive excludes Docker and Linux binaries;
+the Docker archive contains its build sources, but no host binaries or live state:
 
 | Your machine | Download |
 | --- | --- |
@@ -457,8 +477,9 @@ ZcodeKnight.bat
 ```
 
 ```bash
-# Linux (platform package) — foreground, Ctrl-C to stop
-sh start.sh
+# Linux x64 — standalone binary, foreground; Ctrl-C to stop
+chmod +x ZcodeKnight-YU-linux-x64
+./ZcodeKnight-YU-linux-x64 --cli serve
 
 # Linux/macOS (source package) — one command, no prerequisites
 sh setup.sh
@@ -977,8 +998,8 @@ ZcodeKnight/
 ### 1. 启动
 
 到 [Releases 页](https://github.com/YU123-ZZZ/zcodeknight-YU/releases) 下载对应文件。
-共四个资产，每个**只含该平台需要的东西**（源码包里没有 Docker 目录，Docker 包里没有
-源码树和其它架构二进制）：
+共四个附件：源码包含 Windows 程序与源码，不含 Docker 或 Linux 二进制；Docker 包
+含容器构建所需源码，不含宿主机二进制和运行数据。
 
 | 你的机器 | 下载哪个 |
 | --- | --- |
@@ -996,8 +1017,9 @@ ZcodeKnight.bat
 ```
 
 ```bash
-# Linux（平台包）—— 前台运行，Ctrl-C 停止
-sh start.sh
+# Linux x64 裸二进制——前台运行，Ctrl-C 停止
+chmod +x ZcodeKnight-YU-linux-x64
+./ZcodeKnight-YU-linux-x64 --cli serve
 
 # Linux / macOS（源码包）—— 一条命令，无需预装任何东西
 sh setup.sh

@@ -505,6 +505,22 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
+  { ver: "v4.7.15", date: "2026-10-14", items: {
+    zh: [
+      "【验证码】窗口池并发取用修复：池中窗口被取走时原子摘除（一个窗口同一时刻只归一个求解所有），并发求解不再共享同一个窗口，各自的窗口独立创建、独立销毁",
+      "【验证码】窗口归还竞态修复：多个求解同时成功时，只有空闲位为空的那个能把窗口放回池中，后来者直接销毁自己的窗口，不再出现两个窗口抢一个池位、池引用指向已销毁窗口的错位",
+      "【验证码】求解定时器全部回收：超时定时器与停滞检测器统一由一个清理函数注销，包括 initAliyunCaptcha 同步抛异常的路径——之前这条路径会让检测器继续持有已关闭窗口的引用，阻碍回收、内存缓慢爬升",
+      "【验证码】RSS 自保护改为失败关闭：RSS 超过 CAPTCHA_RSS_GUARD_MB 且等待 CAPTCHA_RSS_GUARD_WAIT_MS（默认 30 秒）后，不再「照常求解」新开窗口——新开的 happy-dom 窗口会把受控的内存尖峰变成无界的求解风暴；现在直接抛错拒绝本次求解，不分配新窗口，等待中的在途求解自然释放后再恢复",
+      "【验证码】销毁更稳健：destroyDom 对 null/重复销毁直接返回，不再影响兄弟窗口的全局别名与共享 worker；只有被销毁窗口确实持有全局别名时才切换到下一个存活窗口，最后一个存活窗口销毁后才关闭同步 fetch worker",
+    ],
+    en: [
+      "Captcha: window-pool take is now atomic — a pooled window is detached the moment it is handed out, so each solve owns exactly one window; concurrent solves create independent windows instead of sharing one",
+      "Captcha: fixed the pool return race — when several solves succeed at once, only the one that finds the idle slot empty may stage its window back; the rest destroy their own window instead of overwriting the pool slot with a window that is about to be destroyed",
+      "Captcha: all solve timers are now cancelled through one cleanup path, including the case where initAliyunCaptcha throws synchronously — previously the stall detector kept polling a closed window's request log, holding the reference that blocked GC and drove the slow RSS climb",
+      "Captcha: the RSS self-guard now fails closed — when RSS stays above CAPTCHA_RSS_GUARD_MB for longer than CAPTCHA_RSS_GUARD_WAIT_MS (default 30s) the solve is refused with an error instead of \"solving anyway\" and allocating another happy-dom window, which is what turned a bounded memory spike into an unbounded solve storm; no new window is allocated and solving resumes once in-flight solves release",
+      "Captcha: destroyDom is hardened — null or repeated destroys return immediately without harming sibling windows' global aliases or the shared worker; the global alias slot only moves to another live window when the destroyed window really owned it, and the synchronous fetch worker shuts down only after the last live window is gone",
+    ],
+  } },
   { ver: "v4.7.14", date: "2026-10-13", items: {
     zh: [
       "【邀请】邀请好友页面恢复为可用功能：每个账号单独显示本地预留的邀请码/邀请链接，支持搜索（码/链接/标签/备注/账号）、按分类与状态筛选、分页、手动指定账号、按账号轮询分配（round_robin 取最少分配的那个）、释放预留、删除条目（有未释放预留时会拒绝并提示先释放）；条目只能手动登记，不会伪造官方来源",

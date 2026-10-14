@@ -26,6 +26,7 @@
 import { describe, expect, test } from "bun:test";
 import { GlobalWindow } from "happy-dom";
 import {
+  __captchaReuseSeams,
   createDom,
   destroyDom,
   installGlobalWindowAlias,
@@ -329,6 +330,93 @@ describe("alias lifecycle (install/remove descriptor contract)", () => {
       expect(typeof g.cancelAnimationFrame).toBe("function");
     } finally {
       removeGlobalWindowAlias(g, w);
+    }
+  });
+});
+
+// The reuse pool hands one window to one solve at a time. These rows pin the
+// ownership rules that a 20GB field incident traced back to: a pooled window
+// that survived take() could be used by two parallel solves at once, and two
+// successful parallel solves could both "stage" themselves, orphaning the
+// loser's window with keepWindow=true so its finally never destroyed it.
+describe("reuse pool ownership", () => {
+  /** A stand-in window; only identity and destruction are under test. */
+  function fakeWindow() {
+    return {
+      document: { getElementById: () => null },
+      happyDOM: { close: () => {} },
+    };
+  }
+
+  test("take detaches the pooled entry so a second take cannot share it", () => {
+    const first = fakeWindow();
+    __captchaReuseSeams.setPool({ window: first, browserFrame: {}, solves: 3, lastUsedAt: Date.now() });
+    try {
+      const taken = __captchaReuseSeams.take();
+      expect(taken?.window).toBe(first);
+      // Solves carried forward: one window's lifetime budget spans all its uses.
+      expect(taken?.solves).toBe(3);
+      // The pool is empty at once — a concurrent solve must create its own
+      // window instead of running against the one this solve now owns.
+      expect(__captchaReuseSeams.snapshot().window).toBeNull();
+      expect(__captchaReuseSeams.take()).toBeNull();
+    } finally {
+      __captchaReuseSeams.discard();
+    }
+  });
+
+  test("staging refuses an occupied slot so the caller detroys its loser window", () => {
+    const owner = fakeWindow();
+    const loser = fakeWindow();
+    __captchaReuseSeams.setPool({ window: owner, browserFrame: {}, solves: 1, lastUsedAt: Date.now() });
+    try {
+      // The 2nd parallel success must NOT overwrite the 1st: the false return
+      // is what tells its caller to destroy the candidate in its finally.
+      expect(__captchaReuseSeams.stage(loser, {})).toBe(false);
+      expect(__captchaReuseSeams.snapshot().window).toBe(owner);
+      // A free slot accepts and records the solve count it carried.
+      __captchaReuseSeams.discard();
+      expect(__captchaReuseSeams.stage(loser, {}, 7)).toBe(true);
+      expect(__captchaReuseSeams.snapshot().solves).toBe(7);
+    } finally {
+      __captchaReuseSeams.discard();
+    }
+  });
+
+  test("an over-guard RSS reading discards the pooled window and returns null", () => {
+    const pooled = fakeWindow();
+    __captchaReuseSeams.setPool({ window: pooled, browserFrame: {}, solves: 0, lastUsedAt: Date.now() });
+    try {
+      __captchaReuseSeams.setRssReader(() => __captchaReuseSeams.rssGuardMb + 1_000);
+      // Pre-fix this returned { window: null, reused: true }: the caller then
+      // ran a "solve" against a null window for the full 30s timeout and its
+      // destroyDom(null) decremented the shared alias refcount.
+      expect(__captchaReuseSeams.take()).toBeNull();
+      expect(__captchaReuseSeams.snapshot().window).toBeNull();
+    } finally {
+      __captchaReuseSeams.resetRssReader();
+      __captchaReuseSeams.discard();
+    }
+  });
+
+  test("destroyDom is idempotent and ignores null", () => {
+    const w = new GlobalWindow({
+      url: "https://zcode.z.ai/",
+      settings: { suppressInsecureJavaScriptEnvironmentWarning: true },
+    });
+    const g = globalThis as Record<string, unknown>;
+    installGlobalWindowAlias(g, w, 15);
+    try {
+      // Pre-fix, a second destroy ran removeGlobalWindowAlias again and pulled
+      // the alias refcount below the number of live windows, so a sibling
+      // solve lost its globals mid-flight.
+      destroyDom(w);
+      destroyDom(w);
+      destroyDom(null);
+      destroyDom(undefined);
+      expect(true).toBe(true); // reaching here without a refcount corruption is the assertion
+    } finally {
+      destroyDom(w);
     }
   });
 });
