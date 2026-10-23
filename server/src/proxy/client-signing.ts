@@ -26,7 +26,8 @@
 /**
  * Client Request Signing V4 — mirrors the ZCode 3.12.3 `ClientRequestSigningV4Signer`
  * (bundle `XJe`; handshake `performHandshake`, business sign `sendSigned`, PoW `vQt`,
- * HMAC `hQt`). All four signed message templates join their fields with literal
+ * HMAC `hQt`). The 3.16.3 client removed the `codingPlanSignature` gate (signing
+ * is now the default; see fetchGate), the signer itself is unchanged there. All four signed message templates join their fields with literal
  * NEWLINES (the bundle templates contain raw `\n` line breaks inside the template
  * literals — verified byte-exact 2026-09-18 by JSON.stringify'ing the raw bundle
  * slice; live-verified: `\n` handshake → 200 + privateCipher, space-joined → rejected):
@@ -500,10 +501,15 @@ export class ClientSigningManager {
       if (!resp.ok) return "unavailable";
       const parsed = await resp.json() as Record<string, unknown>;
       if (!parsed || parsed.code !== 0) return "unavailable";
+      // ZCode 3.16.3 removed the codingPlanSignature feature gate from the
+      // client entirely (signing is now the default; provider access_mode is
+      // the only unsigned exception), so a 2xx/code-0 response WITHOUT the
+      // field is the NEW normal and must sign, not silently stop signing.
+      // An explicit enable:false is still honoured for older servers.
       const data = parsed.data as Record<string, unknown> | undefined;
-      if (!data || !Object.prototype.hasOwnProperty.call(data, "codingPlanSignature")) return "disabled";
+      if (!data || !Object.prototype.hasOwnProperty.call(data, "codingPlanSignature")) return "enabled";
       const signature = data.codingPlanSignature as Record<string, unknown> | undefined;
-      return signature?.enable === true ? "enabled" : "disabled";
+      return signature?.enable === false ? "disabled" : "enabled";
     } finally {
       clearTimeout(timer);
     }

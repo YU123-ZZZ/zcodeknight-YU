@@ -96,15 +96,15 @@ interface MockCalls {
   handshakes: { url: string; body: Record<string, unknown>; auth: string }[];
 }
 
-function signingFetchFixture(fixture: HandshakeFixture, calls: MockCalls, gateEnabled = true): typeof fetch {
+function signingFetchFixture(fixture: HandshakeFixture, calls: MockCalls, gateEnabled: boolean | "absent" = true): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
     if (url === GATE_URL) {
       calls.gate++;
-      return new Response(JSON.stringify({
-        code: 0,
-        data: gateEnabled ? { codingPlanSignature: { enable: true } } : {},
-      }), { status: 200 });
+      const data = gateEnabled === "absent" ? {} : (
+        gateEnabled ? { codingPlanSignature: { enable: true } } : { codingPlanSignature: { enable: false } }
+      );
+      return new Response(JSON.stringify({ code: 0, data }), { status: 200 });
     }
     if (url === HANDSHAKE_URL) {
       calls.handshakes.push({
@@ -218,13 +218,27 @@ describe("ClientSigningManager.sign", () => {
     expect(calls.handshakes.length).toBe(1);
   });
 
-  it("does not sign when the gate is disabled", async () => {
+  it("does not sign when the gate is explicitly disabled", async () => {
     const fixture = await buildHandshakeFixture();
     const calls: MockCalls = { gate: 0, handshakes: [] };
     const manager = new ClientSigningManager({ identity, fetchImpl: signingFetchFixture(fixture, calls, false) });
     const signed = await manager.sign(LLM_URL, BASE_PAIRS, { credential: CRED, appVersion: "3.8.1" });
     expect(calls.handshakes.length).toBe(0);
     expect(signed).toBe(BASE_PAIRS);
+  });
+
+  it("signs by default when the gate field is absent (ZCode 3.16.3 removed codingPlanSignature)", async () => {
+    // 3.16.3 dropped the feature gate: a code-0 response without the field is
+    // the new normal, and the pre-3.16 reading of that as "disabled" silently
+    // stopped signing the moment servers dropped the field — every signed
+    // route then failed upstream with 401 VERIFY envelopes.
+    const fixture = await buildHandshakeFixture();
+    const calls: MockCalls = { gate: 0, handshakes: [] };
+    const manager = new ClientSigningManager({ identity, fetchImpl: signingFetchFixture(fixture, calls, "absent") });
+    const signed = await manager.sign(LLM_URL, BASE_PAIRS, { credential: CRED, appVersion: "3.16.3" });
+    expect(calls.handshakes.length).toBe(1);
+    expect(signed.length).toBe(BASE_PAIRS.length + 6);
+    expect(pair(signed, "X-Client-Sig")).toMatch(/^[A-Za-z0-9+/]+={0,2}$/);
   });
 
   it("never signs exempt paths (start-plan gateway, off-peak)", async () => {
@@ -321,7 +335,9 @@ describe("ClientSigningManager.sign", () => {
       fetchImpl: (async () => {
         gateCalls++;
         await new Promise((r) => setTimeout(r, 10));
-        return new Response(JSON.stringify({ code: 0, data: {} }), { status: 200 });
+        // Explicitly disabled: an absent field is "sign by default" since
+        // 3.16.3, which would proceed to handshakes and poll this same mock.
+        return new Response(JSON.stringify({ code: 0, data: { codingPlanSignature: { enable: false } } }), { status: 200 });
       }) as unknown as typeof fetch,
     });
     const cred = { credential: CRED, appVersion: "3.8.1" };

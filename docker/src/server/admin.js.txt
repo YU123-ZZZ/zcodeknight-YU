@@ -505,6 +505,26 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
+  { ver: "v4.7.16", date: "2026-10-23", items: {
+    zh: [
+      "【兼容】跟进 ZCode 3.16.3：上游客户端已移除 codingPlanSignature 功能门（签名默认开启，provider access_mode 是唯一免签例外）。代理的门探测改为「字段缺失＝需要签名」，只有明确的 enable:false 才关闭——否则服务端一摘掉该字段，代理会静默停止签名，全部签名路由 401",
+      "【兼容】默认客户端版本号 3.14.4 → 3.16.3（与官方桌面端一致；过旧的版本串是风控信号）。已验证：签名算法 V4、身份头集合、模型表与上游完全一致，无需其它适配",
+      "【面板·性能】修复 boot() 重入泄漏：登录重试/会话过期重登每次都会再建一个 5 秒轮询且从不清除，挂机越久请求与渲染越卡；现在重入前先清旧句柄",
+      "【面板·性能】账号卡与余额卡的变更键把冷却剩余毫秒量化到 30 秒桶：忙时（越多账号在冷却）每 5 秒轮询都整卡重建的卡顿消除，倒计时文字仍由独立 1 秒 ticker 驱动",
+      "【面板·性能】三个常驻 1 秒 ticker（倒计时/运行时长/领取倒计时）在未登录或标签页隐藏时跳过全文档扫描；日志渲染删除每 2 秒一次的死代码全量快照",
+      "【面板·修复】日志页「成功/失败/按账号」过滤器此前完全无效（选项变更触发刷新但值从未被读取）；账号下拉现在从实时数据回填，过滤真正生效",
+      "【面板·修复】删除最后一个账号后列表残留幽灵卡片（空响应被当坏读拦下）；重复日志行不再互相塌缩丢行；取消登录后停止后台 3 秒轮询；操场对话历史上限 200 条（此前无界，越用越慢）；操场模型/账号下拉加单飞守卫防旧响应回写",
+    ],
+    en: [
+      "Compat: tracks ZCode 3.16.3 — the upstream client removed the codingPlanSignature feature gate (signing is the default; provider access_mode is the only unsigned exception). The proxy gate now reads a MISSING field as \"sign\" and only an explicit enable:false disables it; without this the proxy would silently stop signing the moment servers drop the field, 401-ing every signed route",
+      "Compat: default client version 3.14.4 → 3.16.3 (matches the shipping desktop client; an outdated version string is a risk-control signal). Verified against the 3.16.3 bundle: signing V4, the identity header set and the model catalog are unchanged — no further adaptation needed",
+      "Panel/perf: fixed the boot() re-entry leak — every login retry or session-expired re-login stacked one more 5s poller that was never cleared, so the panel got laggier the longer it lived; the previous handle is now cleared first",
+      "Panel/perf: account/balance card change keys quantize cooldown milliseconds to 30s buckets — the busy-pool card rebuild on every 5s poll is gone; on-card countdown text still ticks on its own 1s timer",
+      "Panel/perf: the three always-on 1s tickers (countdowns / running-for / claim) skip their full-document sweeps while logged out or on a hidden tab; the per-poll dead full snapshot in the log renderer was removed",
+      "Panel/fix: the log page's success/fail/account filters were dead UI (a change triggered a refresh but the values were never read); the account dropdown is now rebuilt from live data and filtering actually applies",
+      "Panel/fix: deleting the last account no longer leaves a ghost card (the empty response was mistaken for a bad read); duplicate log lines no longer collapse onto one row; cancelling the login dialog stops the 3s background poll; the playground transcript is capped at 200 entries (was unbounded and slowed the panel over time); the playground pickers gained a single-flight guard against stale overwrites",
+    ],
+  } },
   { ver: "v4.7.15", date: "2026-10-14", items: {
     zh: [
       "【验证码】窗口池并发取用修复：池中窗口被取走时原子摘除（一个窗口同一时刻只归一个求解所有），并发求解不再共享同一个窗口，各自的窗口独立创建、独立销毁",
@@ -1125,6 +1145,11 @@ function lastPage() {
 // Without this, a timed-out session left the overview polling /overview at
 // 401 forever — the page showed "—" and "加载中…" with no hint why.
 let zkAuthed = false;
+// Handle of boot()'s 5s poller. boot() re-enters on failed-login retry and on
+// the session-expired banner's re-login link; each re-entry must clear the
+// previous interval or the pollers (and their per-tick fetch/render work)
+// pile up linearly — the "panel gets laggier over time" leak.
+let bootPollTimer = 0;
 // Session-expiry visibility: when the gate is up and data pages show stale
 // "loading" placeholders, the operator has no idea WHY. This banner says so
 // and offers one-click re-entry to the login dialog.
@@ -1501,9 +1526,16 @@ function renderBalanceList() {
     const planSig = (a.activePlans || []).map((p) =>
       [p.planId, p.pending, p.effectiveAt, p.endsAt].join(":")).join("|");
     const claimSig = (a.claimablePlans || []).length;
+    // Quantize hold countdowns to 30s buckets (same rationale as the account
+    // card diffKey): raw remainingMs ticks every poll and rebuilt every
+    // throttled account's card every 5s — the busy-pool 卡顿 the keyed reuse
+    // exists to prevent. The badge only shows the hold COUNT, so nothing
+    // visible goes stale.
+    const holdSig = holds.map((h) =>
+      [h.model, typeof h.remainingMs === "number" && h.remainingMs > 0 ? Math.ceil(h.remainingMs / 30000) : h.remainingMs].join(":")).join("|");
     const sig = JSON.stringify([
       a.id, a.name, a.provider, a.plan, balSig, planSig, claimSig,
-      meta && meta.status, holds, lang,
+      meta && meta.status, holdSig, lang,
     ]);
     let box = existing.get(a.id);
     if (box && box.dataset.balSig === sig) {
@@ -1874,10 +1906,20 @@ function renderAccounts(list) {
     // while a real change still gets a fresh render. Status timestamps make
     // the hold-line deadlines part of the key — their absolute targets move
     // server-side even when the text does not.
+    //
+    // Countdown millisecond fields are quantized to 30s buckets before they
+    // enter the key: they tick down continuously, so ANY cooling/throttled
+    // account changed the key on every 5s poll and took the full
+    // innerHTML-rebuild path — keyed reuse failed exactly when the pool was
+    // busiest ("忙时面板卡"). The on-card countdown text keeps its own 1s
+    // ticker, so a 30s key granularity costs no visible staleness.
+    const quantizeMs = (ms) => (typeof ms === "number" && ms > 0 ? Math.ceil(ms / 30000) : ms);
     const diffKey = JSON.stringify([
       a.id, a.name, a.provider, a.plan, a.status, a.statusNote,
-      a.newAccountRestUntil, a.modelCooldowns, a.stats,
-      a.inFlight, a.maxConcurrent, a.cooldownRemainingMs,
+      quantizeMs(a.newAccountRestUntil),
+      (a.modelCooldowns || []).map((h) => ({ ...h, remainingMs: quantizeMs(h.remainingMs) })),
+      a.stats,
+      a.inFlight, a.maxConcurrent, quantizeMs(a.cooldownRemainingMs),
       a.isDefault, a.hasJwt, a.deviceMidTail, a.createdAt, lang,
     ]);
     let card = existing.get(a.id);
@@ -2002,6 +2044,12 @@ function renderAccounts(list) {
       // confirmed a destructive action, nothing was deleted, and the card still
       // sitting there is the only clue.
       if (!(await okOrToast(r))) return;
+      // Drop it from the local snapshot BEFORE refreshing. The empty-list guard
+      // in refreshAccounts treats "[] after a non-empty pool" as a bad read and
+      // keeps the rendered cards — correct for a failed poll, but it also kept
+      // the LAST account's ghost card alive after a genuine delete until a
+      // manual page reload.
+      lastAccounts = lastAccounts.filter((x) => x.id !== a.id);
       refreshAccounts();
     });
     card.appendChild(actions);
@@ -2182,8 +2230,14 @@ document.getElementById("acc-add").onclick = () => {
   renderExistingInModal();
 };
 document.getElementById("login-cancel").onclick = () => {
-  const sid = document.getElementById("login-wait").dataset.sid;
+  const wait = document.getElementById("login-wait");
+  const sid = wait.dataset.sid;
   if (sid) api("/accounts/login/cancel", { method: "POST", body: JSON.stringify({ sessionId: sid }) });
+  // Clear the session marker so pollLogin's `dataset.sid !== sid` guard stops
+  // the 3s background loop. Without this, a cancelled login kept POSTing
+  // /accounts/login/status for the full 5-minute TTL with the dialog closed.
+  delete wait.dataset.sid;
+  stopCountdown();
   document.getElementById("login-mask").classList.remove("on");
 };
 document.getElementById("login-start").onclick = async () => {
@@ -2505,6 +2559,12 @@ let pgPushTimer = null;
  * reached. Neither write may break sending, so both are guarded.
  */
 function pgSave() {
+  // Cap the transcript (200, hardcoded: the extracted-function tests run this
+  // standalone, so no module-level constant may be referenced). Every save
+  // serializes the whole array to localStorage AND POSTs it to the engine, and
+  // every send ships it upstream — an unbounded history made the panel slower
+  // the longer a conversation ran. Oldest entries go, order is preserved.
+  if (pgHistory.length > 200) pgHistory = pgHistory.slice(-200);
   try { localStorage.setItem(PG_STORE, JSON.stringify(pgHistory)); }
   catch (e) { /* private mode, or quota — losing the copy must not break sending */ }
   pgSaveSelection();
@@ -2600,6 +2660,7 @@ function pgRestore() {
  */
 function pgPaint(list) {
   pgHistory = list.filter((m) => m && typeof m.content === "string" && PG_ROLES.has(m.role));
+  if (pgHistory.length > 200) pgHistory = pgHistory.slice(-200); // cap, see pgSave
   for (const m of pgHistory) chatBubble(pgBubbleClass(m.role), m.content);
 }
 /** The roles a saved entry may carry. `note` is a transcript divider. */
@@ -2847,6 +2908,11 @@ initStaticPickers();
  * the honest source: it reflects what the pool can actually call.
  */
 async function loadPlaygroundAccounts() {
+  // Same single-flight shape as refreshAccounts: page switches, pool renders
+  // and probe completions all call this, and a slower EARLIER round landing
+  // last overwrote the pickers with stale options (dropdown "jumped back").
+  if (loadPlaygroundAccounts._inflight) { loadPlaygroundAccounts._pending = true; return; }
+  loadPlaygroundAccounts._inflight = true;
   try {
     const [accR, cfgR, probeR] = await Promise.all([
       api("/accounts"),
@@ -2909,7 +2975,13 @@ async function loadPlaygroundAccounts() {
     if (hint) hint.textContent = (Array.isArray(probe.union) && probe.union.length)
       ? T("pg_model_probed").replace("{n}", String(models.length))
       : T("pg_model_configured");
-  } catch {}
+  } catch {} finally {
+    loadPlaygroundAccounts._inflight = false;
+    if (loadPlaygroundAccounts._pending) {
+      loadPlaygroundAccounts._pending = false;
+      loadPlaygroundAccounts();
+    }
+  }
 }
 function chatBubble(cls, text) {
   const sc = document.getElementById("pg-chat");
@@ -3096,6 +3168,8 @@ function renderMergedLog(rows, entries, filter, active) {
     items.push({
       at: a.started,
       kind: "req",
+      status: "run",
+      account: a.accountName || "",
       search: [a.ip, a.model, a.accountName, "run"].filter(Boolean).join(" ").toLowerCase(),
       html:
         '<span class="lg-t">' + fmtLogTime(a.started) + "</span>" +
@@ -3112,6 +3186,8 @@ function renderMergedLog(rows, entries, filter, active) {
     items.push({
       at: x.started,
       kind: "req",
+      status: ok ? "ok" : "fail",
+      account: x.accountName || "",
       search: [x.ip, x.path, x.model, x.accountName, x.userAgent, String(x.status)]
         .filter(Boolean).join(" ").toLowerCase(),
       html:
@@ -3141,9 +3217,16 @@ function renderMergedLog(rows, entries, filter, active) {
 
   const want = filter.kind || "all";
   const q = (filter.q || "").trim().toLowerCase();
+  // The status/account selects fire pollLogs on change but their values were
+  // never read here — both filters were dead UI. "ok"/"fail" map onto request
+  // rows only (engine lines carry no status and drop out of a filtered view).
+  const wantStatus = filter.status || "all";
+  const wantAccount = filter.account || "all";
   const shown = items.filter((it) => {
     if (want !== "all" && it.kind !== want) return false;
     if (q && !it.search.includes(q)) return false;
+    if (wantStatus !== "all" && it.status !== wantStatus) return false;
+    if (wantAccount !== "all" && it.account !== wantAccount) return false;
     return true;
   });
 
@@ -3172,8 +3255,11 @@ function renderMergedLog(rows, entries, filter, active) {
   const LOGKEY_CACHE_MAX = 4000;
   const nextKeys = [];
   const frag = document.createDocumentFragment();
-  const existing = [...box.querySelectorAll(".logline")];
-  let changed = false;
+  // key -> times appended this render. Two rows with byte-identical html
+  // (repeated engine messages within the same second) share one key;
+  // appendChild would MOVE the single cached node, so the second occurrence
+  // silently vanished from the list while rq-count still counted it.
+  const appended = new Map();
   for (const it of shown) {
     const key = it.html;
     nextKeys.push(key);
@@ -3183,12 +3269,13 @@ function renderMergedLog(rows, entries, filter, active) {
       node.className = "logline";
       node.innerHTML = it.html;
       logKeyCache.set(key, node);
-      changed = true;
       // Bound the cache: identical full-html keys mean true duplicates, so a
       // flooded cache can only come from runaway growth, never from reuse.
       if (logKeyCache.size > LOGKEY_CACHE_MAX) logKeyCache.clear();
     }
-    frag.appendChild(node);
+    const n = (appended.get(key) || 0) + 1;
+    appended.set(key, n);
+    frag.appendChild(n === 1 ? node : node.cloneNode(true));
   }
   // Drop cache entries whose rows are no longer shown.
   if (logKeyCache.size > shown.length) {
@@ -3255,9 +3342,27 @@ async function pollLogs() {
       // the panel stays open, and every poll re-sorts all of it.
       if (logEntries.length > 2000) logEntries = logEntries.slice(-2000);
     }
+    // Rebuild the account filter's options from the live rows. It was seeded
+    // once with just "All" and never refreshed, so the filter could never
+    // actually select anything. Preserve the current selection across polls.
+    const acctHidden = document.getElementById("rq-account");
+    if (acctHidden) {
+      const names = new Set();
+      for (const r of (rd.rows || [])) if (r.accountName) names.add(r.accountName);
+      for (const a of (rd.active || [])) if (a.accountName) names.add(a.accountName);
+      const cur = acctHidden.value;
+      const opts = [{ value: "all", label: T("f_all") }];
+      for (const n of [...names].sort()) opts.push({ value: n, label: n });
+      setPickerOptions("rq-account", opts);
+      if (cur !== acctHidden.value) {
+        setPickerValue("rq-account", opts.some(o => o.value === cur) ? cur : "all");
+      }
+    }
     renderMergedLog(rd.rows || [], logEntries, {
       kind: document.getElementById("rq-kind").value || "all",
       q: document.getElementById("rq-search").value,
+      status: document.getElementById("rq-status").value || "all",
+      account: document.getElementById("rq-account").value || "all",
     }, rd.active || []);
   } catch (e) {
     // Report rather than swallow. A bare `catch {}` here hid a ReferenceError
@@ -3350,6 +3455,10 @@ function fmtCountdown(ms) {
   return p(m) + ":" + p(s);
 }
 function tickCountdowns() {
+  // Three always-on 1s tickers swept the whole document even behind the
+  // logged-out gate or a hidden tab — a parked panel burned CPU all night.
+  // Skip both cases; the next visible tick re-syncs every text in one pass.
+  if (!zkAuthed || document.hidden) return;
   const now = Date.now();
   for (const el of document.querySelectorAll("[data-until]")) {
     const until = Number(el.dataset.until);
@@ -3402,6 +3511,7 @@ setInterval(tickCountdowns, 1000);
 // One interval for all rows; rows vanish when the request finishes because the
 // next render no longer includes them.
 function tickRunSince() {
+  if (!zkAuthed || document.hidden) return; // see tickCountdowns
   const els = document.querySelectorAll('[data-run-since]');
   if (!els.length) return;
   const now = Date.now();
@@ -4016,6 +4126,7 @@ let claimNextAtFetchedAt = 0;
 let claimCountdownTimer = null;
 let claimHasTargets = false;
 function renderClaimCountdown() {
+  if (!zkAuthed || document.hidden) return; // see tickCountdowns
   const el = document.getElementById("claim-next");
   const ovEl = document.getElementById("ov-claim-next");
   // Auto toggle text (主页看不到设置页的状态,这里同步到倒计时行)
@@ -5273,7 +5384,12 @@ async function boot() {
   else { refreshOverview(); loadBalances(); }
   // Non-critical page state fills in after first paint, off the critical path.
   loadSettings();
-  setInterval(() => {
+  // boot() re-enters after a failed login retry or the session-expired banner's
+  // re-login link. Without clearing the previous handle each re-entry stacked
+  // one more 5s poller — the panel got progressively laggier the longer a
+  // session lived through expiry re-logins (requests AND renders multiplied).
+  if (bootPollTimer) clearInterval(bootPollTimer);
+  bootPollTimer = setInterval(() => {
     // Poll only while the Overview is actually visible: a hidden page's fetch
     // + full re-render every 5s was the reported "某个模块加载很久" stall.
     if (document.getElementById("page-overview").classList.contains("on")) {

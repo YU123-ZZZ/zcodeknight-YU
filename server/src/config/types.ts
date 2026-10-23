@@ -319,12 +319,14 @@ export interface EndpointRoutingConfig {
 
 /**
  * Client request signing V4 — mirrors the ZCode 3.9.1
- * `ClientRequestSigningV4Signer`. When enabled, the proxy probes the same
- * feature gate the client uses (`GET {origin}/api/v1/agent/configs` →
- * `data.codingPlanSignature.enable`) and, only if the server turns the feature
- * on, signs coding-plan upstream requests (handshake + Ed25519 + proof-of-work,
- * with the client's fail-open retry ladder). Start-plan and off-peak paths are
- * permanently exempt.
+ * `ClientRequestSigningV4Signer`. The proxy probes the same endpoint the
+ * client gate used (`GET {origin}/api/v1/agent/configs`); since ZCode 3.16.3
+ * removed `data.codingPlanSignature` from the client (signing is the default,
+ * provider access_mode is the only unsigned exception), an ABSENT field now
+ * means "sign", and only an explicit `enable: false` disables. When enabled
+ * the proxy signs coding-plan upstream requests (handshake + Ed25519 +
+ * proof-of-work, with the client's fail-open retry ladder). Start-plan and
+ * off-peak paths are permanently exempt.
  */
 export interface ClientSigningConfig {
   /** Enable gate probing + signing. Default `true`. */

@@ -62,12 +62,12 @@ const ENV = {
  * Mirrors the installed ZCode desktop release. Bump per client release, or
  * `User-Agent` / `X-ZCode-App-Version` become distinguishable from the real
  * population — an outdated version string is a risk-control signal.
- * Verified against the installed client: 3.14.4 (2026-09-29 release notes:
- * "关闭模型请求验证码校验" — the upstream REMOVED the captcha gate on model
- * requests; staying at or above the current client keeps header-based
- * eligibility checks like the campaign 1004 gate passing).
+ * Verified against the installed client: 3.16.3 (checked 2026-10-23 against
+ * the in-place bundle `resources/glm/zcode.cjs`: signing V4, the g6n identity
+ * header set and the model list are unchanged; the client dropped the
+ * `codingPlanSignature` gate and now signs by default).
  */
-export const DEFAULT_APP_VERSION = "3.14.4";
+export const DEFAULT_APP_VERSION = "3.16.3";
 
 const DEFAULTS = {
   PORT: 17800,
