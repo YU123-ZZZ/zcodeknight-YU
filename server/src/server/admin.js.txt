@@ -505,6 +505,16 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
+  { ver: "v4.7.18", date: "2026-10-24", items: {
+    zh: [
+      "【情报页】「官方实时情报」接上真正的发布渠道：官方 GitHub 仓库的 Releases 停在 v3.15.1，而桌面客户端实际通过官方更新通道发版（本机已 3.16.3）——情报页此前只读 GitHub，看起来像永远不更新。现在每次刷新同时拉取官方 Electron 更新清单（免鉴权、YAML、含中文发布说明），把最新的客户端版本作为头条插入（按版本去重，公开仓库恢复发版后不会重复）",
+      "【情报页】官方更新通道条目带「官方更新通道」来源标签与官方下载链接，与 GitHub 历史条目可区分；GitHub 仓库的旧版说明仍保留在列表里",
+    ],
+    en: [
+      "Intel page: \"Upstream Intel\" now reads the REAL release channel. The public GitHub repo's releases stopped at v3.15.1 while the desktop client kept shipping through the official update channel (3.16.3 installed in the field) — the page read as frozen. Each refresh also fetches the official Electron update manifest (unauthenticated, YAML, with Chinese release notes) and prepends the newest client version as the top entry (deduped by version, so no doubles once the public repo resumes publishing)",
+      "Intel page: the live-channel entry carries an \"官方更新通道\" source label and the official download link, distinguishable from the GitHub history entries which remain listed",
+    ],
+  } },
   { ver: "v4.7.17", date: "2026-10-24", items: {
     zh: [
       "【修复·关键】glm-5.3 不再被钉死在 1 并发：旧模板给每个配置都写入了 byModel.glm-5.3=1（外加代码兜底同值），多智能体负载下 5.3 的每个请求都要排队等前一个结束——表现为「5.3 一直无法调用」。三处全部解除：模板不再写入、代码兜底移除、加载存量配置时自动丢弃这个旧模板默认值（其余显式设置的 pin 原样保留并有日志说明）。3.16.3 客户端已验证接受并行 5.3 调用，反应式 3009 冷却会自动适应上游真实上限",
@@ -813,9 +823,12 @@ async function loadIntel(force) {
         const notes = it.notes
           ? '<div class="cl-item" style="white-space:pre-wrap">' + esc(it.notes) + "</div>"
           : '<div class="cl-item sub">' + T("intel_no_notes") + "</div>";
+        // The live client channel's link points at the official download, not
+        // at GitHub — its label says so instead of the hardcoded "在 GitHub".
+        const linkText = it.linkText || ("在 GitHub 查看 " + it.version + " 完整更新日志 ↗");
         return '<div class="card cl-rel"><div class="cl-ver">' + esc(it.version) + src +
           '</div><div class="cl-date">' + esc(it.date || "") + status + "</div>" + notes +
-          (it.url ? '<div style="margin-top:8px"><a href="' + esc(it.url) + '" target="_blank" style="color:var(--blue);font-weight:700;text-decoration:underline">在 GitHub 查看 ' + esc(it.version) + " 完整更新日志 ↗</a></div>" : "") +
+          (it.url ? '<div style="margin-top:8px"><a href="' + esc(it.url) + '" target="_blank" style="color:var(--blue);font-weight:700;text-decoration:underline">' + esc(linkText) + "</a></div>" : "") +
           "</div>";
       }).join("");
     }

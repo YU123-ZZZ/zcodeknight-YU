@@ -11,7 +11,7 @@
  * "empty" status that replaces a blank row.
  */
 import { describe, it, expect } from "bun:test";
-import { changelogSectionFor } from "./upstream-intel.js";
+import { changelogSectionFor, manifestToEntry, mergeClientEntry, type IntelEntry } from "./upstream-intel.js";
 
 describe("the official changelog supplies text the release feed lacks", () => {
   /**
@@ -86,5 +86,75 @@ describe("the official changelog supplies text the release feed lacks", () => {
   it("decodes entities in the extracted text", () => {
     const html = `<span>1.2.3</span><span>发布于 2026年1月1日</span><p>A &amp; B &lt;tag&gt; &quot;quoted&quot;</p><span>1.2.2</span>`;
     expect(changelogSectionFor(html, "v1.2.3")).toBe('A & B <tag> "quoted"');
+  });
+});
+
+// The "官方实时情报" page froze at v3.15.1 while the installed client kept
+// moving: the public GitHub repo stopped being the release vehicle, and real
+// client versions ship through the official Electron update manifest. These
+// rows pin the manifest→entry conversion and the dedupe merge.
+describe("the live client channel (electron manifest)", () => {
+  // Shape taken from the live endpoint (2026-10-24), trimmed.
+  const MANIFEST_YAML = `version: 3.16.3
+files:
+    - url: https://cdn-zcode.z.ai/zcode/electron/releases/3.16.3/windows-x64/ZCode-3.16.3-win-x64.exe
+      sha512: 13o4qvOqKiRT8XeMECr5kx1aGIxNp8v43naAoBKRx5lorBOaove3lOe2YqiI5SjO9djXz7/cfYfhsBbEJJuGZw==
+      size: 190777144
+path: https://cdn-zcode.z.ai/zcode/electron/releases/3.16.3/windows-x64/ZCode-3.16.3-win-x64.exe
+releaseName: Release v3.16.3
+releaseNotes: |-
+    ## 新功能
+
+    - 帮助菜单新增复制设备号功能，反馈问题更方便。
+    - 登录链接无法自动打开时，可复制后手动完成登录。
+`;
+
+  it("converts the manifest YAML into the newest intel entry", () => {
+    const entry = manifestToEntry(MANIFEST_YAML);
+    expect(entry).not.toBeNull();
+    expect(entry!.version).toBe("v3.16.3");
+    expect(entry!.notes).toContain("复制设备号");
+    expect(entry!.notes).toContain("Release v3.16.3");
+    expect(entry!.url).toContain("ZCode-3.16.3-win-x64.exe");
+    expect(entry!.notesSource).toBe("client-manifest");
+    expect(entry!.source).toContain("官方更新通道");
+    expect(entry!.source).toContain("182 MB");
+  });
+
+  it("returns null for a garbage/empty manifest instead of inventing an entry", () => {
+    expect(manifestToEntry("")).toBeNull();
+    expect(manifestToEntry("not: [valid")).toBeNull();
+    expect(manifestToEntry("files: []")).toBeNull();
+  });
+
+  it("prepends the client entry and dedupes by version", () => {
+    const ring: IntelEntry[] = [
+      { version: "v3.15.1", date: "2026-10-10", notes: "", url: "https://github.com/zai-org/ZCode/releases/tag/v3.15.1" },
+    ];
+    const client = manifestToEntry(MANIFEST_YAML)!;
+    const merged = mergeClientEntry(ring, client);
+    expect(merged.length).toBe(2);
+    expect(merged[0]!.version).toBe("v3.16.3");
+    expect(merged[0]!.source).toContain("官方更新通道");
+
+    // Once the public repo resumes publishing 3.16.3 itself, the two sources
+    // would show the same release twice — dedupe by normalized version keeps
+    // the GitHub ring's OWN entry (its canonical release URL/notes) and drops
+    // only the manifest copy.
+    const ringWithSame: IntelEntry[] = [
+      { version: "3.16.3", date: "2026-10-20", notes: "upstream text", url: "" },
+      ...ring,
+    ];
+    const deduped = mergeClientEntry(ringWithSame, client);
+    expect(deduped.length).toBe(2);
+    expect(deduped[0]!.notes).toBe("upstream text");
+    expect(deduped.some((e) => e.notesSource === "client-manifest")).toBe(false);
+  });
+
+  it("leaves the ring untouched when the manifest fetch failed", () => {
+    const ring: IntelEntry[] = [
+      { version: "v3.15.1", date: "2026-10-10", notes: "", url: "" },
+    ];
+    expect(mergeClientEntry(ring, null)).toBe(ring);
   });
 });

@@ -37,7 +37,14 @@
  *    the last good cache is served with a `stale: true` flag and its fetch
  *    time, so the page still shows content and says how old it is. No cache
  *    yet + fetch failure = an explicit error entry, not a hang.
+ *  - Live client channel (v4.7.18): the public GitHub repo stopped at
+ *    v3.15.1 — real client versions (3.16.x) ship through the official
+ *    Electron update manifest. That manifest is fetched on every refresh and
+ *    prepended as the newest entry (deduped by version against the ring), so
+ *    the page tracks the INSTALLED-channel releases rather than freezing.
  */
+
+import { parse as parseYaml } from "yaml";
 
 export interface IntelEntry {
   /** Upstream release tag, e.g. "v3.15.1". */
@@ -56,9 +63,17 @@ export interface IntelEntry {
    * (field report 2026-10-13: "为啥 3.15.1 不显示介绍了"), and the honest answer is
    * "the release exists, this source has no notes — open the release page".
    */
-  notesSource?: "atom" | "api" | "changelog";
+  notesSource?: "atom" | "api" | "changelog" | "client-manifest";
   /** "ok" = full text, "partial" = truncated by the source, "empty" = no text. */
   notesStatus?: "ok" | "partial" | "empty";
+  /**
+   * Human-visible origin label for the entry. The GitHub ring shows nothing
+   * (the version chip + "在 GitHub 查看" link already say it); the live client
+   * channel shows "官方更新通道" so the operator can tell the two apart.
+   */
+  source?: string;
+  /** Link label override for entries whose URL is not on GitHub. */
+  linkText?: string;
 }
 
 export interface IntelFeed {
@@ -239,8 +254,99 @@ export function changelogSectionFor(html: string, version: string): string {
   return lines.slice(0, 12).join("\n").slice(0, 1200);
 }
 
-async function fetchIntel(): Promise<IntelFeed> {
-  let lastError = "";
+// ── Live client channel (official Electron update manifest) ────────────────
+// The GitHub repo's releases stopped at v3.15.1, but the desktop client kept
+// moving (3.16.3 installed in the field) — new versions ship through the
+// official Electron update manifest instead. Without reading it, the intel
+// page read as permanently frozen ("官方实时情报咋没更新").
+const CLIENT_MANIFEST_URL = "https://zcode.z.ai/api/v1/releases/electron/manifest";
+const CLIENT_CHANNEL_STABLE = 1; // 3 = preview (mirrors mapReleaseChannelToApiValue)
+
+/** Normalize a version token for dedupe: "v3.16.3" and "3.16.3" collide. */
+function normalizedVersion(v: string): string {
+  return String(v ?? "").trim().replace(/^v/i, "").toLowerCase();
+}
+
+/**
+ * Convert one manifest YAML document into an intel entry.
+ * Exported for tests: the live endpoint is rate-limited by nothing but we
+ * still do not want tests hitting the network.
+ */
+export function manifestToEntry(yamlText: string): IntelEntry | null {
+  let doc: {
+    version?: unknown; releaseName?: unknown; releaseNotes?: unknown;
+    path?: unknown; files?: unknown;
+  } | null = null;
+  try {
+    doc = parseYaml(yamlText) as typeof doc;
+  } catch {
+    return null;
+  }
+  if (!doc || typeof doc !== "object") return null;
+  const version = typeof doc.version === "string" ? doc.version.trim() : "";
+  if (!version) return null;
+  const files = Array.isArray(doc.files) ? doc.files : [];
+  const first = files.find((f) => f && typeof (f as { url?: unknown }).url === "string") as
+    | { url?: string; size?: number }
+    | undefined;
+  const downloadUrl = first?.url ?? (typeof doc.path === "string" ? doc.path : "");
+  const size = typeof first?.size === "number" ? first.size : undefined;
+  const notes = plainNotes(String(doc.releaseNotes ?? ""));
+  const head = typeof doc.releaseName === "string" && doc.releaseName.trim()
+    ? doc.releaseName.trim() + "\n"
+    : "";
+  const humanSize = size ? `（${(size / 1048576).toFixed(0)} MB）` : "";
+  return {
+    version: /^v/i.test(version) ? version : `v${version}`,
+    // The manifest carries no publish date; "fetched" time on the page and the
+    // version ordering tell the story, so the date line stays honest/empty.
+    date: "",
+    notes: (head + notes).trim(),
+    url: downloadUrl,
+    notesSource: "client-manifest",
+    notesStatus: notes ? "ok" : "empty",
+    source: `官方更新通道${humanSize}`,
+    linkText: "官方下载页 ↗",
+  };
+}
+
+/**
+ * Prepend the live client entry unless that version is already in the GitHub
+ * ring (once the public repo resumes publishing, the two sources would show
+ * the same release twice).
+ */
+export function mergeClientEntry(entries: IntelEntry[], client: IntelEntry | null): IntelEntry[] {
+  if (!client) return entries;
+  const v = normalizedVersion(client.version);
+  if (entries.some((e) => normalizedVersion(e.version) === v)) return entries;
+  return [client, ...entries];
+}
+
+/**
+ * Fetch the official client update manifest (the REAL release channel).
+ * Unauthenticated, YAML, tiny — a failure just drops the entry.
+ */
+async function fetchClientManifest(): Promise<IntelEntry | null> {
+  const platform = process.platform === "win32"
+    ? "windows-x86_64"
+    : `${process.platform}-${process.arch === "arm64" ? "aarch64" : "x86_64"}`;
+  const url = `${CLIENT_MANIFEST_URL}?platform=${platform}&channel=${CLIENT_CHANNEL_STABLE}`;
+  try {
+    const resp = await fetch(url, {
+      headers: {
+        "user-agent": "ZcodeKnight-intel-feed",
+        accept: "application/x-yaml,text/yaml,text/plain,*/*",
+      },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!resp.ok) return null;
+    return manifestToEntry(await resp.text());
+  } catch {
+    return null;
+  }
+}
+
+async function fetchIntel(): Promise<IntelFeed> {  let lastError = "";
   for (const ep of intelEndpoints()) {
     try {
       const resp = await fetch(ep.url, {
@@ -273,7 +379,14 @@ async function fetchIntel(): Promise<IntelFeed> {
       // Entries the release feed published without a body (v3.15.1) get their
       // text from the official changelog; failures leave them explicitly empty.
       await supplementFromChangelog(entries);
-      const feed: IntelFeed = { fresh: true, fetchedAt: Date.now(), entries };
+      // Prepend the LIVE client channel. The public GitHub repo stopped being
+      // the release vehicle at v3.15.1 — real client versions (3.16.x) ship
+      // through the official Electron update manifest, so without this the
+      // "官方实时情报" page read as frozen ("咋没更新") while the installed
+      // client kept moving.
+      const client = await fetchClientManifest();
+      const merged = mergeClientEntry(entries, client).slice(0, INTEL_MAX_ENTRIES);
+      const feed: IntelFeed = { fresh: true, fetchedAt: Date.now(), entries: merged };
       cache = { at: Date.now(), feed };
       return feed;
     } catch (err) {
