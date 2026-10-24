@@ -165,11 +165,13 @@ probe:
   startupDelayMs: 20000     # let the pool settle before the first run
   intervalMs: 21600000      # 6 h between automatic runs
   timeoutMs: 30000          # per-model upstream timeout
-  gapMs: 1000               # pause between models of the SAME account
+  gapMs: 2500               # pause between models of the SAME account
   # Pause between ACCOUNTS in a full sweep. Keep this generous: a rapid run of
   # probe requests gets answered with upstream error 3012 "unusual activity",
-  # which blocks the live proxy path too, not just the probe.
-  accountPauseMs: 15000
+  # which blocks the live proxy path too, not just the probe. ~40 requests in
+  # a couple of minutes once tripped upstream's CHANNEL-level traffic
+  # protection — a 30-minute window that EXTENDS on every request received.
+  accountPauseMs: 45000
 
 # Activity-quota claiming. enabled turns the feature on; auto lets the engine
 # run a claim round per account on the poll interval WITHOUT anyone pressing

@@ -139,8 +139,12 @@ const DEFAULTS = {
   PROBE_STARTUP_DELAY_MS: 20000,
   PROBE_INTERVAL_MS: 21600000,
   PROBE_TIMEOUT_MS: 30000,
-  PROBE_GAP_MS: 1000,
-  PROBE_ACCOUNT_PAUSE_MS: 15000,
+  // A sweep is 11 models per account; ~40 requests in a couple of minutes
+  // tripped upstream's channel-level traffic protection (field report
+  // 2026-10-24: 30-minute window that EXTENDS on every request received).
+  // A diagnostic has no business looking like a burst — errs toward slow.
+  PROBE_GAP_MS: 2500,
+  PROBE_ACCOUNT_PAUSE_MS: 45000,
   // Panel idle logout, in minutes. 5 matches the documented behaviour: leave
   // the panel untouched that long and the next refresh asks for the key again.
   PANEL_IDLE_MINUTES: 5,

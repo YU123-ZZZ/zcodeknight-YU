@@ -507,6 +507,22 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
+  { ver: "v4.7.20", date: "2026-10-24", items: {
+    zh: [
+      "【修复·渠道保护】上游的「渠道流量保护」是渠道级的：保护期内每个到达上游的请求都会把 30 分钟窗口再续 30 分钟，而引擎的模型级静默只压住单个模型——其他模型的请求继续出去，渠道永远出不了保护期（实测：21:18 约 40 个探测请求触发后，21:50 的每个请求都把解锁时钟推到 22:20）。现在普通 429（非 3009/3012）计入两击计数：10 分钟内两次即对全模型静默整个窗口，上游不再收到请求、窗口自然耗尽",
+      "【修复·探测】模型探测扫描遇到渠道保护不再硬打完：遇到普通 429 即计入同一计数器，第 3 次直接中止本轮扫描（继续打只是帮上游续期）；整个渠道处于保护期时所有模型都在静默窗口内，扫描自动跳过",
+      "【配置】探测节奏放慢：模型间隔 1s→2.5s、账号间隔 15s→45s——约 40 个请求几分钟内打出去就是触发渠道保护的原因；探测是诊断，不该看起来像突发流量",
+      "【安全】/health 只返回 {status:ok}，不再泄露 provider 字段（那是一个免费指纹：扫到即确认此主机跑的是 ZcodeKnight）",
+      "【修复】byModel 单独设置时不再被静默丢弃（此前整个 maxConcurrentPerModel 被包在 default 校验里，无提示）",
+    ],
+    en: [
+      "Fix/channel protection: upstream's traffic protection is CHANNEL-level — every request reaching upstream during the window extends it by another 30 minutes, and the model-scoped hold only silenced ONE model, so requests for other models kept going out and re-triggering it (measured: ~40 probe requests tripped it, then every forwarded request pushed the unlock clock out). Non-concurrency 429s now feed a two-strike counter: two within 10 minutes silences EVERY model locally for a full window, so upstream stops receiving and the window finally expires",
+      "Fix/probe: the model sweep no longer fights through channel protection — plain 429s feed the same counter and the sweep aborts after the third; with the channel hold in force every model is inside the silent window and the sweep skips itself",
+      "Config: probe pacing slowed (model gap 1s→2.5s, account pause 15s→45s) — ~40 requests in a couple of minutes is what tripped the channel protection; a diagnostic must not look like a burst",
+      "Security: /health returns only {status:ok} — the provider field was a free fingerprint confirming the host runs ZcodeKnight",
+      "Fix: byModel set without `default` no longer silently drops the whole maxConcurrentPerModel",
+    ],
+  } },
   { ver: "v4.7.19", date: "2026-10-24", items: {
     zh: [
       "【修复·领取】配置里 appVersion 低于引擎适配版本时自动降级为默认值并告警——旧模板写死的 3.14.4 让所有存量配置的活动领取一直 1004 ineligible（「有什么活动根本不能用」的根因）；env 显式指定仍有最终决定权",

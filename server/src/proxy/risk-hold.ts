@@ -86,18 +86,20 @@ export function markRiskHold(model: string | undefined, now = Date.now()): void 
   holds.set(key, now + RISK_HOLD_MS);
 }
 
-/** Remaining ms a model is locally held; 0 = not held. */
+/** Remaining ms a model is locally held; 0 = not held. Includes the
+ *  channel-level protection window when one is in force. */
 export function riskHoldRemaining(model: string | undefined, now = Date.now()): number {
-  if (!model) return 0;
+  const channel = channelHoldRemaining(now);
+  if (!model || model === "(未指定)") return channel;
   const key = holdKey(model);
   const until = holds.get(key);
-  if (until === undefined) return 0;
+  if (until === undefined) return channel;
   const left = until - now;
   if (left <= 0) {
     holds.delete(key);
-    return 0;
+    return channel;
   }
-  return left;
+  return Math.max(left, channel);
 }
 
 export interface RiskHoldEntry { model: string; unlockAt: number; remainingMs: number; egress: string; }
@@ -130,4 +132,55 @@ export function listRiskHolds(now = Date.now()): RiskHoldEntry[] {
  */
 export function clearRiskHolds(): void {
   holds.clear();
+  channelHolds.clear();
+}
+
+// ── Channel-level traffic protection (v4.7.20) ─────────────────────────────
+// Field report 2026-10-24: ~40 probe requests put the upstream CHANNEL into a
+// 30-minute "traffic protection" window, and every request that reached
+// upstream during (or after) it EXTENDED the window by another 30 minutes —
+// a model-scoped hold cannot stop that, because requests for models that are
+// not individually held kept going out and re-triggering it. The only cure is
+// silence for the whole channel.
+//
+// Two-strike trigger: one non-concurrency 429 might be a transient burst
+// limit, but a SECOND one within 10 minutes means the channel itself is
+// protecting — silence EVERY model for a full window. Upstream extends on
+// requests it receives; we stop forwarding, so its window runs out.
+const CHANNEL_STRIKE_WINDOW_MS = 10 * 60_000;
+let channel429Strikes: number[] = [];
+const channelHolds = new Map<string, number>();
+
+/** Record one non-concurrency 429 and evaluate the two-strike rule. */
+export function noteChannel429(now = Date.now()): void {
+  channel429Strikes = channel429Strikes.filter((t) => now - t < CHANNEL_STRIKE_WINDOW_MS);
+  channel429Strikes.push(now);
+  if (channel429Strikes.length >= 2) markChannelHold(now);
+}
+
+function markChannelHold(now = Date.now()): void {
+  channelHolds.set(currentEgress, now + RISK_HOLD_MS);
+  channel429Strikes = [];
+}
+
+function channelHoldRemaining(now = Date.now()): number {
+  const until = channelHolds.get(currentEgress);
+  if (until === undefined) return 0;
+  const left = until - now;
+  if (left <= 0) {
+    channelHolds.delete(currentEgress);
+    return 0;
+  }
+  return left;
+}
+
+/** Remaining ms the WHOLE channel is locally silenced; 0 = not held. */
+export function channelProtectionRemaining(now = Date.now()): number {
+  return channelHoldRemaining(now);
+}
+
+/** For tests: clear the strike counter and channel holds. */
+export function resetChannelProtectionForTest(): void {
+  channel429Strikes = [];
+  channelHolds.clear();
 }

@@ -33,6 +33,8 @@ import {
   clearRiskHolds,
   listRiskHolds,
   markRiskHold,
+  noteChannel429,
+  resetChannelProtectionForTest,
   riskHoldRemaining,
   setRiskHoldEgress,
 } from "./risk-hold.js";
@@ -106,5 +108,71 @@ describe("risk-hold", () => {
     const holds = listRiskHolds(now);
     expect(holds.map((h) => h.model).sort()).toEqual(["glm-5.3", "glm-5.3-flash"]);
     expect(holds.every((h) => h.unlockAt > now && h.remainingMs > 0)).toBe(true);
+  });
+});
+
+// The upstream CHANNEL runs a "traffic protection" window that EXTENDS 30
+// minutes on every request it receives (field report 2026-10-24: ~40 probe
+// requests tripped it, and each forwarded request afterwards pushed the unlock
+// clock out — the model-scoped hold could not stop it because requests for
+// models that were not individually held kept going out). Two non-concurrency
+// 429s within 10 minutes mean the channel is protecting: silence EVERY model
+// locally so upstream stops receiving and its window can finally run out.
+describe("channel-level traffic protection", () => {
+  beforeEach(() => {
+    clearRiskHolds();
+    resetChannelProtectionForTest();
+  });
+
+  it("one 429 alone does not trip the channel hold", () => {
+    const now = 1_000_000;
+    noteChannel429(now);
+    expect(riskHoldRemaining("glm-5.3", now)).toBe(0);
+    expect(riskHoldRemaining("glm-4.6", now)).toBe(0);
+  });
+
+  it("a second 429 within 10 minutes silences EVERY model for a full window", () => {
+    const now = 1_000_000;
+    noteChannel429(now);
+    // The window is placed at the SECOND strike's time.
+    noteChannel429(now + 20_000);
+    // Any model — held or not — is now inside the channel silence.
+    expect(riskHoldRemaining("glm-5.3", now + 21_000)).toBe(RISK_HOLD_MS - 1_000);
+    expect(riskHoldRemaining("glm-4.6", now + 21_000)).toBe(RISK_HOLD_MS - 1_000);
+    expect(riskHoldRemaining(undefined, now + 21_000)).toBe(RISK_HOLD_MS - 1_000);
+  });
+
+  it("two 429s more than 10 minutes apart do NOT trip it", () => {
+    const now = 1_000_000;
+    noteChannel429(now);
+    noteChannel429(now + 11 * 60_000);
+    expect(riskHoldRemaining("glm-4.6", now)).toBe(0);
+  });
+
+  it("the channel hold expires on its own", () => {
+    const now = 1_000_000;
+    noteChannel429(now);
+    noteChannel429(now + 5_000);
+    expect(riskHoldRemaining("glm-4.6", now + 5_000 + RISK_HOLD_MS + 1_000)).toBe(0);
+  });
+
+  it("is scoped per egress like model holds", () => {
+    const now = 1_000_000;
+    setRiskHoldEgress("http://proxy-a:7890");
+    noteChannel429(now);
+    noteChannel429(now + 5_000);
+    expect(riskHoldRemaining("glm-4.6", now + 6_000)).toBeGreaterThan(0);
+    // A different egress is untouched.
+    setRiskHoldEgress("http://proxy-b:7890");
+    expect(riskHoldRemaining("glm-4.6", now + 6_000)).toBe(0);
+  });
+
+  it("egress rotation clears the channel hold too", () => {
+    const now = 1_000_000;
+    setRiskHoldEgress("http://proxy-a:7890");
+    noteChannel429(now);
+    noteChannel429(now + 5_000);
+    clearRiskHolds();
+    expect(riskHoldRemaining("glm-4.6", now + 6_000)).toBe(0);
   });
 });

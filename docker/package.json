@@ -1,6 +1,6 @@
 {
   "name": "ZcodeKnight-YU",
-  "version": "4.7.19",
+  "version": "4.7.20",
   "type": "module",
   "scripts": {
     "dev": "bun run src/index.ts",

@@ -193,10 +193,15 @@ async function probeOneAccount(
   // probe is a real upstream request from the same egress IP that just got
   // flagged, and feeding it one more request per account per model during the
   // block is exactly what the hold exists to prevent. The stale record is kept
-  // (same policy as a fully blocked sweep below).
+  // (same policy as a fully blocked sweep below). The channel-level protection
+  // hold (v4.7.20) shows up here too: riskHoldRemaining returns the channel
+  // remainder for EVERY model, so a channel-wide window skips the whole sweep.
   const { riskHoldRemaining } = await import("../proxy/risk-hold.js");
   const probed = catalog.filter((m) => riskHoldRemaining(m) === 0);
   const skippedByRiskHold = catalog.length - probed.length;
+  // Count of plain channel-protection 429s THIS sweep has seen. Three strikes
+  // abort the sweep: every remaining model would only extend upstream's window.
+  let channel429Count = 0;
 
   for (const model of probed) {
     // No captcha headers: upstream removed the model-request gate (see the
@@ -231,6 +236,20 @@ async function probeOneAccount(
       const text = await resp.text();
       if (resp.ok) { ok = true; note = "ok"; }
       else if (/\b3006\b|model not allowed|not_found/i.test(text)) note = "not in plan";
+      // A plain HTTP 429 (no 3009/3012 biz code) is the upstream CHANNEL's
+      // "traffic protection" — it extends 30 minutes on every request that
+      // reaches upstream, so probing through it only pushes the unlock clock
+      // out. Feed the same two-strike counter the proxy path uses, and abort
+      // the rest of the sweep after the third one: the remaining models would
+      // each cost another extension for zero measurement.
+      else if (resp.status === 429 && !/\b(3008|3009|3012)\b/.test(text)) {
+        try {
+          const { noteChannel429 } = await import("../proxy/risk-hold.js");
+          noteChannel429();
+        } catch { /* protection accounting is best-effort */ }
+        note = "blocked (channel traffic protection)";
+        channel429Count += 1;
+      }
       // A concurrency rejection measures NOTHING about the model. The probe is
       // one small request, serialized with pauses, so a "model concurrency limit
       // exceeded" is never caused by the probe itself: either live traffic on the
@@ -251,6 +270,14 @@ async function probeOneAccount(
       note = (e as Error).message.slice(0, 60);
     }
     results.push({ id: model, ok, note });
+    if (channel429Count >= 3) {
+      // Channel protection confirmed (two strikes placed the hold, the third
+      // confirms it is still live). Every remaining model would only extend
+      // upstream's window — abort the sweep; the risk-hold silence now answers
+      // everything locally until the channel reopens.
+      console.warn(`[probe] ${record.name}: channel traffic protection (${channel429Count}x HTTP 429) — aborting the rest of the sweep`);
+      return null;
+    }
     if (results.length < catalog.length) {
       await new Promise((r) => setTimeout(r, config.probe.gapMs));
     }

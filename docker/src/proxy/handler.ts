@@ -680,6 +680,21 @@ export async function proxyRequest(
       // The message stays deliberately vague: it must not leak internal pool
       // details (account count, per-model ceilings, cooldown machinery) to the
       // end user of the coding tool — those live in the panel, not here.
+      //
+      // Non-concurrency 429s feed the channel-protection two-strike counter:
+      // upstream runs a CHANNEL-level "traffic protection" that extends 30
+      // minutes on EVERY request it receives (field report 2026-10-24: ~40
+      // probe requests tripped it, then each forwarded request kept pushing
+      // the unlock clock out — requests kept being forwarded because the
+      // model-scoped hold covered only one model). After two such 429s within
+      // 10 minutes the channel hold silences every model locally, so upstream
+      // stops RECEIVING requests and its window can finally run out.
+      if (!isConcurrency) {
+        try {
+          const { noteChannel429 } = await import("./risk-hold.js");
+          noteChannel429();
+        } catch { /* protection accounting is best-effort */ }
+      }
       return errorResponse(
         429,
         "rate_limited",
