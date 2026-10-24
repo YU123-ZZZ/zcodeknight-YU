@@ -237,6 +237,38 @@ describe("updatePoolConfigYaml", () => {
     );
   });
 
+  test("the legacy template gate defaults are migrated to official-style OFF (v4.7.23)", () => {
+    // Configs written before 4.7.21 carry the old TEMPLATE values (per-account
+    // 2 / per-model default 2 / spacing 1500). YAML outranks the code default,
+    // so those installs kept the caps after the defaults moved to 0 — the
+    // "还是有调用限制" field report (verified live on 185). Loading must drop
+    // exactly those template-written values, while a DIFFERENT number is an
+    // operator choice and is preserved.
+    withConfig(
+      "pool:\n  maxConcurrentPerAccount: 2\n  maxConcurrentPerModel:\n    default: 2\n  minSpacingMs: 1500\n",
+      (path) => {
+        const pool = new AccountPool();
+        pool.updateOptions(loadConfig(path).pool!);
+        const got = pool.getOptions();
+        expect(got.maxConcurrentPerAccount).toBe(0);
+        expect(got.maxConcurrentPerModel.default).toBe(0);
+        expect(got.minSpacingMs).toBe(0);
+      },
+    );
+    // A deliberate non-template value survives.
+    withConfig(
+      "pool:\n  maxConcurrentPerAccount: 4\n  maxConcurrentPerModel:\n    default: 3\n  minSpacingMs: 3000\n",
+      (path) => {
+        const pool = new AccountPool();
+        pool.updateOptions(loadConfig(path).pool!);
+        const got = pool.getOptions();
+        expect(got.maxConcurrentPerAccount).toBe(4);
+        expect(got.maxConcurrentPerModel.default).toBe(3);
+        expect(got.minSpacingMs).toBe(3000);
+      },
+    );
+  });
+
   test("an absent pool section leaves the pool defaults in force", () => {
     withConfig("server:\n  port: 17800\n", (path) => {
       const config = loadConfig(path);

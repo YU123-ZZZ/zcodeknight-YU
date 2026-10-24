@@ -572,6 +572,17 @@ function resolvePoolConfig(raw: unknown): PoolSettingsConfig | undefined {
   // reactive 3008/3009 cooldowns are the only regulation, same as upstream).
   const account = num(obj.maxConcurrentPerAccount ?? obj.max_concurrent_per_account, "maxConcurrentPerAccount", 0, 16);
   if (account !== undefined) out.maxConcurrentPerAccount = account;
+  // Legacy gate migration (v4.7.23): configs generated before 4.7.21 carry
+  // the old TEMPLATE's defaults (per-account 2 / per-model 2 / spacing 1500).
+  // YAML outranks the code default, so those installs kept the old caps even
+  // after the defaults moved to 0 — the exact "还是有调用限制" field report
+  // (verified live on 185: config still read 2/2/1500 while the template said
+  // 0/0/0). Drop exactly the old template-written values; a DIFFERENT number
+  // is an operator choice and is preserved.
+  if (out.maxConcurrentPerAccount === 2) {
+    out.maxConcurrentPerAccount = 0;
+    console.warn("[config] dropped legacy template default pool.maxConcurrentPerAccount=2 — official-style behaviour is no local account gate (set a number deliberately if you want one)");
+  }
   const cooldown = num(obj.cooldownMs ?? obj.cooldown_ms, "cooldownMs", 5_000, 3_600_000);
   if (cooldown !== undefined) out.cooldownMs = cooldown;
   const modelCd = num(obj.modelCooldownMs ?? obj.model_cooldown_ms, "modelCooldownMs", 1_000, 3_600_000);
@@ -580,7 +591,12 @@ function resolvePoolConfig(raw: unknown): PoolSettingsConfig | undefined {
   if (reloginCd !== undefined) out.reloginCooldownMs = reloginCd;
   // 0 is meaningful (disables the spacing), so the floor is 0 here.
   const spacing = num(obj.minSpacingMs ?? obj.min_spacing_ms, "minSpacingMs", 0, 60_000);
-  if (spacing !== undefined) out.minSpacingMs = spacing;
+  if (spacing === 1500) {
+    out.minSpacingMs = 0;
+    console.warn("[config] dropped legacy template default pool.minSpacingMs=1500 — official-style behaviour is no dispatch spacing");
+  } else if (spacing !== undefined) {
+    out.minSpacingMs = spacing;
+  }
   // The ONLY fractional value in this block: overflowFactor is a multiplier
   // (1.5 by default), so truncating it would silently turn 1.5 into 1 — i.e.
   // "never exceed the gate", the opposite of what was asked for.
@@ -619,10 +635,16 @@ function resolvePoolConfig(raw: unknown): PoolSettingsConfig | undefined {
       console.warn("[config] dropped legacy template default pool.maxConcurrentPerModel.byModel.glm-5.3=1 (ZCode 3.16.3 accepts parallel 5.3 calls; re-set it in Settings if you deliberately want 1)");
     }
     if (def !== undefined || Object.keys(byModel).length > 0) {
-      out.maxConcurrentPerModel = {
-        default: def ?? DEFAULT_POOL_OPTIONS.maxConcurrentPerModel!.default,
-        byModel,
-      };
+      // Legacy template default (v4.7.23): configs written before 4.7.21 carry
+      // `default: 2` because the SHIPPED TEMPLATE wrote it — same class as the
+      // account gate above (YAML outranks the code default, so those installs
+      // kept the cap after the defaults moved to 0).
+      let effectiveDef = def ?? DEFAULT_POOL_OPTIONS.maxConcurrentPerModel!.default;
+      if (def === 2) {
+        effectiveDef = 0;
+        console.warn("[config] dropped legacy template default pool.maxConcurrentPerModel.default=2 — official-style behaviour is no per-model gate (set a number deliberately if you want one)");
+      }
+      out.maxConcurrentPerModel = { default: effectiveDef, byModel };
     }
   }
 
