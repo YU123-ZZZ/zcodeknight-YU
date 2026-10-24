@@ -167,6 +167,16 @@ export function createFetchHandler(opts: ServerOptions): (req: Request) => Promi
     }
 
     if (config.auth.proxyApiKey) {
+      // /health sits deliberately BEFORE the proxy-key gate: it answers
+      // liveness for orchestrators and uptime probes, which do not carry the
+      // client key (the 185 deployment report flagged the 401). It exposes
+      // only { status, provider } — no model list, no account data.
+      if (method === "GET" && path === "/health") {
+        return new Response(JSON.stringify({ status: "ok", provider: config.provider }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
       const authHeader = req.headers.get("authorization") ?? req.headers.get("x-api-key");
       if (!authHeader || !checkProxyKey(authHeader, config.auth.proxyApiKey)) {
         return errorResponse(401, "authentication_error", "Invalid or missing proxy API key");

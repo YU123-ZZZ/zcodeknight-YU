@@ -567,6 +567,18 @@ function resolvePoolConfig(raw: unknown): PoolSettingsConfig | undefined {
           if (n !== undefined) byModel[model] = n;
         }
       }
+      // Legacy unpin (ZCode 3.16.3): every config generated before v4.7.17
+      // carries `glm-5.3: 1` because the SHIPPED TEMPLATE wrote it, not because
+      // the operator measured it. With upstream accepting parallel 5.3 calls
+      // again, that leftover pin serializes every 5.3 request behind the one
+      // in flight and multi-agent workloads read as "5.3 一直无法调用". Drop
+      // the exact template-written value (a deliberate pin of 1 is
+      // indistinguishable, so operators who truly want it re-set it once and
+      // this migration leaves it alone afterwards — the log says so).
+      if (byModel["glm-5.3"] === 1) {
+        delete byModel["glm-5.3"];
+        console.warn("[config] dropped legacy template default pool.maxConcurrentPerModel.byModel.glm-5.3=1 (ZCode 3.16.3 accepts parallel 5.3 calls; re-set it in Settings if you deliberately want 1)");
+      }
       out.maxConcurrentPerModel = { default: def, byModel };
     }
   }

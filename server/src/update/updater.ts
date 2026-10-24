@@ -264,12 +264,20 @@ function pickAsset(release: GitHubRelease): { name: string; url: string; size: n
   const arch = process.arch;
   // The shipped form is a single self-contained executable, so prefer that and
   // fall back to an archive of the source tree.
+  // The loose exe pattern must not run FIRST on its own: it also matches the
+  // OTHER architecture's bare binary (`ZcodeKnight-YU-linux-arm64` satisfies
+  // `^ZcodeKnight(-[a-z0-9_-]+)?$`), and the release's asset order lists arm64
+  // before x64 — so an x64 host was told to fetch the arm64 binary. Anchor the
+  // exact per-arch name first; the loose exe name stays only as a last-resort
+  // fallback for future naming schemes.
+  const os = plat === "win32" ? "win" : plat === "darwin" ? "darwin" : "linux";
+  const exact = new RegExp(`^ZcodeKnight[A-Za-z0-9_-]*-${os}-${arch}$`, "i");
   const exeName = plat === "win32" ? /^ZcodeKnight.*\.exe$/i : /^ZcodeKnight(-[a-z0-9_-]+)?$/i;
   const patterns = plat === "win32"
-    ? [exeName, new RegExp(`win.*${arch}|${arch}.*win`, "i"), /\.zip$/i]
+    ? [exact, /\.zip$/i, exeName]
     : plat === "darwin"
-      ? [exeName, new RegExp(`darwin.*${arch}|macos.*${arch}`, "i"), /\.tar\.gz$/i, /\.zip$/i]
-      : [exeName, new RegExp(`linux.*${arch}`, "i"), /\.tar\.gz$/i, /\.zip$/i];
+      ? [exact, new RegExp(`darwin.*${arch}|macos.*${arch}`, "i"), /\.tar\.gz$/i, /\.zip$/i, exeName]
+      : [exact, new RegExp(`linux.*${arch}`, "i"), /\.tar\.gz$/i, /\.zip$/i, exeName];
 
   for (const re of patterns) {
     const hit = assets.find((a) => a.name && re.test(a.name));

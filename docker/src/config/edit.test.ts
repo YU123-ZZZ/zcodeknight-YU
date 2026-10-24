@@ -178,7 +178,7 @@ describe("updatePoolConfigYaml", () => {
         cooldownMs: 30_000,
         modelCooldownMs: 2_000,
         minSpacingMs: 500,
-        maxConcurrentPerModel: { default: 3, byModel: { "glm-5.3": 1 } },
+        maxConcurrentPerModel: { default: 3, byModel: { "glm-4.7-flashx": 1 } },
         overflowFactor: 1.5,
       });
       const config = loadConfig(path);
@@ -190,11 +190,33 @@ describe("updatePoolConfigYaml", () => {
       expect(got.modelCooldownMs).toBe(2_000);
       expect(got.minSpacingMs).toBe(500);
       expect(got.maxConcurrentPerModel.default).toBe(3);
-      expect(got.maxConcurrentPerModel.byModel["glm-5.3"]).toBe(1);
+      // glm-5.3 is deliberately NOT used here: the loader un-pins the legacy
+      // template default glm-5.3=1 on load (ZCode 3.16.3), so a deliberate
+      // pin round-trips on a model the migration never touches.
+      expect(got.maxConcurrentPerModel.byModel["glm-4.7-flashx"]).toBe(1);
       // The only fractional field: truncating it to 1 would mean "never exceed
       // the gate", the opposite of 1.5.
       expect(got.overflowFactor).toBe(1.5);
     });
+  });
+
+  test("the legacy template default glm-5.3=1 is unpinned on load", () => {
+    // Every config generated before v4.7.17 carries pool.byModel.glm-5.3=1
+    // because the SHIPPED TEMPLATE wrote it — not because the operator chose
+    // it. With ZCode 3.16.3 accepting parallel 5.3 calls, that leftover pin
+    // serialized every 5.3 request behind the one in flight ("5.3 一直无法
+    // 调用" on multi-agent workloads). Loading must drop exactly that legacy
+    // value while leaving any other pin untouched.
+    withConfig(
+      "pool:\n  maxConcurrentPerModel:\n    default: 2\n    byModel:\n      glm-5.3: 1\n      glm-4.7-flashx: 2\n",
+      (path) => {
+        const pool = new AccountPool();
+        pool.updateOptions(loadConfig(path).pool!);
+        const got = pool.getOptions();
+        expect(got.maxConcurrentPerModel.byModel["glm-5.3"]).toBeUndefined();
+        expect(got.maxConcurrentPerModel.byModel["glm-4.7-flashx"]).toBe(2);
+      },
+    );
   });
 
   test("an absent pool section leaves the pool defaults in force", () => {
@@ -232,7 +254,9 @@ describe("updatePoolConfigYaml", () => {
       const got = pool.getOptions();
       expect(got.maxConcurrentPerAccount).toBe(DEFAULT_POOL_OPTIONS.maxConcurrentPerAccount);
       expect(got.maxConcurrentPerModel.default).toBe(DEFAULT_POOL_OPTIONS.maxConcurrentPerModel!.default);
-      expect(got.maxConcurrentPerModel.byModel["glm-5.3"]).toBe(1);
+      // Neither the template nor the code pins glm-5.3 any more (ZCode 3.16.3
+      // accepts parallel 5.3 calls); both sides must agree on "no pin".
+      expect(got.maxConcurrentPerModel.byModel["glm-5.3"]).toBeUndefined();
       expect(got.cooldownMs).toBe(DEFAULT_POOL_OPTIONS.cooldownMs);
       expect(got.modelCooldownMs).toBe(DEFAULT_POOL_OPTIONS.modelCooldownMs);
       expect(got.minSpacingMs).toBe(DEFAULT_POOL_OPTIONS.minSpacingMs);

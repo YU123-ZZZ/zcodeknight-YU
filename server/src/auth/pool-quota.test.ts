@@ -44,7 +44,12 @@ import { addAccount, resetAccountStoreCacheForTest, type AccountRecord } from ".
 import { remainingQuota, resetBalancesForTest } from "../quota/poller.js";
 
 /** Build a pool with `n` accounts and a quota table keyed by account name. */
-async function setupPool(n: number, quota: Record<string, number | null> = {}, overflowFactor = 1) {
+async function setupPool(
+  n: number,
+  quota: Record<string, number | null> = {},
+  overflowFactor = 1,
+  byModel?: Record<string, number>,
+) {
   const records: AccountRecord[] = [];
   for (let i = 0; i < n; i++) {
     records.push(await addAccount({
@@ -55,7 +60,12 @@ async function setupPool(n: number, quota: Record<string, number | null> = {}, o
   }
   // overflowFactor defaults to 1 (strict) here, so a test that asserts a refusal
   // is testing the gate itself rather than the overflow bet layered on top of it.
-  const pool = new AccountPool({ minSpacingMs: 0, maxConcurrentPerAccount: 8, overflowFactor });
+  const pool = new AccountPool({
+    minSpacingMs: 0,
+    maxConcurrentPerAccount: 8,
+    overflowFactor,
+    ...(byModel ? { maxConcurrentPerModel: { default: 2, byModel } } : {}),
+  });
   await pool.reload();
   pool.setQuotaLookup((id) => {
     const rec = records.find((r) => r.id === id);
@@ -272,36 +282,52 @@ describe("quota-aware dispatch", () => {
     if (r.ok) r.lease.release();
   });
 
-  it("admits only one request at a time for a model upstream serialises", async () => {
-    // Measured: glm-5.3 answers 200, then a second request issued while the
-    // first is still running comes back 3009. With maxConcurrentPerAccount=2 and
-    // no per-model gate, the second call was admitted and failed — visible as an
-    // error the caller had to retry, when it could simply have waited.
+  it("admits parallel requests for a model when no per-model pin says otherwise", async () => {
+    // ZCode 3.16.3 accepts parallel glm-5.3 calls (the pre-3.16.3 pin of 1 was
+    // the "5.3 一直无法调用" field report). With no byModel entry for 5.3, the
+    // DEFAULT per-model gate (2) is the binding one — same as flash.
     const { pool } = await setupPool(1);
     const first = pool.acquire({ model: "glm-5.3" });
     expect(first.ok).toBe(true);
 
-    // The account still has a free account-slot (cap 8 in this fixture), so a
-    // refusal here can only come from the per-model gate.
+    // The default model gate is 2, so a second parallel 5.3 is admitted.
     const second = pool.acquire({ model: "glm-5.3" });
-    expect(second.ok).toBe(false);
+    expect(second.ok).toBe(true);
 
-    // A different model on the same account is unaffected.
+    // The third hits the default model gate (a refusal, not a 3009 round trip),
+    // while flash is unaffected by 5.3's occupancy.
+    const third = pool.acquire({ model: "glm-5.3" });
+    expect(third.ok).toBe(false);
     const other = pool.acquire({ model: "glm-5.3-flash" });
     expect(other.ok).toBe(true);
     if (other.ok) other.lease.release();
 
-    // Releasing the first frees the model slot again.
+    // Releasing frees 5.3 slots again.
     if (first.ok) first.lease.release();
+    if (second.ok) second.lease.release();
     const again = pool.acquire({ model: "glm-5.3" });
     expect(again.ok).toBe(true);
     if (again.ok) again.lease.release();
   });
 
-  it("gives flash a higher ceiling than glm-5.3", async () => {
-    // The two ceilings differ and a single global number cannot express both.
-    // Defaults: every model gates at 2 (operator-set), glm-5.3 stays at 1
-    // (measured: a second simultaneous request draws 3009).
+  it("an explicit byModel pin still serialises a model", async () => {
+    // The operator CAN pin a model they have measured as stricter (the loader
+    // only un-pins the legacy template default glm-5.3=1; a fresh pin set in
+    // Settings is deliberate and respected).
+    const { pool } = await setupPool(1, {}, 1, { "glm-5.3": 1 });
+    const one = pool.acquire({ model: "glm-5.3" });
+    expect(one.ok).toBe(true);
+    const two = pool.acquire({ model: "glm-5.3" });
+    expect(two.ok).toBe(false);
+    if (one.ok) one.lease.release();
+    const three = pool.acquire({ model: "glm-5.3" });
+    expect(three.ok).toBe(true);
+    if (three.ok) three.lease.release();
+  });
+
+  it("gives flash the same default ceiling as every other model", async () => {
+    // Defaults: every model gates at 2 (operator-set); no model is special.
+    // The old "glm-5.3 stays at 1" exception is gone with ZCode 3.16.3.
     //
     // The gates sit AT those ceilings, not below them: a per-model gate
     // encodes a hard upstream rule, so sitting under it only throws away
@@ -309,37 +335,34 @@ describe("quota-aware dispatch", () => {
     // which never raises a model gate (see the next test).
     const { pool } = await setupPool(1);
     expect(pool.getOptions().maxConcurrentPerModel.default).toBe(2);
-    expect(pool.getOptions().maxConcurrentPerModel.byModel["glm-5.3"]).toBe(1);
+    expect(pool.getOptions().maxConcurrentPerModel.byModel).toEqual({});
 
-    // flash runs as wide as its gate allows (the account gate is 8 here, so the
-    // model gate is the binding one, and overflow is off in this fixture).
-    const held: Array<{ release(): void }> = [];
-    for (let i = 0; i < 2; i++) {
-      const r = pool.acquire({ model: "glm-5.3-flash" });
-      expect(r.ok).toBe(true);
-      if (r.ok) held.push(r.lease);
+    // Both models run as wide as the default gate allows (the account gate is
+    // 8 here, so the model gate is the binding one; overflow is off here).
+    for (const model of ["glm-5.3-flash", "glm-5.3"]) {
+      const held: Array<{ release(): void }> = [];
+      for (let i = 0; i < 2; i++) {
+        const r = pool.acquire({ model });
+        expect(r.ok).toBe(true);
+        if (r.ok) held.push(r.lease);
+      }
+      expect(pool.acquire({ model }).ok).toBe(false);
+      for (const l of held) l.release();
     }
-    expect(pool.acquire({ model: "glm-5.3-flash" }).ok).toBe(false);
-
-    // glm-5.3 remains gated to one even while flash is saturated.
-    const one = pool.acquire({ model: "glm-5.3" });
-    expect(one.ok).toBe(true);
-    const two = pool.acquire({ model: "glm-5.3" });
-    expect(two.ok).toBe(false);
-
-    if (one.ok) one.lease.release();
-    for (const l of held) l.release();
   });
 
   it("never admits overflow past a MODEL gate, even with everything full", async () => {
     // The bug this pins: overflow used to multiply the per-model gate too, so a
-    // burst raised glm-5.3 from 1 to 2 — exactly the concurrency upstream
-    // refuses with 3009. Every spike therefore manufactured the rejections it
-    // was then benched for ("high concurrency → everything rate-limited").
+    // burst raised a gated model past its ceiling — exactly the concurrency
+    // upstream refuses with 3009. Every spike therefore manufactured the
+    // rejections it was then benched for ("high concurrency → everything
+    // rate-limited").
     //
     // A model gate is a hard upstream rule, so overflow must not touch it: the
-    // caller waits for a real slot instead (the handler queues for one).
-    const { pool } = await setupPool(1, {}, 1.5);
+    // caller waits for a real slot instead (the handler queues for one). The
+    // fixture pins glm-5.3 to 1 explicitly — an operator-measured stricter
+    // ceiling — so this tests the gate, not the default.
+    const { pool } = await setupPool(1, {}, 1.5, { "glm-5.3": 1 });
     const held: Array<{ release(): void }> = [];
     const first = pool.acquire({ model: "glm-5.3" });
     expect(first.ok).toBe(true);
@@ -414,8 +437,10 @@ describe("quota-aware dispatch", () => {
 
   it("does not leak a model slot when a lease is released twice", async () => {
     // release() must be idempotent, or a double call would free a slot another
-    // request is holding and let a second one through.
-    const { pool } = await setupPool(1);
+    // request is holding and let a second one through. The fixture pins
+    // glm-5.3 to 1 so the slot arithmetic is unambiguous (the DEFAULT gate is
+    // 2, which would admit the second acquire regardless of the leak).
+    const { pool } = await setupPool(1, {}, 1, { "glm-5.3": 1 });
     const a = pool.acquire({ model: "glm-5.3" });
     expect(a.ok).toBe(true);
     if (!a.ok) return;

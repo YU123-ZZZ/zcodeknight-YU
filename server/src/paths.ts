@@ -134,22 +134,20 @@ function legacyHomeDir(): string {
 }
 
 /**
- * Resolve the data directory, creating it when needed.
- *
- * A read-only project falls back to the legacy home directory rather than
- * throwing: losing isolation is better than failing to start.
+ * Resolve the data directory. Pure: it never creates anything — store writers
+ * mkdir their own directories at write time, so read-only calls (like
+ * `ZcodeKnight version`) leave no empty `data/` behind.
  */
 export function dataDir(): string {
   const explicit = process.env.ZCODE_KNIGHT_STORE_DIR?.trim();
   if (explicit) return explicit;
 
-  const local = join(projectRoot(), DATA_DIR_NAME);
-  try {
-    mkdirSync(local, { recursive: true });
-    return local;
-  } catch {
-    return legacyHomeDir();
-  }
+  // Pure getter on purpose: every store writer mkdirs its own directory at
+  // write time, so creating it here was a bare side effect (running
+  // `ZcodeKnight version` in an empty directory littered it with an empty
+  // data/ — the 185 deployment report flagged exactly that). An unwritable
+  // project root now surfaces at the writer, which reports it precisely.
+  return join(projectRoot(), DATA_DIR_NAME);
 }
 
 /** A file inside the data directory. */

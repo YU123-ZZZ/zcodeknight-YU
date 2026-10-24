@@ -147,7 +147,7 @@ const I18N = {
     apidoc_prompt_title: "给你 AI 的提示词（点击选中，然后复制）",
     apidoc_copy: "复制提示词",
     set_title: "设置", set_sub: "修改后部分项需重启代理生效", set_load_fail: "设置加载失败——请刷新页面；此时点保存会写入空值", set_load_fail_hint: "设置加载失败，禁止保存（防止空值覆盖）",
-    set_zcode_compat: "适配 ZCode 客户端版本：3.14.4+（身份指纹按此版本伪装；低于此版本可能触发上游 1004 ineligible）",
+    set_zcode_compat: "适配 ZCode 客户端（身份指纹按设置中的 appVersion 伪装；留空则自动跟随引擎内置的最新适配版本。低于活动要求的版本可能触发上游 1004 ineligible）",
     intel_link_text: "在 GitHub 查看",
     set_api: "接口地址（OpenAI 格式）", set_api_hint: "填到你的编程工具里",
     set_key: "API 密钥", set_key_hint: "填到你的编程工具里（点右侧复制）；留空则关闭客户端鉴权", save_pool: "保存池设置", copy: "复制",
@@ -388,7 +388,7 @@ const I18N = {
     apidoc_auth: "Auth: same admin key / panel session as every other admin API (Cookie session, or Authorization: Bearer for API-key callers; writes need the x-csrf-token header when cookie-authenticated).",
     apidoc_prompt_title: "Prompt for your AI (click to select all, then copy)",
     apidoc_copy: "Copy prompt",
-    set_zcode_compat: "Compatible ZCode client version: 3.14.4+ (identity fingerprint mimics this release; older versions may trigger upstream 1004 ineligible)",
+    set_zcode_compat: "Compatible ZCode client (identity fingerprint follows the configured appVersion; leave it empty to track the engine's built-in default. Versions below an activity's minimum may trigger upstream 1004 ineligible)",
     intel_link_text: "View on GitHub",
     set_title: "Settings", set_sub: "Some changes need a proxy restart", set_load_fail: "Settings failed to load — refresh the page; saving now would write blanks", set_load_fail_hint: "Load failed, saving disabled (blank-overwrite guard)",
     set_api: "Endpoint (OpenAI format)", set_api_hint: "Paste into your coding tools",
@@ -505,6 +505,20 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
+  { ver: "v4.7.17", date: "2026-10-24", items: {
+    zh: [
+      "【修复·关键】glm-5.3 不再被钉死在 1 并发：旧模板给每个配置都写入了 byModel.glm-5.3=1（外加代码兜底同值），多智能体负载下 5.3 的每个请求都要排队等前一个结束——表现为「5.3 一直无法调用」。三处全部解除：模板不再写入、代码兜底移除、加载存量配置时自动丢弃这个旧模板默认值（其余显式设置的 pin 原样保留并有日志说明）。3.16.3 客户端已验证接受并行 5.3 调用，反应式 3009 冷却会自动适应上游真实上限",
+      "【修复·领取】全新安装/重建配置后 claim 全部 1004 ineligible 的根因：内置模板把 appVersion 写死为 3.14.4（优先级高于代码默认值），活动网关按客户端版本判定资格。模板不再写死该值（留空跟随引擎内置默认 3.16.3，随每次镜像版本升级）；已配置的存量值不受影响",
+      "【兼容】默认客户端版本 3.14.4 → 3.16.3（已对照 3.16.3 客户端包体验证：签名 V4、身份头、模型表均无变化）",
+      "【修复】升级报告 185 号主机列出的缺陷清扫：pickAsset 现按 平台-架构 精确选包（此前宽松正则先命中 arm64，x64 主机会被告知下载 arm64 二进制）；移除永远返回 idle 的 /update/status 假接口与面板死轮询函数；/health 移到代理密钥门之前（探针不再 401，仅暴露 status/provider）；dataDir() 不再是带副作用的 getter（跑一次 version 不再凭空生成空 data/ 目录）；面板「适配版本」文案不再写死 3.14.4+；自动检查间隔注释 5 天→48h 与实际一致",
+    ],
+    en: [
+      "Fix/critical: glm-5.3 is no longer pinned to 1 concurrency. The old template wrote byModel.glm-5.3=1 into every generated config (and the code fallback matched), so on multi-agent workloads each 5.3 request queued behind the previous one — reported as \"5.3 一直无法调用\". All three layers are unpinned: the template no longer writes it, the code fallback is gone, and loading a legacy config drops exactly that template-written value (any other explicit pin is preserved, with a log line). Verified against ZCode 3.16.3: parallel 5.3 calls are accepted, and the reactive 3009 cooldown adapts to whatever upstream enforces",
+      "Fix/claims: the root cause of every claim returning 1004 ineligible on fresh installs — the built-in template hardcoded appVersion 3.14.4, which outranks the code default, and the campaign gateway gates eligibility on the client version. The template no longer hardcodes it (empty follows the engine default, currently 3.16.3, bumped with each mirrored release); existing configured values are untouched",
+      "Compat: default client version 3.14.4 → 3.16.3 (verified against the 3.16.3 bundle: signing V4, identity headers and model catalog unchanged)",
+      "Fix: sweep of the defects listed in the 185 deployment report — pickAsset now matches platform-arch exactly (the loose regex hit arm64 first, telling x64 hosts to download the arm64 binary); the forever-idle /update/status endpoint and the panel's dead poller for it are removed; /health moved before the proxy-key gate (probes no longer 401, exposes only status/provider); dataDir() is no longer a side-effecting getter (running `version` no longer litters an empty data/); the panel's compat text no longer hardcodes 3.14.4+; the auto-check comment now says 48h, matching the code",
+    ],
+  } },
   { ver: "v4.7.16", date: "2026-10-23", items: {
     zh: [
       "【兼容】跟进 ZCode 3.16.3：上游客户端已移除 codingPlanSignature 功能门（签名默认开启，provider access_mode 是唯一免签例外）。代理的门探测改为「字段缺失＝需要签名」，只有明确的 enable:false 才关闭——否则服务端一摘掉该字段，代理会静默停止签名，全部签名路由 401",
@@ -3848,7 +3862,7 @@ function renderUpdateCheck(d, checkedAt) {
     actions.style.display = "";
     // Top banner: the Settings row is where update news USED to live, and an
     // operator who never opens Settings never saw it. Auto-check runs every
-    // 5 days in the background, so the banner is the delivery mechanism.
+    // 48h in the background, so the banner is the delivery mechanism.
     const banner = document.getElementById("upd-banner");
     if (banner) {
       banner.style.display = "flex";
@@ -4060,31 +4074,10 @@ document.getElementById("set-save").onclick = async () => {
   } catch (e) { toast(String(e)); }
 };
 // ── Online update ──────────────────────────────────────────────────────────
-// Flow: check (read-only) → apply (download, with byte progress) → restart
-// (swap script replaces files after this process exits). The staged build is
-// only swapped on an explicit restart click, so a download never restarts the
-// engine behind the user's back.
-let updState = null;
+// The engine only CHECKS for updates; downloading and swapping the binary was
+// removed server-side (see the /update/check handler), so the old check→apply
+// →restart trio and its forever-idle /update/status poller are gone with it.
 let claimAuto = false;
-function updRender(j) {
-  // The engine only CHECKS now (see renderUpdateCheck): there is no download to
-  // show progress for, so this renders the check's own outcome and nothing else.
-  // The progress row it used to drive is gone with the download.
-  const row = document.getElementById("upd-progress-row");
-  const msg = document.getElementById("upd-msg");
-  if (!j || j.phase === "idle") { row.style.display = "none"; return; }
-  row.style.display = "";
-  msg.textContent = j.error ? T("upd_failed") + " — " + j.error
-                            : (j.message || j.phase);
-  msg.style.color = j.phase === "failed" ? "var(--red)" : "";
-}
-async function updPoll() {
-  try {
-    const j = await (await api("/update/status")).json();
-    updState = j;
-    updRender(j);
-  } catch {}
-}
 document.getElementById("upd-check").onclick = async () => {
   const btn = document.getElementById("upd-check");
   const latest = document.getElementById("upd-latest");

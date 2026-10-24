@@ -261,7 +261,7 @@ export const DEFAULT_POOL_OPTIONS: AccountPoolOptions = {
   // Account-wide gate. Measured ceiling is 3 (3008), so 2 keeps a margin below
   // the limit while still allowing real concurrency.
   maxConcurrentPerAccount: 2,
-  // Per-model gates. Default 2 for every model; glm-5.3 stays pinned at 1.
+  // Per-model gates. Default 2 for every model.
   //
   // These are a different kind of number from the account gate above. The
   // account gate is an estimate with deliberate margin; a per-model gate
@@ -274,9 +274,12 @@ export const DEFAULT_POOL_OPTIONS: AccountPoolOptions = {
   // therefore a batch of 3009s, and every 3009 cooled that model down. Hence
   // "as soon as concurrency goes up, everything is rate-limited".
   //
-  // Set at the ceiling, both halves behave: the gate cannot be the thing that
-  // provokes a refusal, and each model runs as wide as it really can.
-  maxConcurrentPerModel: { default: 2, byModel: { "glm-5.3": 1 } },
+  // glm-5.3's own pin to 1 was removed with ZCode 3.16.3: it serialized every
+  // 5.3 call behind the one already in flight ("5.3 一直无法调用" on any
+  // multi-agent workload), while upstream now accepts parallel 5.3 calls and
+  // the reactive 3009 cooldown already adapts to whatever it enforces. A pin
+  // belongs in a config's byModel only when an operator has measured it.
+  maxConcurrentPerModel: { default: 2 },
   // Overflow: OFF by default (factor 1 = strict gating). Admitting requests
   // past the account gate won the bet only sometimes — under sustained load the
   // self-inflicted 3008/3009s cooled accounts and models over and over, and the

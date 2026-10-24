@@ -96,8 +96,12 @@ identity:
   # billing/claim is often just reporting that the client version is below the
   # campaign's minimum, and it is sent verbatim as X-ZCode-App-Version. A stale
   # value here silently makes every claim ineligible.
-  # Default: DEFAULT_APP_VERSION in loader.ts (currently 3.14.4).
-  appVersion: "3.14.4"
+  #
+  # UNSET (recommended): follows DEFAULT_APP_VERSION in loader.ts, which is
+  # bumped with every mirrored ZCode release (currently 3.16.3) — a fresh or
+  # rebuilt config then never carries a stale version. Set it explicitly only
+  # to pin a specific version for testing.
+  # appVersion: ""
   # X-Title suffix → "Z Code@{sourceTitle}". Default "cli".
   sourceTitle: "cli"
   # HTTP-Referer URL. Default "https://zcode.z.ai".
@@ -127,10 +131,14 @@ endpointRouting:
   enabled: true
   origin: "https://zcode.z.ai"
 
-# Client request signing V4 (mirrors the ZCode 3.9.1 ClientRequestSigningV4Signer).
-# When enabled, the proxy probes {origin}/api/v1/agent/configs (cached 1h) and,
-# only if the server sets data.codingPlanSignature.enable=true, signs coding-plan
-# requests: handshake against {provider}/api/paas/c1f3a7e2/v2/client, Ed25519
+# Client request signing V4 (mirrors the ZCode ClientRequestSigningV4Signer).
+# When enabled, the proxy probes {origin}/api/v1/agent/configs (cached 1h).
+# Since ZCode 3.16.3 removed the client-side codingPlanSignature gate, signing
+# is the DEFAULT: a probe response WITHOUT the codingPlanSignature field means
+# "sign", and only an explicit enable=false disables it — the pre-3.16.3
+# reading of a missing field as "don't sign" silently stopped signing the
+# moment servers dropped the field. When signing applies, coding-plan requests
+# get the handshake against {provider}/api/paas/c1f3a7e2/v2/client, Ed25519
 # signature + proof-of-work headers on every request, fail-open retry ladder
 # (two 401 VERIFY rejections -> permanent unsigned bypass). Start-plan and
 # off-peak paths are never signed. Env override: ZCODE_CLIENT_SIGNING=false.
@@ -202,15 +210,17 @@ proxy:
 #
 # The numbers here are the MEASURED upstream ceilings, not guesses:
 #   - one account accepts 3 requests at once (a 4th returns error 3008);
-#   - glm-5.3 alone accepts only 1 (a 2nd simultaneous call returns 3009).
-# Going above these does not give more throughput; it produces the very errors
-# the pool then has to back off from.
+#   - a 3009 collision triggers a short model cooldown (modelCooldownMs).
+# glm-5.3 is NO LONGER pinned to 1: that pin predated ZCode 3.16.3 and kept
+# serializing 5.3 calls that upstream now accepts in parallel ("5.3 无法调用"
+# field reports). The default per-model gate of 2 plus the reactive 3009
+# cooldown adapts to whatever upstream enforces today. Pin a model here only
+# if you have measured a stricter ceiling.
 pool:
   maxConcurrentPerAccount: 2      # one below the measured 3, so bursts have room
   maxConcurrentPerModel:
     default: 2                    # per-model ceiling (operator-set)
-    byModel:
-      glm-5.3: 1                  # glm-5.3 tolerates 1; a 2nd call gets 3009
+    # byModel:                    # e.g. "glm-x: 1" — omit unless measured
   cooldownMs: 60000               # backoff after an ACCOUNT-wide 429/3008
   modelCooldownMs: 5000           # hold on ONE model after a 3009 collision
   reloginCooldownMs: 300000       # repeated 401/403 before flagging "needs re-login"

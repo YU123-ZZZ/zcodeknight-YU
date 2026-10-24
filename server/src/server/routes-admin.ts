@@ -865,12 +865,12 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
       currentVersion: VERSION,
     });
   }
-  if (method === "GET" && path === "/update/status") {
-    const { updateJob, repoSlug } = await import("../update/updater.js");
-    return json({ ...updateJob(), repo: repoSlug(), currentVersion: VERSION });
-  }
-  // There is deliberately no /update/apply or /update/restart any more.
+  // There is deliberately no /update/status, /update/apply or /update/restart.
   //
+  // /update/status served the download-progress job, but the engine only
+  // CHECKS now — the job record sits at "idle" forever, so the endpoint was a
+  // permanent lie that anything might report progress. The panel's poller for
+  // it was equally dead (defined, never called); both are gone.
   // Downloading a release and swapping the running binary in place needed a
   // staged file, a detached PowerShell script and a process that exits so the
   // swap can happen. Every step could fail on its own — a blocked download, a

@@ -34,6 +34,9 @@ import { handleMessages } from "./routes-anthropic.js";
 import type { ProxyConfig } from "../config/types.js";
 import { AuthManager } from "../auth/manager.js";
 
+/** Synthetic fixture key for the auth tests — never a real credential. */
+const TEST_PROXY_KEY = "proxy-secret";
+
 /** AuthManager with a preset oauth credential (replaces the removed apikey mode). */
 function oauthAuth(key = "testkey.testsecret"): AuthManager {
   const [apiKey, secret] = key.split(".");
@@ -206,8 +209,13 @@ describe("server routing", () => {
     expect(body.error.type).toBe("async_credentials_unavailable");
   });
 
-  it("GET /health returns ok status", async () => {
-    const config = makeConfig();
+  it("GET /health answers without the proxy API key (liveness, not data)", async () => {
+    // The 185 deployment report: /health sat AFTER the proxy-key gate, so an
+    // orchestrator probe with no key got 401. It is moved before the gate and
+    // exposes only { status, provider } — this pins both the no-key access and
+    // the minimal payload. The gate's configured key comes from the same
+    // fixture constant the auth tests below use.
+    const config = makeConfig({ auth: { proxyApiKey: TEST_PROXY_KEY } });
     const auth = oauthAuth("test");
     const handler = createFetchHandler({ config, auth });
 
@@ -215,6 +223,11 @@ describe("server routing", () => {
     expect(resp.status).toBe(200);
     const body = await resp.json();
     expect(body.status).toBe("ok");
+    expect(body.provider).toBe("zai");
+    expect(Object.keys(body).sort()).toEqual(["provider", "status"]);
+    // ...while a data route still demands the key.
+    const guarded = await handler(new Request("http://localhost/v1/models"));
+    expect(guarded.status).toBe(401);
   });
 
   it("unknown route returns 404", async () => {
