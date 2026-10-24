@@ -223,14 +223,15 @@ describe("updatePoolConfigYaml", () => {
     // byModel used to be nested inside `if (default !== undefined)`: a config
     // that set ONLY byModel had the whole maxConcurrentPerModel silently
     // dropped — no warn, nothing (185 report defect H). Now byModel parses
-    // standalone and the code default (2) backs the missing `default`.
+    // standalone; a missing `default` falls back to DEFAULT_POOL_OPTIONS
+    // (which is 0 = OFF since the official-style unpinning).
     withConfig(
       "pool:\n  maxConcurrentPerModel:\n    byModel:\n      glm-4.6: 1\n",
       (path) => {
         const pool = new AccountPool();
         pool.updateOptions(loadConfig(path).pool!);
         const got = pool.getOptions();
-        expect(got.maxConcurrentPerModel.default).toBe(2);
+        expect(got.maxConcurrentPerModel.default).toBe(0);
         expect(got.maxConcurrentPerModel.byModel["glm-4.6"]).toBe(1);
       },
     );

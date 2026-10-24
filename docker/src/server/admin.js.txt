@@ -162,8 +162,8 @@ const I18N = {
     set_panel_mismatch: "两次输入的新密码不一致", set_panel_need_cur: "请先输入当前密码",
     set_panel_wrong_cur: "当前密码不对", set_panel_short: "新密码至少 6 位",
     log_clear: "清空日志", log_clear_confirm: "清空全部日志？此操作不可撤销（建议先导出）。", log_cleared: "已清空 {n} 类日志",
-    set_gate: "每账号并发闸门", set_gate_hint: "账号级上限，实测 3，超过报 3008",
-    set_gate_model: "每模型并发上限", set_gate_model_hint: "下面没单独列出的模型用这个值。默认按实测上限取 3（flash 实测就是 3），调到超过实测值才会开始报 3008",
+    set_gate: "每账号并发闸门", set_gate_hint: "0 = 关闭（官方行为：只靠上游 3008 响应式冷却）。仅在你需要硬性本地上限时设置",
+    set_gate_model: "每模型并发上限", set_gate_model_hint: "0 = 关闭（官方行为）。仅为实测过更严的模型设置硬性上限",
     set_gate_model_over: "模型单独上限", set_gate_model_over_hint: "每行一条，格式 模型=上限。只为你实测过更严的模型设置——否则上游 3009 会自动冷却，无需手动钉",
     set_gate_bad: "格式不对（应为 模型=数字）：",
     set_overflow: "超限倍数", set_overflow_hint: "所有槽位占满时，最多按【每账号闸门】的这个倍数再放行；被拒就立即降级。只对每账号闸门生效，不会放宽每模型上限（模型上限是上游硬规则，放过去只会被 3009 拒）。1 = 绝不超限",
@@ -405,8 +405,8 @@ const I18N = {
     set_panel_mismatch: "The two new passwords do not match", set_panel_need_cur: "Enter the current password first",
     set_panel_wrong_cur: "Current password is wrong", set_panel_short: "New password must be at least 6 characters",
     log_clear: "Clear logs", log_clear_confirm: "Clear all logs? This cannot be undone (export first if unsure).", log_cleared: "Cleared {n} log type(s)",
-    set_gate: "Per-account gate", set_gate_hint: "Account-wide ceiling — measured 3, 3008 above it",
-    set_gate_model: "Per-model ceiling", set_gate_model_hint: "Used by models not listed below. Defaults to the measured ceiling (3 — that is what flash allows); going above the measured value is what produces 3008",
+    set_gate: "Per-account gate", set_gate_hint: "0 = OFF (official behaviour: upstream 3008 self-cooldowns regulate). Set a number only for a hard local ceiling",
+    set_gate_model: "Per-model ceiling", set_gate_model_hint: "0 = OFF (official behaviour). Set only if you want a hard local per-model cap",
     set_gate_model_over: "Model overrides", set_gate_model_over_hint: "One per line, model=limit. Only pin a model you have MEASURED as stricter — upstream 3009s self-cooldown otherwise",
     set_gate_bad: "Malformed line(s), expected model=number:",
     set_overflow: "Overflow factor", set_overflow_hint: "When all slots are busy, try up to this multiple of the PER-ACCOUNT gate before refusing; a rejection downgrades immediately. Applies to the account gate only — it never raises a per-model ceiling, because those are hard upstream rules and exceeding one only earns a 3009. 1 = never exceed",
@@ -507,6 +507,18 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
+  { ver: "v4.7.21", date: "2026-10-24", items: {
+    zh: [
+      "【修复·对齐官方】解除全部本地并发限制：官方客户端没有任何本地并发闸门——直接派发，上游 3008（账号上限）/3009（模型上限）响应式冷却就是唯一的调节方式。黑骑士此前自加的三层限制（每账号 2、每模型 2、同账号派发间隔 1.5s）全部默认关闭（0=不限），与官方行为一致；需要硬性本地上限的仍可在设置里按模型/按账号指定",
+      "【修复】账号闸门 0=不限：派发路径按 cap<=0 跳过账号闸；溢出（overflow）仅在账号闸开启时生效",
+      "【面板】Settings 并发设置默认值改为 0（关闭），提示文案同步为官方行为说明",
+    ],
+    en: [
+      "Fix/official alignment: ALL local concurrency caps are now OFF by default — the official ZCode client applies no preventive local gates; it dispatches and handles upstream 3008 (account ceiling) / 3009 (model ceiling) reactively with short cooldowns. The gateway's three self-imposed layers (per-account 2, per-model 2, 1.5s dispatch spacing) default to OFF (0 = unlimited), matching official behaviour; hard local ceilings remain available per account/model in Settings",
+      "Fix: account gate 0 = unlimited — the acquire path skips the account check when the cap is 0, and overflow only applies when the account gate is enabled",
+      "Panel: Settings concurrency defaults are now 0 (OFF) with hints explaining the official-style behaviour",
+    ],
+  } },
   { ver: "v4.7.20", date: "2026-10-24", items: {
     zh: [
       "【修复·渠道保护】上游的「渠道流量保护」是渠道级的：保护期内每个到达上游的请求都会把 30 分钟窗口再续 30 分钟，而引擎的模型级静默只压住单个模型——其他模型的请求继续出去，渠道永远出不了保护期（实测：21:18 约 40 个探测请求触发后，21:50 的每个请求都把解锁时钟推到 22:20）。现在普通 429（非 3009/3012）计入两击计数：10 分钟内两次即对全模型静默整个窗口，上游不再收到请求、窗口自然耗尽",

@@ -284,27 +284,24 @@ describe("quota-aware dispatch", () => {
 
   it("admits parallel requests for a model when no per-model pin says otherwise", async () => {
     // ZCode 3.16.3 accepts parallel glm-5.3 calls (the pre-3.16.3 pin of 1 was
-    // the "5.3 一直无法调用" field report). With no byModel entry for 5.3, the
-    // DEFAULT per-model gate (2) is the binding one — same as flash.
+    // the "5.3 一直无法调用" field report). With no byModel entry for 5.3 and
+    // the default per-model gate OFF (0 — official-style), requests flow
+    // freely; upstream 3009 + the reactive model cooldown are the only
+    // regulation.
     const { pool } = await setupPool(1);
     const first = pool.acquire({ model: "glm-5.3" });
     expect(first.ok).toBe(true);
 
-    // The default model gate is 2, so a second parallel 5.3 is admitted.
+    // No local cap: a second and third parallel 5.3 are admitted.
     const second = pool.acquire({ model: "glm-5.3" });
     expect(second.ok).toBe(true);
-
-    // The third hits the default model gate (a refusal, not a 3009 round trip),
-    // while flash is unaffected by 5.3's occupancy.
     const third = pool.acquire({ model: "glm-5.3" });
-    expect(third.ok).toBe(false);
-    const other = pool.acquire({ model: "glm-5.3-flash" });
-    expect(other.ok).toBe(true);
-    if (other.ok) other.lease.release();
+    expect(third.ok).toBe(true);
 
-    // Releasing frees 5.3 slots again.
+    // Releasing keeps the accounting honest.
     if (first.ok) first.lease.release();
     if (second.ok) second.lease.release();
+    if (third.ok) third.lease.release();
     const again = pool.acquire({ model: "glm-5.3" });
     expect(again.ok).toBe(true);
     if (again.ok) again.lease.release();
@@ -325,28 +322,22 @@ describe("quota-aware dispatch", () => {
     if (three.ok) three.lease.release();
   });
 
-  it("gives flash the same default ceiling as every other model", async () => {
-    // Defaults: every model gates at 2 (operator-set); no model is special.
-    // The old "glm-5.3 stays at 1" exception is gone with ZCode 3.16.3.
-    //
-    // The gates sit AT those ceilings, not below them: a per-model gate
-    // encodes a hard upstream rule, so sitting under it only throws away
-    // capacity. Bursts are absorbed by the ACCOUNT gate's overflow allowance,
-    // which never raises a model gate (see the next test).
+  it("leaves every model ungated by default (official-style)", async () => {
+    // Defaults: per-model gate OFF (0) and no byModel pins — the official
+    // client applies no preventive local caps; upstream 3009 + the reactive
+    // model cooldown are the only regulation.
     const { pool } = await setupPool(1);
-    expect(pool.getOptions().maxConcurrentPerModel.default).toBe(2);
+    expect(pool.getOptions().maxConcurrentPerModel.default).toBe(0);
     expect(pool.getOptions().maxConcurrentPerModel.byModel).toEqual({});
 
-    // Both models run as wide as the default gate allows (the account gate is
-    // 8 here, so the model gate is the binding one; overflow is off here).
+    // Both models admit several parallel requests without any local refusal.
     for (const model of ["glm-5.3-flash", "glm-5.3"]) {
       const held: Array<{ release(): void }> = [];
-      for (let i = 0; i < 2; i++) {
+      for (let i = 0; i < 3; i++) {
         const r = pool.acquire({ model });
         expect(r.ok).toBe(true);
         if (r.ok) held.push(r.lease);
       }
-      expect(pool.acquire({ model }).ok).toBe(false);
       for (const l of held) l.release();
     }
   });

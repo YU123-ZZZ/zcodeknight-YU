@@ -258,28 +258,17 @@ export interface AccountPoolOptions {
 }
 
 export const DEFAULT_POOL_OPTIONS: AccountPoolOptions = {
-  // Account-wide gate. Measured ceiling is 3 (3008), so 2 keeps a margin below
-  // the limit while still allowing real concurrency.
-  maxConcurrentPerAccount: 2,
-  // Per-model gates. Default 2 for every model.
-  //
-  // These are a different kind of number from the account gate above. The
-  // account gate is an estimate with deliberate margin; a per-model gate
-  // encodes a hard upstream rule that no amount of retrying changes.
-  //
-  // The previous default pinned everything to 1. That was described as
-  // "conservative", but it was not: the overflow pass multiplied the model gate
-  // by overflowFactor, so a burst raised glm-5.3 from 1 to 2 — exactly the
-  // level upstream refuses. The first thing a concurrency spike produced was
-  // therefore a batch of 3009s, and every 3009 cooled that model down. Hence
-  // "as soon as concurrency goes up, everything is rate-limited".
-  //
-  // glm-5.3's own pin to 1 was removed with ZCode 3.16.3: it serialized every
-  // 5.3 call behind the one already in flight ("5.3 一直无法调用" on any
-  // multi-agent workload), while upstream now accepts parallel 5.3 calls and
-  // the reactive 3009 cooldown already adapts to whatever it enforces. A pin
-  // belongs in a config's byModel only when an operator has measured it.
-  maxConcurrentPerModel: { default: 2 },
+  // Concurrency gates are OFF by default (0 = unlimited): the official ZCode
+  // client applies NO local concurrency caps — it dispatches and handles
+  // upstream 3008 (account ceiling) / 3009 (model ceiling) reactively with
+  // short cooldowns. Preventive local gates were the "5.3 一直无法调用" /
+  // "high concurrency → everything rate-limited" root cause: they refused
+  // requests upstream would have accepted. The reactive cooldowns below
+  // (cooldownMs / modelCooldownMs) remain the regulation, exactly mirroring
+  // the official behaviour. Operators who prefer hard local ceilings can
+  // still set these in the panel/config.
+  maxConcurrentPerAccount: 0,
+  maxConcurrentPerModel: { default: 0 },
   // Overflow: OFF by default (factor 1 = strict gating). Admitting requests
   // past the account gate won the bet only sometimes — under sustained load the
   // self-inflicted 3008/3009s cooled accounts and models over and over, and the
@@ -297,16 +286,12 @@ export const DEFAULT_POOL_OPTIONS: AccountPoolOptions = {
   // short enough that a burst does not leave the model benched.
   modelCooldownMs: 5_000,
   reloginCooldownMs: 5 * 60_000,
-  // 1.5s between dispatches on the same account: invisible to a human user,
-  // but it stops the "same account, N requests in 100ms" signature.
-  //
-  // NOTE this caps throughput independently of maxConcurrentPerAccount. Since
-  // it measures DISPATCH time, a second request on the same account waits 1.5s
-  // even when a concurrency slot is free — so for short requests the real rate
-  // is ~0.67/s per account, not 2 concurrent. Lower it in Settings if the
-  // accounts are known to tolerate faster dispatch; raising concurrency alone
-  // will not do it.
-  minSpacingMs: 1_500,
+  // Dispatch spacing: OFF by default (0). The official client applies no
+  // inter-request spacing — it dispatches when the user asks and lets upstream
+  // risk control answer. The old 1.5s default capped per-account throughput at
+  // ~0.67 req/s even with free concurrency slots ("明明能用却调用不出来").
+  // Operators behind a shared egress can still raise this in Settings.
+  minSpacingMs: 0,
 };
 
 /**
@@ -756,9 +741,15 @@ export class AccountPool {
       if (cap <= 0) return true;
       return (rt.modelInFlight.get(opts.model) ?? 0) < cap;
     };
+    // Account gate: 0 = DISABLED (official-style default — upstream's own
+    // 3008 ceiling is the only limiter, handled reactively). Any positive
+    // value is an operator-set hard ceiling.
+    const acctCap = this.opts.maxConcurrentPerAccount;
+    const accountSlotFree = (rt: AccountRuntime): boolean =>
+      acctCap <= 0 || rt.inFlight < acctCap;
     const eligible = candidates.filter((rt) =>
       this.dispatchStatus(rt, now) === "ok"
-      && rt.inFlight < this.opts.maxConcurrentPerAccount
+      && accountSlotFree(rt)
       && spaced(rt)
       && modelFree(rt)
       && modelSlotFree(rt));
@@ -770,7 +761,7 @@ export class AccountPool {
     if (this.opts.minSpacingMs > 0) {
       const spacingBlocked = candidates.filter((rt) =>
         this.dispatchStatus(rt, now) === "ok"
-        && rt.inFlight < this.opts.maxConcurrentPerAccount
+        && accountSlotFree(rt)
         && modelFree(rt)
         && modelSlotFree(rt)
         && !spaced(rt));
@@ -818,12 +809,12 @@ export class AccountPool {
     // a real slot is strictly better than provoking a refusal — the handler
     // queues for one up to QUEUE_BUDGET_MS.
     const factor = this.opts.overflowFactor ?? 1;
-    if (factor > 1) {
+    if (factor > 1 && acctCap > 0) {
       const over = candidates.filter((rt) => {
         if (this.effectiveStatus(rt, now) !== "ok") return false;
         if (!modelFree(rt)) return false;
         if (!spaced(rt)) return false;
-        const accountCap = Math.ceil(this.opts.maxConcurrentPerAccount * factor);
+        const accountCap = Math.ceil(acctCap * factor);
         if (rt.inFlight >= accountCap) return false;
         // A saturated MODEL slot is a hard stop — see above.
         if (!modelSlotFree(rt)) return false;

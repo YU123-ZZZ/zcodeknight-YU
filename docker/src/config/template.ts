@@ -210,23 +210,20 @@ proxy:
 # startup, so the values survive a restart. All keys are optional — an absent
 # one uses the built-in default.
 #
-# The numbers here are the MEASURED upstream ceilings, not guesses:
-#   - one account accepts 3 requests at once (a 4th returns error 3008);
-#   - a 3009 collision triggers a short model cooldown (modelCooldownMs).
-# glm-5.3 is NO LONGER pinned to 1: that pin predated ZCode 3.16.3 and kept
-# serializing 5.3 calls that upstream now accepts in parallel ("5.3 无法调用"
-# field reports). The default per-model gate of 2 plus the reactive 3009
-# cooldown adapts to whatever upstream enforces today. Pin a model here only
-# if you have measured a stricter ceiling.
+# The official ZCode client applies NO local concurrency caps — it dispatches
+# and lets upstream 3008 (account ceiling) / 3009 (model ceiling) answer, with
+# short reactive cooldowns. This gateway now matches that: all three knobs
+# default to OFF (0), and the reactive cooldowns below are the only regulation.
+# Set a hard local ceiling only if you want one (e.g. fragile shared egress).
 pool:
-  maxConcurrentPerAccount: 2      # one below the measured 3, so bursts have room
+  maxConcurrentPerAccount: 0      # 0 = unlimited per account (official-style)
   maxConcurrentPerModel:
-    default: 2                    # per-model ceiling (operator-set)
-    # byModel:                    # e.g. "glm-x: 1" — omit unless measured
+    default: 0                    # 0 = no per-model gate
+    # byModel:                    # e.g. "glm-x: 1" — pin only what you measured
   cooldownMs: 60000               # backoff after an ACCOUNT-wide 429/3008
   modelCooldownMs: 5000           # hold on ONE model after a 3009 collision
   reloginCooldownMs: 300000       # repeated 401/403 before flagging "needs re-login"
-  minSpacingMs: 1500              # shortest gap between two calls on one account
+  minSpacingMs: 0                 # 0 = no dispatch spacing (official-style)
   overflowFactor: 1               # when all account slots are busy, try this much
                                   # of the ACCOUNT gate before refusing; never
                                   # raises a per-model ceiling. 1 = never exceed.

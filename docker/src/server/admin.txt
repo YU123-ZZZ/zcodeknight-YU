@@ -529,24 +529,18 @@ Rules you must follow:
         </div>
       </div>
       <div class="set-row">
-        <div><div class="lbl" data-i18n="set_gate">Per-account gate</div><div class="hint" data-i18n="set_gate_hint">Account-wide ceiling — measured 3, 3008 above it</div></div>
-        <input id="set-gate" type="number" value="2" min="1" max="16">
+        <div><div class="lbl" data-i18n="set_gate">Per-account gate</div><div class="hint" data-i18n="set_gate_hint">0 = OFF (official-style: upstream 3008 self-cooldowns regulate). Set a number only for a hard local ceiling</div></div>
+        <input id="set-gate" type="number" value="0" min="0" max="16">
       </div>
-      <!-- Model-level ceilings, separate from the account gate above. Two
-           different upstream limits exist and they are not interchangeable: the
-           account gate is 3 for everything, while glm-5.3 alone allows just 1.
-           Keeping them in one field forced a choice that broke one model or the
-           other, so they are two controls.
-
-           The static values below are only what shows before loadSettings()
-           runs; the live numbers come from the engine. They are kept in sync
-           with DEFAULT_POOL_OPTIONS so the first paint is not misleading. -->
+      <!-- Model-level ceilings, separate from the account gate above. Both
+           default to OFF (0): the official client applies no preventive local
+           caps — upstream 3008/3009 and the reactive cooldowns regulate. -->
       <div class="set-row">
         <div>
           <div class="lbl" data-i18n="set_gate_model">Per-model ceiling</div>
-          <div class="hint" data-i18n="set_gate_model_hint">Default for models with no entry below. Conservative by default (1) — raise it when the accounts tolerate more</div>
+          <div class="hint" data-i18n="set_gate_model_hint">0 = OFF (official-style). Set only if you want a hard local per-model cap</div>
         </div>
-        <input id="set-gate-model" type="number" value="1" min="1" max="16">
+        <input id="set-gate-model" type="number" value="0" min="0" max="16">
       </div>
       <div class="set-row">
         <div>
@@ -584,7 +578,7 @@ Rules you must follow:
       </div>
       <div class="set-row">
         <div><div class="lbl" data-i18n="set_spacing">Min spacing per account (ms)</div><div class="hint" data-i18n="set_spacing_hint">Shortest gap between two requests on one account — lowers risk-control hits; 0 disables</div></div>
-        <input id="set-spacing" type="number" value="1500" min="0" max="60000" step="100">
+        <input id="set-spacing" type="number" value="0" min="0" max="60000" step="100">
       </div>
       <div class="set-row">
         <div>

@@ -568,7 +568,9 @@ function resolvePoolConfig(raw: unknown): PoolSettingsConfig | undefined {
     return integer ? Math.trunc(n) : n;
   };
 
-  const account = num(obj.maxConcurrentPerAccount ?? obj.max_concurrent_per_account, "maxConcurrentPerAccount", 1, 16);
+  // 0 = disabled (match the official client: no local concurrency caps; the
+  // reactive 3008/3009 cooldowns are the only regulation, same as upstream).
+  const account = num(obj.maxConcurrentPerAccount ?? obj.max_concurrent_per_account, "maxConcurrentPerAccount", 0, 16);
   if (account !== undefined) out.maxConcurrentPerAccount = account;
   const cooldown = num(obj.cooldownMs ?? obj.cooldown_ms, "cooldownMs", 5_000, 3_600_000);
   if (cooldown !== undefined) out.cooldownMs = cooldown;
@@ -593,7 +595,8 @@ function resolvePoolConfig(raw: unknown): PoolSettingsConfig | undefined {
     // whole maxConcurrentPerModel silently dropped — no warn, nothing (185
     // report defect H). When `default` is absent the code default (2) stays
     // in force via DEFAULT_POOL_OPTIONS.
-    const def = num(src.default, "maxConcurrentPerModel.default", 1, 16);
+    // 0 = no per-model gate (official-style); byModel pins must still be >= 1.
+    const def = num(src.default, "maxConcurrentPerModel.default", 0, 16);
     const byModel: Record<string, number> = {};
     const rawBy = src.byModel ?? src.by_model;
     if (rawBy && typeof rawBy === "object") {
