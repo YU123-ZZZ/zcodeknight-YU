@@ -125,6 +125,9 @@ const I18N = {
     inv_mk_empty: "官方没有返回活动信息（未知）",
     inv_mk_unknown: "未知", inv_mk_fetched: "更新于",
     inv_mk_local: "以下为官方只读信息；本页的登记与分配不在此列，也不代表已成功领取。",
+    inv_mk_campaign: "活动期间", inv_mk_tasks: "新手任务", inv_mk_rewards: "可获奖励",
+    inv_mk_plan: "奖励套餐", inv_mk_invited: "已邀请", inv_mk_total: "累计", inv_mk_weekly: "本周",
+    inv_mk_cap: "上限", inv_mk_unlock: "解锁于", inv_mk_invitees: "被邀请人",
     inv_log_empty: "（暂无操作）",
     inv_err: "操作失败：",
     inv_owner_pick: "选择归属账号",
@@ -368,6 +371,9 @@ const I18N = {
     inv_mk_available: "Official info returned {n} entries",
     inv_mk_empty: "Official info returned nothing (unknown)",
     inv_mk_unknown: "unknown", inv_mk_fetched: "fetched",
+    inv_mk_campaign: "Campaign", inv_mk_tasks: "Newcomer tasks", inv_mk_rewards: "Rewards",
+    inv_mk_plan: "Reward plan", inv_mk_invited: "Invited", inv_mk_total: "total", inv_mk_weekly: "weekly",
+    inv_mk_cap: "cap", inv_mk_unlock: "unlocks at", inv_mk_invitees: "Invitees",
     inv_mk_local: "Official read-only info below. This page's registry and assignments are NOT a claim and do not mean anything was successfully redeemed.",
     inv_err: "Failed:",
     inv_owner_pick: "Choose the owner account",
@@ -507,6 +513,16 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
+  { ver: "v4.7.22", date: "2026-10-24", items: {
+    zh: [
+      "【邀请页】官方活动信息卡片完整渲染奖励中心数据：活动期间、新手任务（登录设备/绑定邀请码/发消息）、可获奖励（夜间蹬蹬卡等，含进度 0/3）、已邀请计数（累计/本周/上限）、被邀请人列表——此前只渲染 deliveries 列表，185 实测返回的邀请/任务/进度全部被丢掉（「邀请好友根本用不了」的界面层原因）",
+      "【说明】邀请链接（https://zcode.z.ai/invite/CODE）与奖励任务是官方网页端「头像→奖励中心」的数据，桌面端本身只弹官方页面；网关的 /marketing 路由代理同一组官方只读接口（incentive/referral/summary、invitees、reward-records）",
+    ],
+    en: [
+      "Invite page: the official marketing card now renders the FULL reward-centre payload — campaign window, newcomer tasks (login device / bind invite code / send message), rewards with progress (night card etc., 0/3), inviter counters (total/weekly/cap) and the invitees list. Only `deliveries` was rendered before, which dropped every invite/task/progress field the 185 field test returned (the UI-layer reason \"邀请好友根本用不了\")",
+      "Note: the invite link (https://zcode.z.ai/invite/CODE) and reward tasks belong to the official web reward centre (avatar → reward centre); the desktop app only opens that page. The gateway's /marketing route proxies the same official read-only endpoints (incentive/referral/summary, invitees, reward-records)",
+    ],
+  } },
   { ver: "v4.7.21", date: "2026-10-24", items: {
     zh: [
       "【修复·对齐官方】解除全部本地并发限制：官方客户端没有任何本地并发闸门——直接派发，上游 3008（账号上限）/3009（模型上限）响应式冷却就是唯一的调节方式。黑骑士此前自加的三层限制（每账号 2、每模型 2、同账号派发间隔 1.5s）全部默认关闭（0=不限），与官方行为一致；需要硬性本地上限的仍可在设置里按模型/按账号指定",
@@ -5344,21 +5360,84 @@ function invRenderMarketing(d) {
     "<span>" + esc(invAccountName(d.accountId) || d.accountId || "") + "</span>" +
     (d.fresh === false ? "<span>" + T("intel_stale") + "</span>" : "") + "</div>";
   if (d.error) return head + meta + '<div class="bal-empty">' + esc(d.error) + "</div>";
-  if (!d.available || !(d.deliveries || []).length) {
-    return head + meta + '<div class="bal-empty">' + T("inv_mk_empty") + "</div>";
+
+  // The marketing route proxies the official incentive/referral/* endpoints:
+  // referral/summary (gameplay + invitee tasks/rewards + inviter counters),
+  // referral/invitees, referral/reward-records. The 185 field test showed the
+  // summary is the REWARD CENTRE itself (screenshot: invite link + tasks +
+  // progress) — rendering only `deliveries` hid all of it, which is why
+  // "邀请好友根本用不了" looked like a broken feature.
+  const s = d.summary || {};
+  let body = "";
+
+  // 1) Campaign window.
+  const gp = s.gameplay || {};
+  if (gp.status || gp.starts_at) {
+    body += '<div class="meta-row"><span>' + T("inv_mk_campaign") + ": " +
+      esc(gp.status || T("inv_mk_unknown")) + "</span><span>" +
+      esc(invWhen((gp.starts_at || 0) * 1000) + " → " + invWhen((gp.ends_at || 0) * 1000)) + "</span></div>";
   }
-  const rows = d.deliveries.map((x) => {
-    return '<div class="inv-assign-row"><span class="nm">' + esc(x.title || x.campaignId || T("inv_mk_unknown")) + "</span>" +
-      '<span class="sub" style="margin:0">' + esc(x.priority != null ? "priority " + x.priority : "") +
-      (x.position != null ? " · #" + x.position : "") + "</span>" +
-      (x.remainingChances != null ? '<span class="pill">' + esc(String(x.remainingChances)) + "</span>" : "") +
-      "</div>" +
-      (x.description ? '<div class="inv-note">' + esc(x.description) + "</div>" : "") +
-      '<div class="meta-row"><span>' + esc(x.startsAt ? invWhen(x.startsAt) : T("inv_mk_unknown")) + " → " +
-      esc(x.endsAt ? invWhen(x.endsAt) : T("inv_mk_unknown")) + "</span></div>";
-  }).join("");
-  return head + meta + '<div class="sub" style="margin:8px 0">' +
-    T("inv_mk_available").replace("{n}", String(d.deliveries.length)) + "</div>" + rows;
+
+  // 2) Invitee tasks (what THIS account earns by joining someone's invite).
+  const inv = s.invitee || {};
+  if ((inv.tasks || []).length) {
+    body += '<div style="margin:8px 0 4px"><b>' + T("inv_mk_tasks") + "</b></div>";
+    for (const t of inv.tasks) {
+      const done = t.completed ? "✓" : "○";
+      body += '<div class="inv-assign-row"><span class="nm">' + done + " " +
+        esc(t.title || t.key || T("inv_mk_unknown")) + "</span></div>";
+    }
+  }
+  if ((inv.rewards || []).length) {
+    body += '<div style="margin:8px 0 4px"><b>' + T("inv_mk_rewards") + "</b></div>";
+    for (const r of inv.rewards) {
+      const cur = r.current != null ? r.current : 0;
+      const tgt = r.target != null ? r.target : 0;
+      body += '<div class="inv-assign-row"><span class="nm">' + esc(r.title || r.reward_type || T("inv_mk_unknown")) +
+        "</span><span class=\"pill\">" + esc(cur + "/" + tgt) + "</span></div>";
+      if (r.description) body += '<div class="inv-note">' + esc(r.description) + "</div>";
+      const pl = r.plan || {};
+      if (pl.name) {
+        body += '<div class="meta-row"><span>' + T("inv_mk_plan") + ": " + esc(pl.name) + "</span>" +
+          (pl.plan_id ? "<span>" + esc(pl.plan_id) + "</span>" : "") + "</div>";
+      }
+    }
+  }
+
+  // 3) Inviter counters (how many this account already invited).
+  const inr = s.inviter || {};
+  if (inr.state || inr.invited) {
+    const invited = inr.invited || {};
+    body += '<div style="margin:8px 0 4px"><b>' + T("inv_mk_invited") + "</b></div>";
+    body += '<div class="meta-row"><span>' + T("inv_mk_total") + ": " + esc(invited.total != null ? invited.total : 0) +
+      "</span><span>" + T("inv_mk_weekly") + ": " + esc(invited.weekly != null ? invited.weekly : 0) + "</span>" +
+      "<span>" + T("inv_mk_cap") + ": " + esc(invited.reward_cap != null ? invited.reward_cap : "?") + "</span></div>";
+    if (inr.state === "locked" && inr.unlock_at) {
+      body += '<div class="meta-row"><span>' + T("inv_mk_unlock") + " " + esc(invWhen(inr.unlock_at * 1000)) + "</span></div>";
+    }
+  }
+
+  // 4) Invitees / reward records lists.
+  const invitees = (d.invitees && d.invitees.invitees) || [];
+  if (invitees.length) {
+    body += '<div style="margin:8px 0 4px"><b>' + T("inv_mk_invitees") + "</b></div>";
+    for (const x of invitees) body += '<div class="inv-assign-row"><span class="nm">' +
+      esc(x.account_name || x.name || x.id || T("inv_mk_unknown")) + "</span></div>";
+  }
+
+  if (!body) {
+    if (!d.available || !(d.deliveries || []).length) {
+      return head + meta + '<div class="bal-empty">' + T("inv_mk_empty") + "</div>";
+    }
+    // Fallback: older engine payloads (deliveries only).
+    const rows = d.deliveries.map((x) => {
+      return '<div class="inv-assign-row"><span class="nm">' + esc(x.title || x.campaignId || T("inv_mk_unknown")) + "</span></div>" +
+        (x.description ? '<div class="inv-note">' + esc(x.description) + "</div>" : "");
+    }).join("");
+    return head + meta + '<div class="sub" style="margin:8px 0">' +
+      T("inv_mk_available").replace("{n}", String(d.deliveries.length)) + "</div>" + rows;
+  }
+  return head + meta + body;
 }
 
 invRenderLog();
