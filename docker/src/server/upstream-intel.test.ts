@@ -109,6 +109,16 @@ releaseNotes: |-
     - 登录链接无法自动打开时，可复制后手动完成登录。
 `;
 
+  // The LIVE manifest's notes run ~92 lines across `## 新功能` / `## 问题修复`
+  // sections — this long fixture pins that no LINE cap hides them.
+  const MANIFEST_YAML_LONG = `version: 3.16.3
+releaseName: Release v3.16.3
+releaseNotes: |-
+    ## 新功能
+` + Array.from({ length: 30 }, (_, i) => `    - 新功能条目 ${i + 1}。`).join("\n") + `
+    ## 问题修复
+` + Array.from({ length: 30 }, (_, i) => `    - 修复条目 ${i + 1}。`).join("\n");
+
   it("converts the manifest YAML into the newest intel entry", () => {
     const entry = manifestToEntry(MANIFEST_YAML);
     expect(entry).not.toBeNull();
@@ -156,5 +166,14 @@ releaseNotes: |-
       { version: "v3.15.1", date: "2026-10-10", notes: "", url: "" },
     ];
     expect(mergeClientEntry(ring, null)).toBe(ring);
+  });
+
+  it("plainNotes keeps the full manifest notes (no 8-line cut) and strips ## headings", () => {
+    // The live manifest's releaseNotes are ~90 lines using `## 新功能` (h2);
+    // pre-4.7.19 they were cut to 8 lines and the `##` leaked onto the page.
+    const entry = manifestToEntry(MANIFEST_YAML_LONG);
+    expect(entry).not.toBeNull();
+    expect(entry!.notes).not.toContain("##");
+    expect(entry!.notes.split("\n").length).toBeGreaterThan(8);
   });
 });

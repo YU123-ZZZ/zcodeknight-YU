@@ -246,6 +246,20 @@
          implying a successful upstream redemption. -->
     <div class="inv-scope" data-i18n="inv_local_note">Local registry only — assignments are reservations made by this panel and do not redeem anything upstream.</div>
 
+    <!-- Campaign claims (v4.7.19): a live view of what billing/preview offers
+         per account, with one-click claim. The claim itself goes through the
+         same POST /accounts/claim the auto scheduler uses (captcha + preview
+         first), so this cannot bypass any upstream rule — it only makes the
+         activities VISIBLE instead of hidden behind a 5h timer. -->
+    <div class="card" style="margin-top:14px">
+      <div class="bal-head">
+        <b data-i18n="inv_claim_title">可领取的活动（自动检测）</b>
+        <button class="btn ghost sm" id="inv-claim-refresh" data-i18n="refresh">Refresh</button>
+      </div>
+      <div class="sub" style="margin-top:6px" data-i18n="inv_claim_hint">自动检测每个账号当前可领取的活动套餐（官方 billing/preview），可一键领取。检测需要账号已 OAuth 登录。</div>
+      <div id="inv-claim-body" style="margin-top:10px"><div class="bal-empty">—</div></div>
+    </div>
+
     <div class="grid g4" style="margin-top:14px">
       <div class="card kv"><div class="k" data-i18n="inv_stat_total">Total</div><div class="v" id="inv-st-total">—</div></div>
       <div class="card kv"><div class="k" data-i18n="inv_stat_active">Active</div><div class="v" id="inv-st-active">—</div></div>
@@ -483,7 +497,7 @@ Rules you must follow:
   <div class="page" id="page-settings">
     <h2 data-i18n="set_title">Settings</h2>
     <div class="sub" data-i18n="set_sub">Some changes need a proxy restart</div>
-    <div class="sub" style="margin-bottom:8px" data-i18n="set_zcode_compat">适配 ZCode 客户端版本：3.14.4+（身份指纹按此版本伪装；低于此版本可能触发上游 1004 ineligible）</div>
+    <div class="sub" style="margin-bottom:8px" data-i18n="set_zcode_compat">适配 ZCode 客户端（身份指纹自动跟随引擎内置的官方适配版本，随官方客户端升级；低于活动要求的版本可能触发上游 1004 ineligible）</div>
     <div class="card">
       <div class="set-row">
         <div><div class="lbl" data-i18n="set_api">Endpoint (OpenAI format)</div><div class="hint" data-i18n="set_api_hint">Paste into your coding tools</div></div>
@@ -537,9 +551,9 @@ Rules you must follow:
       <div class="set-row">
         <div>
           <div class="lbl" data-i18n="set_gate_model_over">Model overrides</div>
-          <div class="hint" data-i18n="set_gate_model_over_hint">One per line, model=limit. glm-5.3 allows only 1 — above that it returns 3009</div>
+          <div class="hint" data-i18n="set_gate_model_over_hint">One per line, model=limit. Only pin a model you have MEASURED as stricter — upstream 3009s self-cooldown otherwise</div>
         </div>
-        <textarea id="set-gate-over" rows="3" style="font-family:var(--mono);font-size:12px;width:320px" placeholder="glm-5.3=1"></textarea>
+        <textarea id="set-gate-over" rows="3" style="font-family:var(--mono);font-size:12px;width:320px" placeholder="glm-x=1"></textarea>
       </div>
       <!-- Overflow: when every slot is taken, try one more rather than refusing.
            The gates sit below the measured ceilings, so the bet usually wins;

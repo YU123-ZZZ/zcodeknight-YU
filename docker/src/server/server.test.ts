@@ -211,10 +211,11 @@ describe("server routing", () => {
 
   it("GET /health answers without the proxy API key (liveness, not data)", async () => {
     // The 185 deployment report: /health sat AFTER the proxy-key gate, so an
-    // orchestrator probe with no key got 401. It is moved before the gate and
-    // exposes only { status, provider } — this pins both the no-key access and
-    // the minimal payload. The gate's configured key comes from the same
-    // fixture constant the auth tests below use.
+    // orchestrator probe with no key got 401. It is moved before the gate —
+    // and 4.7.19 tightens it further: the payload is ONLY {"status":"ok"} (the
+    // `provider` field was a free fingerprint for scanners: it confirmed the
+    // host runs ZcodeKnight, pointing them at /panel). A data route still
+    // demands the key.
     const config = makeConfig({ auth: { proxyApiKey: TEST_PROXY_KEY } });
     const auth = oauthAuth("test");
     const handler = createFetchHandler({ config, auth });
@@ -222,9 +223,7 @@ describe("server routing", () => {
     const resp = await handler(new Request("http://localhost/health"));
     expect(resp.status).toBe(200);
     const body = await resp.json();
-    expect(body.status).toBe("ok");
-    expect(body.provider).toBe("zai");
-    expect(Object.keys(body).sort()).toEqual(["provider", "status"]);
+    expect(body).toEqual({ status: "ok" });
     // ...while a data route still demands the key.
     const guarded = await handler(new Request("http://localhost/v1/models"));
     expect(guarded.status).toBe(401);

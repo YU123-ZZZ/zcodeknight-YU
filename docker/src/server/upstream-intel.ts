@@ -119,14 +119,17 @@ let inflight: Promise<IntelFeed> | null = null;
 function plainNotes(body: string): string {
   return String(body ?? "")
     .replace(/\r/g, "")
-    .replace(/###\s*/g, "")
+    // #{1,6}: the official client's manifest notes use `## 新功能` (h2), not
+    // only `###` — h1/h2 markdown leaked onto the intel page verbatim.
+    .replace(/#{1,6}\s*/g, "")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
     .split("\n")
     .filter((l) => l.trim().length > 0)
-    .slice(0, 8)
+    // No LINE cap — the live manifest carries ~90-line release notes and an
+    // 8-line cut hid most of the changelog. The CHAR cap alone bounds size.
     .join("\n")
-    .slice(0, 1200);
+    .slice(0, 4000);
 }
 
 /** Decode XML entities and strip HTML tags from an atom content blob. */
@@ -179,7 +182,17 @@ function parseAtomFeed(xml: string): IntelEntry[] {
  * the entries exactly as they were.
  */
 async function supplementFromChangelog(entries: IntelEntry[]): Promise<void> {
-  const missing = entries.filter((e) => !e.notes);
+  // A "stub" is an entry whose notes carry no real content: empty, or just the
+  // version token echoed back (the atom feed for v3.15.1 has
+  // `<content><p>v3.15.1</p></content>` — a truthy string that pre-4.7.19
+  // exempted the entry from changelog supplementation, so the panel showed a
+  // card whose entire body was the version number while marking it "ok").
+  const isStub = (e: IntelEntry): boolean => {
+    const t = e.notes.trim();
+    return !t || t === e.version.trim() || t === `Release ${e.version.trim()}`
+      || t.replace(/^v/i, "") === e.version.trim().replace(/^v/i, "") || t.length < 40;
+  };
+  const missing = entries.filter(isStub);
   if (!missing.length) return;
   const CHANGELOG_URLS = [
     "https://zcode.z.ai/cn/changelog",
@@ -195,12 +208,12 @@ async function supplementFromChangelog(entries: IntelEntry[]): Promise<void> {
       const html = await resp.text();
       let filled = 0;
       for (const entry of missing) {
-        const text = changelogSectionFor(html, entry.version);
-        if (!text) continue;
-        entry.notes = text;
-        entry.notesSource = "changelog";
-        entry.notesStatus = "ok";
-        filled++;
+      const text = changelogSectionFor(html, entry.version);
+      if (!text) continue;
+      entry.notes = text;
+      entry.notesSource = "changelog";
+      entry.notesStatus = "ok";
+      filled++;
       }
       if (filled > 0) return;      // one source was enough
     } catch {

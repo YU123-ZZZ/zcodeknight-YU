@@ -30,6 +30,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { parse } from "yaml";
 import type { ClientIdentityConfig, ProxyConfig, ProviderEndpoints, ProxyIdentity, ResponsesConfig, McpConfig, AsyncConfig, EndpointRoutingConfig, ClientSigningConfig, ClaimConfig, ProbeConfig, NetworkProxyConfig, PanelConfig, PoolSettingsConfig } from "./types.js";
+import { DEFAULT_POOL_OPTIONS } from "../auth/account-pool.js";
 
 /** Environment variable keys that override YAML values. */
 const ENV = {
@@ -446,10 +447,37 @@ interface IdentityInputs {
   deviceMidYaml?: string;
 }
 
-/** Resolve identity fields (env > YAML > default). Non-ASCII `appVersion` silently falls back to the default. */
+/** Dotted-version compare: negative when `a` < `b`. */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+
+/**
+ * Resolve identity fields (env > YAML > default). Non-ASCII `appVersion` silently falls back to the default.
+ *
+ * A YAML/env appVersion OLDER than the engine's default is demoted to the
+ * default with a warning: the shipped template used to write "3.14.4" into
+ * every generated config, and the campaign gateway gates claim eligibility on
+ * this exact string — a stale value made every billing/claim answer
+ * 1004 "ineligible" ("有什么活动根本不能用", 185 report #1). env keeps the
+ * final say (an operator pinning a NEWER version still works); only the
+ * footgun direction is migrated.
+ */
 function resolveIdentity(inp: IdentityInputs): ProxyIdentity {
   const rawVersion = (inp.appVersionEnv ?? inp.appVersionYaml ?? DEFAULTS.APP_VERSION).trim();
-  const appVersion = ASCII_PRINTABLE.test(rawVersion) ? rawVersion : DEFAULTS.APP_VERSION;
+  let appVersion = ASCII_PRINTABLE.test(rawVersion) ? rawVersion : DEFAULTS.APP_VERSION;
+  if (appVersion !== DEFAULTS.APP_VERSION
+      && !inp.appVersionEnv
+      && compareVersions(appVersion, DEFAULTS.APP_VERSION) < 0) {
+    console.warn(`[config] identity.appVersion ${appVersion} is older than the mirrored client (${DEFAULTS.APP_VERSION}) — using ${DEFAULTS.APP_VERSION} (a stale value makes every claim answer 1004 ineligible; set ZCODE_APP_VERSION to override deliberately)`);
+    appVersion = DEFAULTS.APP_VERSION;
+  }
 
   const sourceTitle = (inp.sourceTitleEnv ?? inp.sourceTitleYaml ?? DEFAULTS.SOURCE_TITLE).trim()
     || DEFAULTS.SOURCE_TITLE;
@@ -556,30 +584,38 @@ function resolvePoolConfig(raw: unknown): PoolSettingsConfig | undefined {
   const pm = obj.maxConcurrentPerModel ?? obj.max_concurrent_per_model;
   if (pm && typeof pm === "object") {
     const src = pm as Record<string, unknown>;
+    // byModel parses INDEPENDENTLY of `default`: it used to be nested inside
+    // `if (def !== undefined)`, so a config that set ONLY byModel had the
+    // whole maxConcurrentPerModel silently dropped — no warn, nothing (185
+    // report defect H). When `default` is absent the code default (2) stays
+    // in force via DEFAULT_POOL_OPTIONS.
     const def = num(src.default, "maxConcurrentPerModel.default", 1, 16);
-    if (def !== undefined) {
-      const byModel: Record<string, number> = {};
-      const rawBy = src.byModel ?? src.by_model;
-      if (rawBy && typeof rawBy === "object") {
-        for (const [model, value] of Object.entries(rawBy as Record<string, unknown>)) {
-          if (!model.trim()) continue;
-          const n = num(value, `maxConcurrentPerModel.${model}`, 1, 16);
-          if (n !== undefined) byModel[model] = n;
-        }
+    const byModel: Record<string, number> = {};
+    const rawBy = src.byModel ?? src.by_model;
+    if (rawBy && typeof rawBy === "object") {
+      for (const [model, value] of Object.entries(rawBy as Record<string, unknown>)) {
+        if (!model.trim()) continue;
+        const n = num(value, `maxConcurrentPerModel.${model}`, 1, 16);
+        if (n !== undefined) byModel[model] = n;
       }
-      // Legacy unpin (ZCode 3.16.3): every config generated before v4.7.17
-      // carries `glm-5.3: 1` because the SHIPPED TEMPLATE wrote it, not because
-      // the operator measured it. With upstream accepting parallel 5.3 calls
-      // again, that leftover pin serializes every 5.3 request behind the one
-      // in flight and multi-agent workloads read as "5.3 一直无法调用". Drop
-      // the exact template-written value (a deliberate pin of 1 is
-      // indistinguishable, so operators who truly want it re-set it once and
-      // this migration leaves it alone afterwards — the log says so).
-      if (byModel["glm-5.3"] === 1) {
-        delete byModel["glm-5.3"];
-        console.warn("[config] dropped legacy template default pool.maxConcurrentPerModel.byModel.glm-5.3=1 (ZCode 3.16.3 accepts parallel 5.3 calls; re-set it in Settings if you deliberately want 1)");
-      }
-      out.maxConcurrentPerModel = { default: def, byModel };
+    }
+    // Legacy unpin (ZCode 3.16.3): every config generated before v4.7.17
+    // carries `glm-5.3: 1` because the SHIPPED TEMPLATE wrote it, not because
+    // the operator measured it. With upstream accepting parallel 5.3 calls
+    // again, that leftover pin serializes every 5.3 request behind the one
+    // in flight and multi-agent workloads read as "5.3 一直无法调用". Drop
+    // the exact template-written value (a deliberate pin of 1 is
+    // indistinguishable, so operators who truly want it re-set it once and
+    // this migration leaves it alone afterwards — the log says so).
+    if (byModel["glm-5.3"] === 1) {
+      delete byModel["glm-5.3"];
+      console.warn("[config] dropped legacy template default pool.maxConcurrentPerModel.byModel.glm-5.3=1 (ZCode 3.16.3 accepts parallel 5.3 calls; re-set it in Settings if you deliberately want 1)");
+    }
+    if (def !== undefined || Object.keys(byModel).length > 0) {
+      out.maxConcurrentPerModel = {
+        default: def ?? DEFAULT_POOL_OPTIONS.maxConcurrentPerModel!.default,
+        byModel,
+      };
     }
   }
 

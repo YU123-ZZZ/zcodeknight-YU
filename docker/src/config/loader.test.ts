@@ -427,6 +427,40 @@ identity:
     expect(cfg.identity.refererOrigin).toBe("https://example.com");
   });
 
+  it("identity: a YAML appVersion OLDER than the default is demoted to the default", () => {
+    // The shipped template used to write "3.14.4" into every generated config,
+    // and the campaign gateway gates billing/claim eligibility on this exact
+    // string — a stale value made every claim answer 1004 "ineligible"
+    // ("有什么活动根本不能用"). env keeps the final say (ZCODE_APP_VERSION
+    // intentionally pinned higher still works); only the YAML footgun is
+    // migrated, loudly.
+    const path = writeYaml(`
+identity:
+  appVersion: "3.14.4"
+`);
+    const cfg = loadConfig(path);
+    expect(cfg.identity.appVersion).toBe(DEFAULT_APP_VERSION);
+  });
+
+  it("identity: a YAML appVersion NEWER than the default is kept", () => {
+    const path = writeYaml(`
+identity:
+  appVersion: "3.17.0"
+`);
+    const cfg = loadConfig(path);
+    expect(cfg.identity.appVersion).toBe("3.17.0");
+  });
+
+  it("identity: ZCODE_APP_VERSION keeps the final say over the demotion", () => {
+    process.env.ZCODE_APP_VERSION = "9.9.9";
+    const path = writeYaml(`
+identity:
+  appVersion: "3.14.4"
+`);
+    const cfg = loadConfig(path);
+    expect(cfg.identity.appVersion).toBe("9.9.9");
+  });
+
   it("identity: ZCODE_APP_VERSION env overrides YAML", () => {
     const path = writeYaml(`
 identity:

@@ -1102,6 +1102,49 @@ async function handleAdminApi(req: Request, url: URL, opts: AdminRouteOptions): 
    * after the scheduler has backed off. A captcha token is required by the
    * gateway, so the solver is invoked here exactly as the scheduler does it.
    */
+  /**
+   * GET /accounts/claim/preview — what can be claimed RIGHT NOW, per account.
+   *
+   * The claim mechanism (auto 5h scheduler + the manual button) already
+   * existed, but nowhere did the panel SHOW what activities were actually
+   * available ("有什么活动，根本不能用" — the 1004 ineligible storm from the
+   * stale template appVersion made every preview empty, which read as "the
+   * feature is broken"). This endpoint is the read side: billing/preview per
+   * account with a plan JWT, no captcha, no claim — a pure listing the invite
+   * page renders with one-click claim buttons (which POST /accounts/claim).
+   *
+   * Serialized per account with a short timeout; failures come back per
+   * account as { error } instead of failing the whole listing.
+   */
+  if (method === "GET" && path === "/accounts/claim/preview") {
+    const doc = await loadAccounts();
+    const targets = doc.accounts.filter((a) => a.credential.jwt);
+    if (targets.length === 0) {
+      return json({ accounts: [], note: "no account with a plan JWT — OAuth login first" });
+    }
+    const { createClaimClient } = await import("../claim/client.js");
+    const { claimPlatform } = await import("../claim/multi-runtime.js");
+    const out = await Promise.all(targets.map(async (a) => {
+      try {
+        const client = createClaimClient({
+          origin: config.claim.origin,
+          jwt: a.credential.jwt!,
+          appVersion: config.identity.appVersion,
+          platform: claimPlatform(),
+          deviceMid: a.deviceMid,
+        });
+        const plans = await Promise.race([
+          client.getPreviews(),
+          new Promise<never>((_, rej) => setTimeout(() => rej(new Error("preview timeout")), 15_000)),
+        ]);
+        return { id: a.id, name: a.name, plans };
+      } catch (e) {
+        return { id: a.id, name: a.name, plans: [], error: (e as Error).message };
+      }
+    }));
+    return json({ accounts: out });
+  }
+
   if (method === "POST" && path === "/accounts/claim") {
     const body = await readJson<{ id?: string; all?: boolean; planId?: string }>(req);
     const doc = await loadAccounts();

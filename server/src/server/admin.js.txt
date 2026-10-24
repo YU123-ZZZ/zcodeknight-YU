@@ -4,6 +4,7 @@ const I18N = {
     tagline: "黑骑士网关",
     nav_overview: "概览", nav_accounts: "账号池", nav_playground: "测试页", nav_logs: "日志",
     nav_invite: "邀请好友", nav_changelog: "更新日志", nav_settings: "设置", nav_system: "系统信息",
+    inv_claim_title: "可领取的活动（自动检测）", inv_claim_hint: "自动检测每个账号当前可领取的活动套餐（官方 billing/preview），可一键领取。检测需要账号已 OAuth 登录。", inv_claim_checking: "检测中…", inv_priority: "优先级",
     author: "作者主页", donate: "打赏", free_notice: "完全开源免费 · 收费的都是骗子", footer_since: "始创于 2026-09-19", bal_none: "暂无余额数据（需重新登录该账号）",    // An empty balance row has four different causes and the panel used to print
     // the re-login line for all of them — telling the operator to re-login an
     // account whose credential was fine and which simply has no plan. Each
@@ -163,7 +164,7 @@ const I18N = {
     log_clear: "清空日志", log_clear_confirm: "清空全部日志？此操作不可撤销（建议先导出）。", log_cleared: "已清空 {n} 类日志",
     set_gate: "每账号并发闸门", set_gate_hint: "账号级上限，实测 3，超过报 3008",
     set_gate_model: "每模型并发上限", set_gate_model_hint: "下面没单独列出的模型用这个值。默认按实测上限取 3（flash 实测就是 3），调到超过实测值才会开始报 3008",
-    set_gate_model_over: "模型单独上限", set_gate_model_over_hint: "每行一条，格式 模型=上限。glm-5.3 只能 1，超过报 3009",
+    set_gate_model_over: "模型单独上限", set_gate_model_over_hint: "每行一条，格式 模型=上限。只为你实测过更严的模型设置——否则上游 3009 会自动冷却，无需手动钉",
     set_gate_bad: "格式不对（应为 模型=数字）：",
     set_overflow: "超限倍数", set_overflow_hint: "所有槽位占满时，最多按【每账号闸门】的这个倍数再放行；被拒就立即降级。只对每账号闸门生效，不会放宽每模型上限（模型上限是上游硬规则，放过去只会被 3009 拒）。1 = 绝不超限",
     set_cooldown: "冷却时长（秒）", set_cd_hint: "撞账号级并发上限后的避让时间，改完立即生效",
@@ -247,6 +248,7 @@ const I18N = {
     tagline: "Black Knight Gateway",
     nav_overview: "Overview", nav_accounts: "Accounts", nav_playground: "Playground", nav_logs: "Logs",
     nav_invite: "Invite", nav_changelog: "Changelog", nav_settings: "Settings", nav_system: "System",
+    inv_claim_title: "Claimable campaigns (auto-detected)", inv_claim_hint: "Detects each account's currently claimable campaign plans (official billing/preview) with one-click claim. Accounts must be OAuth-logged-in.", inv_claim_checking: "Checking…", inv_priority: "priority",
     author: "Author", donate: "Donate", free_notice: "Fully open source & free — paid copies are scams", footer_since: "Since 2026-09-19", bal_none: "No balance data (re-login this account)",
     // See the zh block: one message for four distinct causes was misleading.
     bal_no_plan: "No plan on this account (never subscribed, or the plan expired) — dispatch skips it when other accounts have known quota, but an all-unknown pool still rotates",
@@ -405,7 +407,7 @@ const I18N = {
     log_clear: "Clear logs", log_clear_confirm: "Clear all logs? This cannot be undone (export first if unsure).", log_cleared: "Cleared {n} log type(s)",
     set_gate: "Per-account gate", set_gate_hint: "Account-wide ceiling — measured 3, 3008 above it",
     set_gate_model: "Per-model ceiling", set_gate_model_hint: "Used by models not listed below. Defaults to the measured ceiling (3 — that is what flash allows); going above the measured value is what produces 3008",
-    set_gate_model_over: "Model overrides", set_gate_model_over_hint: "One per line, model=limit. glm-5.3 allows only 1 — above that it returns 3009",
+    set_gate_model_over: "Model overrides", set_gate_model_over_hint: "One per line, model=limit. Only pin a model you have MEASURED as stricter — upstream 3009s self-cooldown otherwise",
     set_gate_bad: "Malformed line(s), expected model=number:",
     set_overflow: "Overflow factor", set_overflow_hint: "When all slots are busy, try up to this multiple of the PER-ACCOUNT gate before refusing; a rejection downgrades immediately. Applies to the account gate only — it never raises a per-model ceiling, because those are hard upstream rules and exceeding one only earns a 3009. 1 = never exceed",
     set_cooldown: "Cooldown (seconds)", set_cd_hint: "Backoff after hitting the ACCOUNT-wide concurrency limit — applies immediately",
@@ -505,6 +507,20 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
+  { ver: "v4.7.19", date: "2026-10-24", items: {
+    zh: [
+      "【修复·领取】配置里 appVersion 低于引擎适配版本时自动降级为默认值并告警——旧模板写死的 3.14.4 让所有存量配置的活动领取一直 1004 ineligible（「有什么活动根本不能用」的根因）；env 显式指定仍有最终决定权",
+      "【邀请页】新增「可领取的活动（自动检测）」卡片：自动检测每个账号当前可领取的活动套餐（官方 billing/preview），一键领取走既有的 /accounts/claim（验证码 + 预览前置，不绕过任何上游规则）",
+      "【修复】byModel 单独设置时不再被静默丢弃（此前整个 maxConcurrentPerModel 被包在 default 校验里）；/health 只返回 {status:ok}，不再泄露 provider 指纹",
+      "【修复】185 二次部署报告清扫：情报页 ## 标题泄漏、92 行发布说明被截到 8 行、v3.15.1「正文只有版本号」空壳不再跳过 changelog 补全、面板静态 HTML 的旧 compat 文案与 Model overrides 提示同步更新、缓存周期注释 30min→10min",
+    ],
+    en: [
+      "Fix/claims: a configured appVersion OLDER than the engine's mirrored default is demoted to the default with a warning — the old template wrote 3.14.4 into every generated config, and the campaign gateway gates eligibility on this exact string, so every claim on existing installs answered 1004 ineligible (the root of \"活动根本不能用\"). ZCODE_APP_VERSION keeps the final say",
+      "Invite page: new \"Claimable campaigns (auto-detected)\" card — live billing/preview per account with one-click claim through the SAME /accounts/claim path the scheduler uses (captcha + preview first; no upstream rule is bypassed)",
+      "Fix: byModel set without `default` no longer silently drops the whole maxConcurrentPerModel; /health now returns only {status:ok} (the provider field was a free fingerprint)",
+      "Fix: sweep of the second 185 deployment report — intel page no longer leaks `##` headings or cuts 90-line release notes to 8; the v3.15.1 stub (body == version token) now gets changelog supplementation instead of showing an empty shell marked ok; the panel's static HTML compat text and the Model overrides hint finally match v4.7.17's unpinning; cache-interval comment corrected to 10 minutes",
+    ],
+  } },
   { ver: "v4.7.18", date: "2026-10-24", items: {
     zh: [
       "【情报页】「官方实时情报」接上真正的发布渠道：官方 GitHub 仓库的 Releases 停在 v3.15.1，而桌面客户端实际通过官方更新通道发版（本机已 3.16.3）——情报页此前只读 GitHub，看起来像永远不更新。现在每次刷新同时拉取官方 Electron 更新清单（免鉴权、YAML、含中文发布说明），把最新的客户端版本作为头条插入（按版本去重，公开仓库恢复发版后不会重复）",
@@ -774,7 +790,7 @@ function renderChangelog() {
 // ── Upstream Intel page (official release feed, newest 15 only) ──────
 // Lazy: fetched only when the page is OPENED, browser reuses the response
 // for 60s. The server caps the feed at 15 entries and refreshes its cache
-// at most once per 30 minutes — this page never hammers the upstream API
+// at most once per 10 minutes — this page never hammers the upstream API
 // and engine memory stays flat (fixed-size ring, nothing accumulates).
 let intelFetchedAt = 0;
 let lastIntelHtml = "";
@@ -3422,7 +3438,8 @@ document.getElementById("rq-status").addEventListener("change", () => pollLogs()
 document.getElementById("rq-account").addEventListener("change", () => pollLogs());
 document.getElementById("rq-refresh").onclick = () => pollLogs();
 // Poll only while the Logs page is visible: it is the heaviest view (a merged
-// render every tick) and nothing else needs it.
+// render every tick) and nothing else needs it. Server side the feed cache
+// refreshes at most once per 10 minutes (INTEL_TTL_MS) — never hammer upstream.
 const bannerClose = document.getElementById("upd-banner-close");
 if (bannerClose) bannerClose.onclick = () => {
   document.getElementById("upd-banner").style.display = "none";
@@ -4686,6 +4703,9 @@ async function loadInvitePage() {
     invRenderStats(stats);
     invRenderList();
     invRenderAccounts();
+    // Fire-and-forget: the campaign preview takes a billing round trip per
+    // account and must not delay the registry render.
+    loadClaimPreview();
   } catch (e) {
     const box = document.getElementById("inv-list");
     if (box) box.innerHTML = '<div class="bal-empty">' + esc(T("inv_err") + " " + e) + "</div>";
@@ -4705,6 +4725,64 @@ function invRenderStats(stats) {
   set("inv-st-exhausted", s.exhausted);
   set("inv-st-assigned", s.assignedAccounts);
 }
+
+// ── Invite page: live campaign claims (billing/preview per account) ────────
+// The claim mechanism existed (auto 5h scheduler + Settings button) but NOBODY
+// could see WHAT was claimable — every preview came back 1004 while the config
+// carried the stale template appVersion, which read as "活动根本不能用". This
+// renders the live preview per account with a one-click claim that goes
+// through the SAME POST /accounts/claim the scheduler uses (captcha + preview
+// first) — nothing bypasses upstream rules, it is only visible now.
+async function loadClaimPreview() {
+  const box = document.getElementById("inv-claim-body");
+  if (!box) return;
+  box.innerHTML = '<div class="bal-empty">' + esc(T("inv_claim_checking")) + "</div>";
+  try {
+    const d = await (await api("/accounts/claim/preview")).json();
+    const accs = d.accounts || [];
+    if (!accs.length) {
+      box.innerHTML = '<div class="bal-empty">' + esc(d.note || T("claim_none_grey")) + "</div>";
+      return;
+    }
+    let html = "";
+    for (const a of accs) {
+      html += '<div style="margin:6px 0 10px"><b>' + esc(a.name) + "</b>";
+      if (a.error) {
+        html += ' <span class="sub">— ' + esc(a.error) + "</span>";
+      } else if (!(a.plans || []).length) {
+        html += ' <span class="sub">— ' + esc(T("claim_none_grey")) + "</span>";
+      } else {
+        for (const p of a.plans) {
+          html += '<div class="cl-item" style="display:flex;align-items:center;gap:10px;margin:4px 0">' +
+            '<span style="flex:1">' + esc(p.planId) +
+            (Number.isFinite(p.priority) ? ' <span class="sub">· ' + T("inv_priority") + " " + p.priority + "</span>" : "") +
+            "</span>" +
+            '<button class="btn sm" data-claim-acc="' + esc(a.id) + '" data-claim-plan="' + esc(p.planId) + '">' + esc(T("set_claim_now")) + "</button>" +
+            "</div>";
+        }
+      }
+      html += "</div>";
+    }
+    box.innerHTML = html;
+    box.querySelectorAll("[data-claim-acc]").forEach((btn) => {
+      btn.onclick = async () => {
+        btn.disabled = true;
+        try {
+          const r = await api("/accounts/claim", { method: "POST", body: JSON.stringify({ id: btn.dataset.claimAcc, planId: btn.dataset.claimPlan }) });
+          const j = await r.json();
+          if (j.ok) { toast(T("claim_done") + " " + (j.planId || "")); }
+          else { toast((j.message || j.reason || "failed") + (j.code ? " (" + j.code + ")" : "")); }
+        } catch (e) { toast(String(e)); }
+        btn.disabled = false;
+        loadClaimPreview();
+      };
+    });
+  } catch (e) {
+    box.innerHTML = '<div class="bal-empty">' + esc(String(e)) + "</div>";
+  }
+}
+const invClaimRefresh = document.getElementById("inv-claim-refresh");
+if (invClaimRefresh) invClaimRefresh.onclick = () => loadClaimPreview();
 
 /** Format an epoch-ms deadline, or the unknown marker. Never invent one. */
 function invWhen(ms) {

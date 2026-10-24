@@ -169,10 +169,12 @@ export function createFetchHandler(opts: ServerOptions): (req: Request) => Promi
     if (config.auth.proxyApiKey) {
       // /health sits deliberately BEFORE the proxy-key gate: it answers
       // liveness for orchestrators and uptime probes, which do not carry the
-      // client key (the 185 deployment report flagged the 401). It exposes
-      // only { status, provider } — no model list, no account data.
+      // client key (the 185 deployment report flagged the 401). The payload
+      // is only {"status":"ok"} — no `provider` field, because that was a
+      // free fingerprint confirming "this host runs ZcodeKnight" to anyone
+      // scanning from the public internet (4.7.19).
       if (method === "GET" && path === "/health") {
-        return new Response(JSON.stringify({ status: "ok", provider: config.provider }), {
+        return new Response(JSON.stringify({ status: "ok" }), {
           status: 200,
           headers: { "content-type": "application/json" },
         });

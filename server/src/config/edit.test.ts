@@ -219,6 +219,23 @@ describe("updatePoolConfigYaml", () => {
     );
   });
 
+  test("parses byModel even when default is absent (defect H)", () => {
+    // byModel used to be nested inside `if (default !== undefined)`: a config
+    // that set ONLY byModel had the whole maxConcurrentPerModel silently
+    // dropped — no warn, nothing (185 report defect H). Now byModel parses
+    // standalone and the code default (2) backs the missing `default`.
+    withConfig(
+      "pool:\n  maxConcurrentPerModel:\n    byModel:\n      glm-4.6: 1\n",
+      (path) => {
+        const pool = new AccountPool();
+        pool.updateOptions(loadConfig(path).pool!);
+        const got = pool.getOptions();
+        expect(got.maxConcurrentPerModel.default).toBe(2);
+        expect(got.maxConcurrentPerModel.byModel["glm-4.6"]).toBe(1);
+      },
+    );
+  });
+
   test("an absent pool section leaves the pool defaults in force", () => {
     withConfig("server:\n  port: 17800\n", (path) => {
       const config = loadConfig(path);
