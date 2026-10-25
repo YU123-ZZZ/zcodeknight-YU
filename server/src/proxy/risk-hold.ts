@@ -45,6 +45,32 @@
 /** One silent window. 30 min matches the observed recovery timescale. */
 export const RISK_HOLD_MS = 30 * 60_000;
 
+/**
+ * Master switch for the LOCAL silence machinery.
+ *
+ * OFF by default since v4.7.24, and that default is the point. Field report
+ * 2026-10-25: "打大请求就不能用了，重启网关却好了" — a restart clearing the
+ * symptom is only possible when the block lives in THIS process's memory, and
+ * it does: both the model hold and the channel hold are in-memory maps. The
+ * official client keeps no such state — it sends the request and shows the
+ * upstream answer. Our silence did two harmful things a big request could
+ * trigger:
+ *   1. one slow/failed large request was classified as 3012 → 30-minute model
+ *      silence, so every follow-up got a LOCAL 429 while upstream was fine;
+ *   2. the channel two-strike rule could silence EVERY model at once.
+ * With this off, upstream errors pass through verbatim (the honest signal)
+ * and the only regulation left is the reactve account/model cooldown, which
+ * matches official behaviour. Set CAPTCHA_RISK_HOLD=1 to re-enable.
+ */
+const RISK_HOLD_ENABLED_DEFAULT = /^(1|true|yes)$/i.test(process.env.CAPTCHA_RISK_HOLD ?? "");
+let _riskHoldEnabled = RISK_HOLD_ENABLED_DEFAULT;
+const riskHoldEnabled = () => _riskHoldEnabled;
+
+/** For tests (and a future panel toggle): force the local silence on/off. */
+export function setRiskHoldEnabledForTest(on: boolean): void {
+  _riskHoldEnabled = on;
+}
+
 // Holds are scoped per EGRESS (field report B1): upstream flags the exit IP,
 // not every account/model globally. Keys use the normalized active egress and
 // model so a block on one proxy does not bench accounts routed through another.
@@ -79,6 +105,7 @@ function holdKey(model: string, egress = currentEgress): string {
  * fresh one.
  */
 export function markRiskHold(model: string | undefined, now = Date.now()): void {
+  if (!riskHoldEnabled()) return;
   if (!model || model === "(未指定)") return;
   const key = holdKey(model);
   const existing = holds.get(key);
@@ -89,6 +116,7 @@ export function markRiskHold(model: string | undefined, now = Date.now()): void 
 /** Remaining ms a model is locally held; 0 = not held. Includes the
  *  channel-level protection window when one is in force. */
 export function riskHoldRemaining(model: string | undefined, now = Date.now()): number {
+  if (!riskHoldEnabled()) return 0;
   const channel = channelHoldRemaining(now);
   if (!model || model === "(未指定)") return channel;
   const key = holdKey(model);
@@ -153,6 +181,7 @@ const channelHolds = new Map<string, number>();
 
 /** Record one non-concurrency 429 and evaluate the two-strike rule. */
 export function noteChannel429(now = Date.now()): void {
+  if (!riskHoldEnabled()) return;
   channel429Strikes = channel429Strikes.filter((t) => now - t < CHANNEL_STRIKE_WINDOW_MS);
   channel429Strikes.push(now);
   if (channel429Strikes.length >= 2) markChannelHold(now);

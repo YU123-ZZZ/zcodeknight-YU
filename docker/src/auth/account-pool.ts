@@ -698,10 +698,17 @@ export class AccountPool {
       : () => true;
     // A model held by upstream is skipped for THAT model only, so a request for
     // a different model still reaches this account (see reportResult).
+    //
+    // v4.7.24 (field report "一调用就 429" / "官方给解除了，你删了"): the only
+    // holds left are SHORT post-3009 concurrency cooldowns, and even those must
+    // not block dispatch. Skipping made the ONLY account with quota ineligible
+    // for its whole cooldown, so the pool answered model_busy_with_quota — a
+    // 5-second upstream blip became a 503 the CLI retried into forever. The
+    // official client sends and lets upstream answer; so do we. A cooling
+    // account is merely DEPRIORITIZED (nextRoundRobin), never skipped.
     const modelFree = (rt: AccountRuntime): boolean => {
       if (!opts.model) return true;
-      const until = rt.modelCooldownUntil.get(opts.model) ?? 0;
-      return until <= now;
+      return this.dispatchStatus(rt, now) === "ok";
     };
     // Which candidates hold KNOWN-POSITIVE quota for this model (and therefore
     // should be waited for when they are only temporarily busy), and the
@@ -771,22 +778,13 @@ export class AccountPool {
       }
     }
 
-    // Pass 1c: an account with KNOWN-POSITIVE quota for this model exists but
-    // is only temporarily busy (post-3009 model cooldown, or its single model
-    // slot still in flight). Wait for IT — never dispatch to an account with
-    // no grant for the model, which upstream answers 1005. The caller treats
-    // this exactly like all_gates_full (queue or refuse), and once the
-    // cooldown ends the normal rotation picks the bucket holder again.
-    // Deliberately placed BEFORE the unknown-fallback inside nextRoundRobin:
-    // the fallback exists for pools with no bucket data at all, not to paper
-    // over a temporarily-busy bucket holder.
-    if (knownPositiveExists && Number.isFinite(knownPositiveReadyAt)) {
-      return {
-        ok: false,
-        waitMs: Math.max(0, knownPositiveReadyAt - now),
-        reason: "model_busy_with_quota",
-      };
-    }
+    // Pass 1c REMOVED in v4.7.24 (field report "一调用就 429"): this pass used
+    // to answer `model_busy_with_quota` whenever the only known-positive account
+    // was momentarily busy, so the caller got a 503 and the CLI retried into
+    // the same state forever. With model holds no longer blocking dispatch
+    // (modelFree) and cooling accounts merely deprioritized (nextRoundRobin),
+    // an alternative already exists whenever one is usable — if dispatch really
+    // is saturated, Pass 2 below reports it honestly.
 
     // Pass 1c: everything is at its account gate. Before refusing, admit an
     // OVERFLOW request on the account closest to freeing up.
@@ -907,19 +905,16 @@ export class AccountPool {
         rt.statusNote = outcome.note ?? "quota exhausted (402/balance) — held 30min, refresh balance to clear";
         break;
       case "model_not_allowed":
-        // Plan-permission refusal (3006). A long MODEL-scoped hold, not an
-        // account cooldown: the account is healthy and serves its other models;
-        // only this model is provably not in its plan. Without a model to blame
-        // there is nothing to scope — fall back to a short account cooldown so
-        // the pool at least stops hammering, and keep the note honest.
-        if (outcome.model) {
-          rt.modelCooldownUntil.set(outcome.model, now + MODEL_NOT_ALLOWED_MS);
-          rt.statusNote = outcome.note ?? `${outcome.model}: not in this account's plan (3006)`;
-        } else {
-          rt.cooldownUntil = Math.max(rt.cooldownUntil, now + this.opts.cooldownMs);
-          rt.status = "cooldown";
-          rt.statusNote = outcome.note ?? "upstream 3006 model not allowed (model unspecified)";
-        }
+        // Plan-permission refusal (3006). v4.7.24: NO LOCAL HOLD AT ALL.
+        //
+        // This used to silence the model for 10 minutes on the account. That
+        // turned a single 3006 — including one upstream has since opened up —
+        // into ten minutes of "无法调用" with the official client working fine
+        // in parallel (field report 2026-10-25: "官方给解除了，你删了…就是因为
+        // 这个才无法调用"). A permission refusal is an ANSWER, not a state: the
+        // next request must be allowed to try and hear the current answer.
+        // Only the note is recorded so the panel can show why a model failed.
+        rt.statusNote = outcome.note ?? `${outcome.model ?? "该模型"}: 上游未授权（3006）`;
         break;
       case "auth_rejected":
         this.markRelogin(rt, now, outcome.note);
@@ -1193,6 +1188,17 @@ export class AccountPool {
    */
   private nextRoundRobin(eligible: AccountRuntime[], model?: string): AccountRuntime | null {
     if (eligible.length === 0) return null;
+    // Prefer accounts that are NOT inside a post-3009 cooldown, but never
+    // SKIP one: a 5-second upstream blip must not turn into a 503 the CLI
+    // retries into forever (v4.7.24 field report). With no cooling account
+    // available, a cooling one is used anyway — exactly what the official
+    // client does (send, then let upstream answer).
+    if (model) {
+      const now = this.now();
+      const cool = (rt: AccountRuntime) => (rt.modelCooldownUntil.get(model) ?? 0) > now;
+      const fresh = eligible.filter((rt) => !cool(rt));
+      if (fresh.length > 0) eligible = fresh;
+    }
     // Sort by record insertion order stability: keep a stable order by id so
     // the cursor semantics survive snapshot rebuilds.
     eligible.sort((a, b) => a.record.createdAt.localeCompare(b.record.createdAt) || a.record.id.localeCompare(b.record.id));

@@ -630,7 +630,12 @@ export async function proxyRequest(
         }
         reportOutcomeToPool(auth, accountId, {
           kind: "concurrency_rejected",
-          note: `上游风控 3012 unusual activity — 出口 IP 被标记；${meta.model || "该模型"} 进入 30 分钟静默期${unlockClock ? `（至 ${unlockClock}）` : ""}，期间不再请求上游，自动恢复`,
+          note: unlockClock
+            ? `上游风控 3012 unusual activity — 出口 IP 被标记；${meta.model || "该模型"} 进入静默期${`（至 ${unlockClock}）`}，期间不再请求上游，自动恢复`
+            // Local silence is OFF by default (v4.7.24): the note must not
+            // promise a 30-minute silence that no longer exists, or the panel
+            // reports a hold while the very next request is forwarded.
+            : `上游风控 3012 unusual activity — 出口 IP 被临时标记；本网关未启用本地静默，请求仍会照常转发（上游风控窗口通常几分钟自动解除）`,
         });
       }
       releaseLeaseFor(auth, cred);

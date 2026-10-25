@@ -84,26 +84,28 @@ describe("pool refusal kinds (v4.7.12)", () => {
     expect(["acct-0", "acct-1"]).toContain(other);
   });
 
-  it("3006 model-not-allowed holds the model far longer than a concurrency cooldown", async () => {
-    // A concurrency cooldown is seconds; a permission refusal must outlast many
-    // retries, or every call pays a doomed round-trip (glm-4.7 failing on
-    // EVERY call in the field report).
+  it("3006 model-not-allowed records the note but never blocks dispatch", async () => {
+    // v4.7.24 field report: "官方给解除了，你删了…就是因为这个才无法调用".
+    // A 3006 used to silence the model for 10 minutes on the account, so one
+    // refusal — including one upstream has since opened up — cost ten minutes
+    // of 无法调用 while the official client worked fine. A permission refusal
+    // is an ANSWER, not a state: the next request must be allowed to try and
+    // hear the CURRENT answer.
     const { pool, records } = await setupPool(1);
     pool.reportResult(records[0]!.id, { kind: "model_not_allowed", model: "glm-4.7" });
 
-    // Still held for this model (the exact refusal reason depends on which
-    // gate rejects — model cooldown, account cooldown, all_gates_full — so the
-    // assertion is the OUTCOME: no dispatch)...
-    expect(blocked(pool, "glm-4.7")).toBe(true);
-    // ...while the account is untouched for anything else.
-    expect(pick(pool, "glm-5.3")).toBe("acct-0");
+    // The very next call for that model still dispatches (upstream answers).
+    expect(blocked(pool, "glm-4.7")).toBe(false);
+    // ...and the reason is recorded for the panel to show.
+    const snapshot = pool.snapshot()[0]!;
+    expect(snapshot.statusNote).toContain("3006");
   });
 
-  it("3006 without a model falls back to a generic account cooldown", async () => {
-    // Defensive: if a caller cannot name the model, the pool must still stop
-    // dispatching to the account rather than treating the refusal as a no-op.
+  it("3006 without a model still never blocks dispatch", async () => {
+    // Same v4.7.24 change for the model-less variant: it used to cool the
+    // whole ACCOUNT down. An answer is not a state; the next call may succeed.
     const { pool, records } = await setupPool(1);
     pool.reportResult(records[0]!.id, { kind: "model_not_allowed" });
-    expect(blocked(pool, "glm-5.3")).toBe(true);
+    expect(blocked(pool, "glm-5.3")).toBe(false);
   });
 });

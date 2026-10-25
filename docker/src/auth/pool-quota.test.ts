@@ -184,19 +184,51 @@ describe("quota-aware dispatch", () => {
     // about glm-5.3-flash on the same credential. Benching the account made the
     // healthy model report 503 — which is what made glm-5.3 look "unusable" and
     // broke flash along with it.
+    //
+    // v4.7.24: a cooling account is now DEPRIORITIZED, never SKIPPED (field
+    // report "一调用就 429" — skipping made the only quota holder ineligible
+    // for its whole 5s cooldown, so every CLI retry hit a 503). So the cooled
+    // model IS still dispatchable here (one account, no alternative), while a
+    // fresh account is still strictly preferred when one exists.
     const { pool, records } = await setupPool(1);
     const id = records[0]!.id;
 
     pool.reportResult(id, { kind: "concurrency_rejected", model: "glm-5.3" });
 
-    // The busy model is skipped…
-    const blocked = pool.acquire({ model: "glm-5.3" });
-    expect(blocked.ok).toBe(false);
+    // With no alternative the cooling account is still used (official behaviour:
+    // send it and let upstream answer).
+    const cooled = pool.acquire({ model: "glm-5.3" });
+    expect(cooled.ok).toBe(true);
+    if (cooled.ok) cooled.lease.release();
 
-    // …but another model on the same account is still served.
+    // …and another model on the same account is still served.
     const other = pool.acquire({ model: "glm-5.3-flash" });
     expect(other.ok).toBe(true);
     if (other.ok) other.lease.release();
+  });
+
+  it("prefers a FRESH account over a cooling one, but never refuses for it", async () => {
+    // The deprioritization half of the v4.7.24 change: given a choice, a
+    // non-cooling account wins; given no choice, a cooling one is still served.
+    const records: AccountRecord[] = [];
+    for (let i = 0; i < 2; i++) {
+      records.push(await addAccount({
+        credential: { apiKey: `sk-${i}`, provider: "zai" },
+        name: `acct-${i}`,
+        deviceMid: `0000000${i}-1111-2222-3333-444444444444`,
+      }));
+    }
+    const pool = new AccountPool({ minSpacingMs: 0, maxConcurrentPerAccount: 8 });
+    await pool.reload();
+    pool.reportResult(records[0]!.id, { kind: "concurrency_rejected", model: "glm-5.3" });
+
+    const picked = pool.acquire({ model: "glm-5.3" });
+    expect(picked.ok).toBe(true);
+    if (picked.ok) {
+      // records[1] was created later, so the fresh one is chosen.
+      expect(picked.lease.accountId).toBe(records[1]!.id);
+      picked.lease.release();
+    }
   });
 
   it("a rejection with no model still benches the account", async () => {
@@ -272,8 +304,14 @@ describe("quota-aware dispatch", () => {
     expect(opts.modelCooldownMs).toBeLessThan(opts.cooldownMs);
 
     pool.reportResult(records.id, { kind: "concurrency_rejected", model: "glm-5.3" });
-    // Still held right after the collision.
-    expect(pool.acquire({ model: "glm-5.3" }).ok).toBe(false);
+    // v4.7.24: a cooling account is deprioritized, never refused — with no
+    // alternative the request still goes out (official behaviour). What this
+    // test now pins is that the cooldown is recorded at all (it is the signal
+    // the deprioritization reads) and that the ACCOUNT is not benched.
+    const cooled = pool.acquire({ model: "glm-5.3" });
+    expect(cooled.ok).toBe(true);
+    if (cooled.ok) cooled.lease.release();
+    expect(pool.getOptions().modelCooldownMs).toBeLessThan(opts.cooldownMs);
 
     // Past the model hold, but nowhere near the account cooldown: usable again.
     now += opts.modelCooldownMs + 1;

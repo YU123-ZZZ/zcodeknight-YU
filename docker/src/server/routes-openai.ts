@@ -29,6 +29,7 @@
  */
 import { proxyRequest, type ProxyHandlerOptions } from "../proxy/handler.js";
 import { MODELS } from "../provider/models.js";
+import { probedModelUnion } from "../provider/probe-store.js";
 
 import type { OpenAIModelList } from "../translator/types.js";
 
@@ -53,7 +54,22 @@ export async function handleChatCompletions(
  * panel's probe page.
  */
 export function handleListModels(req: Request): Response {
-  const models = MODELS;
+  // Advertise only models this pool has ACTUALLY answered.
+  //
+  // The static catalog lists 11 models, but a start-plan pool can call just two
+  // (glm-5.3 / glm-5.3-flash — verified live on 185: the other nine answer 3006
+  // model_not_allowed). Third-party clients (Cursor, Claude Code, Cline) pick
+  // from this list, so advertising the unusable nine made them retry-and-fail
+  // their way through the catalog — which surfaces as "限流" even though the
+  // gateway never limited anything.
+  //
+  // `probedModelUnion()` is exactly "what answered here"; `null` means no probe
+  // has run yet, where the full catalog stays (a fresh install must not show an
+  // empty picker). The panel's per-account probe page remains the source of
+  // truth for the detail.
+  const probed = probedModelUnion();
+  const filtered = probed && probed.length > 0 ? MODELS.filter((m) => probed.includes(m.id)) : MODELS;
+  const models = filtered.length > 0 ? filtered : MODELS;
   // CLIProxyAPI-style rich catalog: DSH's better-basicfun synchronizer probes
   // with ?client_version=pi and parses a top-level `models[]` array with
   // slug/context_window/max_tokens/supported_reasoning_levels fields. A plain

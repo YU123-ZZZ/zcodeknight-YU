@@ -37,10 +37,18 @@ import {
   resetChannelProtectionForTest,
   riskHoldRemaining,
   setRiskHoldEgress,
+  setRiskHoldEnabledForTest,
 } from "./risk-hold.js";
 
-describe("risk-hold", () => {
-  beforeEach(() => clearRiskHolds());
+// The local silence machinery is OFF by default (v4.7.24, field report
+// "打大请求就不能用了，重启网关却好了" — a restart curing it proves the block
+// lives in this process's memory). These rows test the mechanism itself, so
+// they enable it explicitly; a dedicated row pins the OFF default.
+describe("risk-hold (mechanism, explicitly enabled)", () => {
+  beforeEach(() => {
+    clearRiskHolds();
+    setRiskHoldEnabledForTest(true);
+  });
 
   it("marks a model for the full window and counts down", () => {
     const now = 1_000_000;
@@ -122,6 +130,7 @@ describe("channel-level traffic protection", () => {
   beforeEach(() => {
     clearRiskHolds();
     resetChannelProtectionForTest();
+    setRiskHoldEnabledForTest(true);
   });
 
   it("one 429 alone does not trip the channel hold", () => {
@@ -174,5 +183,25 @@ describe("channel-level traffic protection", () => {
     noteChannel429(now + 5_000);
     clearRiskHolds();
     expect(riskHoldRemaining("glm-4.6", now + 6_000)).toBe(0);
+  });
+});
+
+// The OFF default is the actual fix for the field report, so it gets its own
+// explicit row: with the machinery disabled NOTHING may ever be silenced —
+// no model hold, no channel hold — so a big/slow request can never turn into
+// a local 429 that only a restart clears.
+describe("local silence machinery is OFF by default", () => {
+  it("markRiskHold and noteChannel429 are no-ops when disabled", () => {
+    clearRiskHolds();
+    resetChannelProtectionForTest();
+    setRiskHoldEnabledForTest(false);
+    const now = 1_000_000;
+    markRiskHold("glm-5.3", now);
+    expect(riskHoldRemaining("glm-5.3", now + 1_000)).toBe(0);
+    noteChannel429(now);
+    noteChannel429(now + 1_000);
+    expect(riskHoldRemaining("glm-5.3", now + 2_000)).toBe(0);
+    expect(riskHoldRemaining(undefined, now + 2_000)).toBe(0);
+    expect(listRiskHolds(now + 2_000)).toEqual([]);
   });
 });

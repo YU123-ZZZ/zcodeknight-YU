@@ -221,20 +221,21 @@ describe("3006 model not allowed is a 400 with a real explanation, not a 502", (
     expect(body.error.message).toContain("glm-4.7");
     expect(JSON.stringify(body)).not.toContain("translation_failed");
 
-    // Each account pays the 3006 at most ONCE: the hold is model-scoped, so the
-    // refusal walks the pool one account at a time and then stops. With two
-    // accounts the second call still dispatches (to the other account)...
+    // v4.7.24: a 3006 no longer holds anything, so EVERY call reaches upstream
+    // and hears the CURRENT answer (field report "官方给解除了，你删了…就是因为
+    // 这个才无法调用"). The refusal still walks the pool one account at a time,
+    // and the client-facing answer stays a 400 naming the model.
     const afterFirst = calls;
     const again = await proxyRequest(chatReq("glm-4.7"), "openai", { config: testConfig(), auth, fetchImpl: fetchMock });
     expect(again.status).toBe(400);
     expect(calls).toBeGreaterThan(afterFirst);
 
-    // ...but once BOTH have been told, an immediate third call dispatches
-    // nothing — no repeated doomed round-trips against upstream.
+    // ...and so does the third: no local hold means no silent window, so a model
+    // upstream has since opened up becomes usable immediately.
     const beforeThird = calls;
     const third = await proxyRequest(chatReq("glm-4.7"), "openai", { config: testConfig(), auth, fetchImpl: fetchMock });
-    expect(third.status).toBeGreaterThanOrEqual(400);
-    expect(calls).toBe(beforeThird);
+    expect(third.status).toBe(400);
+    expect(calls).toBeGreaterThan(beforeThird);
 
     // ...while the accounts still serve a different model.
     const got = pool.acquire({ model: "glm-5.3" });
