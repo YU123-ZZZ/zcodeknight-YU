@@ -572,6 +572,12 @@ export async function proxyRequest(
       if (isConcurrency) {
         // 3009 IS model-scoped: glm-5.3 alone refuses a second simultaneous
         // request, and the account keeps serving every other model meanwhile.
+        //
+        // The 5s model cooldown is what makes the pool prefer a DIFFERENT
+        // account on the retry below (nextRoundRobin deprioritizes cooling
+        // accounts) — without it the retry picks the same busy account and
+        // 3009s again (field report "还是不能调用": every parallel stream
+        // queued behind one busy account).
         reportOutcomeToPool(auth, accountId, {
           kind: "concurrency_rejected",
           ...(meta.model ? { model: meta.model } : {}),
@@ -652,7 +658,16 @@ export async function proxyRequest(
         await new Promise((r) => setTimeout(r, absorb429Ms()));
         if (!clientReq.signal.aborted) {
           try {
-            cred = await auth.getCredential({ accountId: opts.testAccountId || accountId, model: meta.model });
+            // v4.7.25: do NOT pin the account that just 3009'd. The pool now
+            // re-picks, and because reportOutcomeToPool put a 5s model cooldown
+            // on the busy account above, nextRoundRobin deprioritizes it and
+            // prefers a different one — which is the whole point of a pool.
+            // An explicit admin pin (testAccountId) still wins.
+            cred = await auth.getCredential(
+              opts.testAccountId
+                ? { accountId: opts.testAccountId, model: meta.model }
+                : { model: meta.model },
+            );
             ({ id: accountId, name: accountName } = leasedAccount(cred));
             meta.accountName = accountName;
             updateActiveAccount(reqId, accountName);
