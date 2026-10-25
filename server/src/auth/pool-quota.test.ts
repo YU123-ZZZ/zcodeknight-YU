@@ -231,12 +231,19 @@ describe("quota-aware dispatch", () => {
     }
   });
 
-  it("a rejection with no model still benches the account", async () => {
-    // Nothing narrower to blame, so the conservative whole-account hold applies.
+  it("a rejection with no model still lets the account serve (v4.7.24)", async () => {
+    // The handler reports 3012 WITHOUT a model on purpose (so it is not read as
+    // a 3009 model ceiling). That used to fall into a whole-ACCOUNT cooldown,
+    // and with two accounts rotating through 3012s the pool answered 503/429
+    // forever — the "每 30 秒 429 / 还是不能用" field report. A model-less
+    // rejection is an answer about upstream, not a state of this account.
     const { pool, records } = await setupPool(1);
     pool.reportResult(records[0]!.id, { kind: "concurrency_rejected" });
     const r = pool.acquire({ model: "glm-5.3-flash" });
-    expect(r.ok).toBe(false);
+    expect(r.ok).toBe(true);
+    if (r.ok) r.lease.release();
+    // The reason is still recorded for the panel.
+    expect(pool.snapshot()[0]!.statusNote).toContain("3012");
   });
 
   it("a throttled account reports the hold instead of a clean 'ok'", async () => {

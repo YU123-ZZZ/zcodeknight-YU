@@ -890,13 +890,20 @@ export class AccountPool {
         //
         // Only when the caller cannot say which model failed do we fall back to
         // holding the whole account, since we have nothing narrower to blame.
+        //
+        // v4.7.24 (field report "还是不能用"): a model-LESS concurrency
+        // rejection no longer cools the ACCOUNT either. The handler reports
+        // 3012 without a model on purpose (so it is not mistaken for a 3009
+        // model ceiling), which meant every 3012 cooled the account for
+        // cooldownMs — and with two accounts rotating through 3012s the pool
+        // answered 503/429 forever, exactly the "每 30 秒 429" the field report
+        // shows. The official client applies no such cooldown: it retries and
+        // shows upstream's answer. Record the reason; do not bench.
         if (outcome.model) {
           rt.modelCooldownUntil.set(outcome.model, now + this.opts.modelCooldownMs);
           rt.statusNote = outcome.note ?? `${outcome.model}: upstream concurrency limit (429/3008/3009)`;
         } else {
-          rt.cooldownUntil = Math.max(rt.cooldownUntil, now + this.opts.cooldownMs);
-          rt.status = "cooldown";
-          rt.statusNote = outcome.note ?? "upstream risk control 3012 — egress IP flagged; resting to cool off";
+          rt.statusNote = outcome.note ?? "upstream risk control 3012 — egress IP flagged; no local cooldown applied";
         }
         break;
       case "quota_exhausted":
