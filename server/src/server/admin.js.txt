@@ -513,6 +513,20 @@ function applyI18n() {
 // engine binary carries its own release notes so the panel always matches the
 // code actually running. Newest first; entries are plain strings.
 const CHANGELOG = [
+  { ver: "v4.7.25", date: "2026-10-25", items: {
+    zh: [
+      "【修复·并发】恢复账号/模型并发闸门为上游真实规则：每账号同时 3 个请求（超过上游报 3008）、每账号每模型同时 1 个请求（超过上游报 3009）。此前 4.7.21-4.7.24 按“官方无本地闸门”全部设为 0，结果并发流式请求被同时派发给同一个账号，上游 3009 拒绝第 2、3 个，而 429 已经发给客户端、进程内重试也无法收回",
+      "【修复·并发】并发请求现在在网关内排队等空位（默认最多等 25 秒，ZCODE_QUEUE_BUDGET_MS 可调），而不是发出去被拒",
+      "【修复·存量】配置里写着 0（不限）的账号闸/模型闸会在加载时自动迁回上游规则并告警；手动设置的其它数值原样保留",
+      "【实测】185 上 22 个大并发流式请求全部 200，引擎日志 429 计数 0",
+    ],
+    en: [
+      "Fix/concurrency: the account and model gates now mirror the upstream rules again — 3 concurrent requests per account (a 4th earns 3008) and 1 per model per account (a 2nd earns 3009). The 4.7.21-4.7.24 defaults were 0 (no local gates), which let concurrent streams all dispatch to the SAME account; upstream 3009'd the 2nd and 3rd, and by then the 429 had already reached the client — an in-process retry cannot take a response back",
+      "Fix/concurrency: a burst now queues inside the gateway for a free slot (up to 25s by default, ZCODE_QUEUE_BUDGET_MS) instead of being refused upstream",
+      "Fix/existing configs: account/model gates written as 0 are migrated back to the upstream rules on load with a warning; any other value is preserved",
+      "Verified live: 22 large concurrent streamed requests on 185 all 200, engine 429 count 0",
+    ],
+  } },
   { ver: "v4.7.23", date: "2026-10-25", items: {
     zh: [
       "【修复·关键】存量配置的并发闸门自动迁移：模板虽已改为 0，但已生成 config.yaml 里的旧模板值（每账号 2 / 每模型 2 / 派发间隔 1500）因 YAML 优先级更高而继续生效——185 实测确认这正是「还是有限制」的原因。加载时自动丢弃这三个旧模板默认值（改为官方行为 0/0/0）并打日志；你手动设的其他数值原样保留",

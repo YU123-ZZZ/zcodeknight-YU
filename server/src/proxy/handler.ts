@@ -1241,16 +1241,15 @@ export const MAX_CONNECT_ATTEMPTS = 3;
 /**
  * How long a request may wait for a concurrency slot before giving up.
  *
- * DEFAULT 0 = never queue: when every account slot is full under strict
- * gating (overflowFactor 1), an exceeded request is rejected AT ONCE with a
- * plain-language 503 (`pool_busy`) — the operator asked for "超出的请求直接
- * 拒绝，等并发空了再说". A 20s hold quietly converts a capacity signal into
- * latency and multiplied the client's perceived failure time.
+ * DEFAULT 25s: the model gate (1 per account per model) is what upstream
+ * enforces with 3009, so a burst inside the gateway is NORMAL and must queue —
+ * not be refused. The field report that set this (2026-10-25) showed the old
+ * default (0 = refuse immediately) bouncing bursts back at the client as
+ * 503/429 while the account slot freed up a second later.
  *
- * Set ZCODE_QUEUE_BUDGET_MS > 0 (e.g. 20000) to restore wait-for-a-slot
- * behavior; past the budget the 503 carries Retry-After.
+ * 0 restores refuse-immediately; a higher value tolerates longer queues.
  */
-const QUEUE_BUDGET_MS = Number(process.env.ZCODE_QUEUE_BUDGET_MS ?? 0);
+const QUEUE_BUDGET_MS = Number(process.env.ZCODE_QUEUE_BUDGET_MS ?? 25_000);
 /** Poll interval while queued. Small enough to feel immediate, large enough not to spin. */
 const QUEUE_POLL_MS = 250;
 /**

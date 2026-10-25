@@ -258,17 +258,22 @@ export interface AccountPoolOptions {
 }
 
 export const DEFAULT_POOL_OPTIONS: AccountPoolOptions = {
-  // Concurrency gates are OFF by default (0 = unlimited): the official ZCode
-  // client applies NO local concurrency caps — it dispatches and handles
-  // upstream 3008 (account ceiling) / 3009 (model ceiling) reactively with
-  // short cooldowns. Preventive local gates were the "5.3 一直无法调用" /
-  // "high concurrency → everything rate-limited" root cause: they refused
-  // requests upstream would have accepted. The reactive cooldowns below
-  // (cooldownMs / modelCooldownMs) remain the regulation, exactly mirroring
-  // the official behaviour. Operators who prefer hard local ceilings can
-  // still set these in the panel/config.
-  maxConcurrentPerAccount: 0,
-  maxConcurrentPerModel: { default: 0 },
+  // Concurrency gates MATCH the upstream rules the pool actually faces:
+  //   - one account runs 3 requests at once (a 4th gets 3008)
+  //   - one model runs ONE request per account at once (a 2nd gets 3009)
+  //
+  // These are not local opinion — they are the measured upstream ceilings, and
+  // queueing behind them is strictly better than discovering them at runtime.
+  // The field report that drove them (2026-10-25, "还是不能调用"): with the
+  // gates at 0 (unlimited) three concurrent streams were all dispatched to the
+  // SAME account, upstream answered 3009 for the 2nd and 3rd, and the in-process
+  // retry could not save the response — the client had already received the
+  // 429. Queueing for a free model slot keeps the burst inside the gateway.
+  //
+  // Per-model pins in `byModel` still override this default for a model whose
+  // ceiling has been measured differently.
+  maxConcurrentPerAccount: 3,
+  maxConcurrentPerModel: { default: 1 },
   // Overflow: OFF by default (factor 1 = strict gating). Admitting requests
   // past the account gate won the bet only sometimes — under sustained load the
   // self-inflicted 3008/3009s cooled accounts and models over and over, and the

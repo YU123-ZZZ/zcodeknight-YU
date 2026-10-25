@@ -572,6 +572,17 @@ function resolvePoolConfig(raw: unknown): PoolSettingsConfig | undefined {
   // reactive 3008/3009 cooldowns are the only regulation, same as upstream).
   const account = num(obj.maxConcurrentPerAccount ?? obj.max_concurrent_per_account, "maxConcurrentPerAccount", 0, 16);
   if (account !== undefined) out.maxConcurrentPerAccount = account;
+  // Legacy "unlimited" migration (v4.7.25): the 4.7.21-4.7.24 defaults were 0
+  // (no local gates, "official-style"). That was an over-correction: three
+  // concurrent streams were then all dispatched to the SAME account, upstream
+  // answered 3009 for the 2nd and 3rd, and the client saw a 429 the in-process
+  // retry could not take back. The gates now mirror the upstream rules, so a
+  // config that still says 0 (written by those versions, or by an operator
+  // following their notes) is migrated back to the code default.
+  if (out.maxConcurrentPerAccount === 0) {
+    out.maxConcurrentPerAccount = DEFAULT_POOL_OPTIONS.maxConcurrentPerAccount;
+    console.warn("[config] dropped legacy pool.maxConcurrentPerAccount=0 — the pool now mirrors upstream's account ceiling (3); a 0 here let a burst hit one account and earn 3009s");
+  }
   // Legacy gate migration (v4.7.23): configs generated before 4.7.21 carry
   // the old TEMPLATE's defaults (per-account 2 / per-model 2 / spacing 1500).
   // YAML outranks the code default, so those installs kept the old caps even
@@ -635,14 +646,13 @@ function resolvePoolConfig(raw: unknown): PoolSettingsConfig | undefined {
       console.warn("[config] dropped legacy template default pool.maxConcurrentPerModel.byModel.glm-5.3=1 (ZCode 3.16.3 accepts parallel 5.3 calls; re-set it in Settings if you deliberately want 1)");
     }
     if (def !== undefined || Object.keys(byModel).length > 0) {
-      // Legacy template default (v4.7.23): configs written before 4.7.21 carry
-      // `default: 2` because the SHIPPED TEMPLATE wrote it — same class as the
-      // account gate above (YAML outranks the code default, so those installs
-      // kept the cap after the defaults moved to 0).
+      // Legacy "unlimited" migration (v4.7.25), same rationale as the account
+      // gate above: `default: 0` came from the 4.7.21-4.7.24 defaults and let a
+      // concurrent burst land on one account, where upstream 3009'd it.
       let effectiveDef = def ?? DEFAULT_POOL_OPTIONS.maxConcurrentPerModel!.default;
-      if (def === 2) {
-        effectiveDef = 0;
-        console.warn("[config] dropped legacy template default pool.maxConcurrentPerModel.default=2 — official-style behaviour is no per-model gate (set a number deliberately if you want one)");
+      if (def === 0) {
+        effectiveDef = DEFAULT_POOL_OPTIONS.maxConcurrentPerModel!.default;
+        console.warn("[config] dropped legacy pool.maxConcurrentPerModel.default=0 — the pool now mirrors upstream's per-model ceiling (1 per account); a 0 here let a burst hit one account and earn 3009s");
       }
       out.maxConcurrentPerModel = { default: effectiveDef, byModel };
     }

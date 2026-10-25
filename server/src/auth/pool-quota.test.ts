@@ -327,26 +327,26 @@ describe("quota-aware dispatch", () => {
     if (r.ok) r.lease.release();
   });
 
-  it("admits parallel requests for a model when no per-model pin says otherwise", async () => {
-    // ZCode 3.16.3 accepts parallel glm-5.3 calls (the pre-3.16.3 pin of 1 was
-    // the "5.3 一直无法调用" field report). With no byModel entry for 5.3 and
-    // the default per-model gate OFF (0 — official-style), requests flow
-    // freely; upstream 3009 + the reactive model cooldown are the only
-    // regulation.
+  it("queues a second request behind the per-model ceiling (upstream's 3009 rule)", async () => {
+    // v4.7.25 field report "还是不能调用": with the model gate at 0 (unlimited)
+    // a second concurrent request was dispatched to the SAME account, upstream
+    // 3009'd it, and the client saw a 429 the in-process retry could not take
+    // back. The gate now mirrors upstream (1 per account per model) so the
+    // burst queues INSIDE the gateway instead of being refused upstream.
     const { pool } = await setupPool(1);
     const first = pool.acquire({ model: "glm-5.3" });
     expect(first.ok).toBe(true);
 
-    // No local cap: a second and third parallel 5.3 are admitted.
+    // The second is refused locally with a queue-able reason (the handler
+    // waits for a slot), NOT dispatched to the busy account.
     const second = pool.acquire({ model: "glm-5.3" });
-    expect(second.ok).toBe(true);
-    const third = pool.acquire({ model: "glm-5.3" });
-    expect(third.ok).toBe(true);
+    expect(second.ok).toBe(false);
+    if (!second.ok) {
+      expect(["model_busy_with_quota", "all_gates_full"]).toContain(second.reason);
+    }
 
-    // Releasing keeps the accounting honest.
+    // Releasing frees the slot.
     if (first.ok) first.lease.release();
-    if (second.ok) second.lease.release();
-    if (third.ok) third.lease.release();
     const again = pool.acquire({ model: "glm-5.3" });
     expect(again.ok).toBe(true);
     if (again.ok) again.lease.release();
@@ -367,24 +367,23 @@ describe("quota-aware dispatch", () => {
     if (three.ok) three.lease.release();
   });
 
-  it("leaves every model ungated by default (official-style)", async () => {
-    // Defaults: per-model gate OFF (0) and no byModel pins — the official
-    // client applies no preventive local caps; upstream 3009 + the reactive
-    // model cooldown are the only regulation.
+  it("gates every model at upstream's ceiling by default", async () => {
+    // v4.7.25: the default per-model gate is 1 — upstream's 3009 rule, not a
+    // local opinion. A second concurrent request for the same model queues
+    // (handler) instead of being dispatched to the busy account.
     const { pool } = await setupPool(1);
-    expect(pool.getOptions().maxConcurrentPerModel.default).toBe(0);
+    expect(pool.getOptions().maxConcurrentPerModel.default).toBe(1);
     expect(pool.getOptions().maxConcurrentPerModel.byModel).toEqual({});
 
-    // Both models admit several parallel requests without any local refusal.
-    for (const model of ["glm-5.3-flash", "glm-5.3"]) {
-      const held: Array<{ release(): void }> = [];
-      for (let i = 0; i < 3; i++) {
-        const r = pool.acquire({ model });
-        expect(r.ok).toBe(true);
-        if (r.ok) held.push(r.lease);
-      }
-      for (const l of held) l.release();
-    }
+    // One at a time per model; a different model on the same account still
+    // runs in parallel (the account gate is 3).
+    const a = pool.acquire({ model: "glm-5.3" });
+    expect(a.ok).toBe(true);
+    const b = pool.acquire({ model: "glm-5.3" });
+    expect(b.ok).toBe(false);
+    const c = pool.acquire({ model: "glm-5.3-flash" });
+    expect(c.ok).toBe(true);
+    for (const l of [a, b, c]) if (l.ok) l.lease.release();
   });
 
   it("never admits overflow past a MODEL gate, even with everything full", async () => {

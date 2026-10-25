@@ -223,36 +223,34 @@ describe("updatePoolConfigYaml", () => {
     // byModel used to be nested inside `if (default !== undefined)`: a config
     // that set ONLY byModel had the whole maxConcurrentPerModel silently
     // dropped — no warn, nothing (185 report defect H). Now byModel parses
-    // standalone; a missing `default` falls back to DEFAULT_POOL_OPTIONS
-    // (which is 0 = OFF since the official-style unpinning).
+    // standalone; a missing `default` falls back to DEFAULT_POOL_OPTIONS.
     withConfig(
       "pool:\n  maxConcurrentPerModel:\n    byModel:\n      glm-4.6: 1\n",
       (path) => {
         const pool = new AccountPool();
         pool.updateOptions(loadConfig(path).pool!);
         const got = pool.getOptions();
-        expect(got.maxConcurrentPerModel.default).toBe(0);
+        expect(got.maxConcurrentPerModel.default).toBe(DEFAULT_POOL_OPTIONS.maxConcurrentPerModel!.default);
         expect(got.maxConcurrentPerModel.byModel["glm-4.6"]).toBe(1);
       },
     );
   });
 
-  test("the legacy template gate defaults are migrated to official-style OFF (v4.7.23)", () => {
-    // Configs written before 4.7.21 carry the old TEMPLATE values (per-account
-    // 2 / per-model default 2 / spacing 1500). YAML outranks the code default,
-    // so those installs kept the caps after the defaults moved to 0 — the
-    // "还是有调用限制" field report (verified live on 185). Loading must drop
-    // exactly those template-written values, while a DIFFERENT number is an
-    // operator choice and is preserved.
+  test("the legacy \"unlimited\" gates are migrated back to upstream's rules (v4.7.25)", () => {
+    // 4.7.21-4.7.24 shipped 0 (no local gates) as "official-style". That was an
+    // over-correction: three concurrent streams were all dispatched to the SAME
+    // account, upstream 3009'd the 2nd and 3rd, and the client saw a 429 the
+    // in-process retry could not take back (field report 2026-10-25). Loading
+    // must migrate exactly those 0s back to the code default; a DIFFERENT number
+    // is an operator choice and is preserved.
     withConfig(
-      "pool:\n  maxConcurrentPerAccount: 2\n  maxConcurrentPerModel:\n    default: 2\n  minSpacingMs: 1500\n",
+      "pool:\n  maxConcurrentPerAccount: 0\n  maxConcurrentPerModel:\n    default: 0\n",
       (path) => {
         const pool = new AccountPool();
         pool.updateOptions(loadConfig(path).pool!);
         const got = pool.getOptions();
-        expect(got.maxConcurrentPerAccount).toBe(0);
-        expect(got.maxConcurrentPerModel.default).toBe(0);
-        expect(got.minSpacingMs).toBe(0);
+        expect(got.maxConcurrentPerAccount).toBe(DEFAULT_POOL_OPTIONS.maxConcurrentPerAccount);
+        expect(got.maxConcurrentPerModel.default).toBe(DEFAULT_POOL_OPTIONS.maxConcurrentPerModel!.default);
       },
     );
     // A deliberate non-template value survives.
